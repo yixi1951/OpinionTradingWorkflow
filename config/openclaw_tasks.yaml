@@ -1,0 +1,23 @@
+week1_validation:
+  browser_file_test: |
+    打开 Chrome 浏览器，访问东方财富网贵州茅台吧（https://guba.eastmoney.com/list,600519.html），滚动页面加载前 3 页评论，将所有评论标题和发布时间复制到桌面的 guba_test.txt 文件中。
+
+skills:
+  multi_platform_collector: |
+    运行 Skill 多平台舆情采集员，目标股票：{symbol_name}（{symbol_code}），采集时间范围：最近 {days} 天，数据保存路径：{output_csv}。
+  resonance_analyst: |
+    运行 Skill 情绪共振分析师，输入文件：{input_csv}，输出交易信号文件：{signals_csv}，阈值设置：悲观={bearish_threshold}，狂热={bullish_threshold}。
+  paper_trader: |
+    运行 Skill 模拟交易执行官，读取信号文件：{signals_csv}，交易记录输出到：{trade_csv}，并更新收益指标文件：{metrics_csv}。
+
+workflow:
+  daily_1am: |
+    每天凌晨 1 点执行以下流程：
+    1) 调用《多平台舆情采集员》采集昨日数据；
+    2) 调用《情绪共振分析师》分析情绪并生成信号；
+    3) 如果有交易信号，调用《模拟交易执行官》执行操作；
+    4) 所有步骤完成后，生成 Markdown 日报并保存到 ./data/reports/。
+
+optimization:
+  grid_search: |
+    遍历情绪阈值（从 -0.8 到 -0.4，步长 0.1）和平台组合（股吧+新闻、股吧+微博、三者全部），回测所有组合，找出夏普比率最高的配置。

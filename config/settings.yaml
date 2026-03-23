@@ -1,0 +1,25 @@
+project:
+  name: opinion-trading-openclaw
+  timezone: Asia/Shanghai
+
+strategy:
+  platforms:
+    - guba
+    - sina_finance
+    - weibo
+  bearish_threshold: -0.6
+  bullish_threshold: 0.7
+  min_platforms_for_signal: 2
+  reversal_min_delta: 0.1
+  initial_cash: 100000
+  position_size_ratio: 0.2
+
+universe:
+  symbols:
+    - 600519.SH
+    - 000001.SZ
+    - 601318.SH
+
+storage:
+  memory_dir: data/memory
+  report_dir: data/reports

@@ -1,0 +1,7 @@
+flowchart LR
+    A[Collector Agent\n多平台舆情采集员] --> B[Analyst Agent\n情绪共振分析师]
+    B --> C[Trader Agent\n模拟交易执行官]
+    C --> D[Reporter Agent\nMarkdown 日报生成]
+    D --> E[(Memory Store)]
+    E --> B
+    E --> C
