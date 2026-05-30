@@ -26,6 +26,7 @@ def load_runtime_config(config_path: str = "config/settings.yaml") -> RuntimeCon
 
     strategy_config = StrategyConfig(
         platforms=strategy["platforms"],
+        platform_weights={k: float(v) for k, v in strategy.get("platform_weights", {}).items()},
         bearish_threshold=float(strategy["bearish_threshold"]),
         bullish_threshold=float(strategy["bullish_threshold"]),
         min_platforms_for_signal=int(strategy["min_platforms_for_signal"]),
@@ -39,4 +40,5 @@ def load_runtime_config(config_path: str = "config/settings.yaml") -> RuntimeCon
         symbols=list(raw["universe"]["symbols"]),
         memory_dir=storage["memory_dir"],
         report_dir=storage["report_dir"],
+        raw_dir=storage.get("raw_dir", "data/raw"),
     )

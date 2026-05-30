@@ -1,0 +1,7 @@
+trade_date,platform,total_rows,success_count,failure_count,success_rate,noise_count,noise_rate,title_coverage,time_coverage,content_coverage
+2026-04-15,eastmoney,18,18,0,1.000,18,1.000,1.000,1.000,1.000
+2026-04-15,guba,18,18,0,1.000,18,1.000,1.000,1.000,1.000
+2026-04-15,sina_finance,18,18,0,1.000,0,0.000,1.000,1.000,1.000
+2026-04-15,weibo,3,0,3,0.000,3,1.000,1.000,1.000,1.000
+2026-04-15,xueqiu,18,18,0,1.000,0,0.000,1.000,0.500,1.000
+2026-04-15,ALL,75,72,3,0.960,39,0.520,1.000,0.880,1.000

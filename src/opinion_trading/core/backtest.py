@@ -44,6 +44,7 @@ class StrategyBacktester:
             bullish_threshold=bullish_threshold,
             min_platforms_for_signal=self.config.strategy.min_platforms_for_signal,
             reversal_min_delta=self.config.strategy.reversal_min_delta,
+            platform_weights=self.config.strategy.platform_weights,
         )
         trader = PaperTradingSkill(
             initial_cash=self.config.strategy.initial_cash,

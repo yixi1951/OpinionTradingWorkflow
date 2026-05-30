@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
-from typing import List
+from typing import Dict, List, Protocol
 
 from opinion_trading.core.models import OpinionSnapshot
-from opinion_trading.integrations.platform_sentiment_stub import PlatformSentimentProvider
+
+
+class SentimentProvider(Protocol):
+    def fetch(self, platform: str, symbol: str, trade_date: date) -> Dict[str, float]:
+        ...
 
 
 class SentimentCollectionSkill:
-    def __init__(self, provider: PlatformSentimentProvider) -> None:
+    def __init__(self, provider: SentimentProvider) -> None:
         self.provider = provider
 
     def collect_for_days(

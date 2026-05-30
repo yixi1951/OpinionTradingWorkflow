@@ -15,11 +15,13 @@ class SentimentAnalysisSkill:
         bullish_threshold: float,
         min_platforms_for_signal: int,
         reversal_min_delta: float,
+        platform_weights: Dict[str, float] | None = None,
     ) -> None:
         self.bearish_threshold = bearish_threshold
         self.bullish_threshold = bullish_threshold
         self.min_platforms_for_signal = min_platforms_for_signal
         self.reversal_min_delta = reversal_min_delta
+        self.platform_weights = {str(k): float(v) for k, v in (platform_weights or {}).items()}
 
     def aggregate(self, snapshots: Sequence[OpinionSnapshot]) -> Dict[date, Dict[str, AggregatedSentiment]]:
         grouped: Dict[date, Dict[str, Dict[str, List[float]]]] = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
@@ -38,6 +40,7 @@ class SentimentAnalysisSkill:
                     trade_date=trade_date,
                     symbol=symbol,
                     platform_scores=platform_scores,
+                    platform_weights=self.platform_weights,
                 )
 
         return result
@@ -138,11 +141,17 @@ class SentimentAnalysisSkill:
         score_sum = 0.0
         count = 0
         for agg in today.values():
-            values = [agg.platform_scores[p] for p in platforms if p in agg.platform_scores]
+            values = []
+            weights = []
+            for p in platforms:
+                if p in agg.platform_scores:
+                    values.append(agg.platform_scores[p])
+                    weights.append(self.platform_weights.get(p, 1.0))
             if not values:
                 continue
             resonance = max(values) - min(values)
-            score_sum += abs(sum(values) / len(values)) - 0.2 * resonance
+            weighted_avg = sum(v * w for v, w in zip(values, weights)) / sum(weights) if sum(weights) > 0 else sum(values) / len(values)
+            score_sum += abs(weighted_avg) - 0.2 * resonance
             count += 1
 
         return score_sum / count if count else 0.0
