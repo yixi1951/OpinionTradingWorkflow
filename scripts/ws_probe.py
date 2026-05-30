@@ -1,8 +1,9 @@
 import asyncio
 import json
+import os
 import websockets
 
-TOKEN='6f751f53aed82616bb4288d8d4a0c16a06afc062f15fb202'
+TOKEN = os.getenv('WS_GATEWAY_TOKEN', 'your-token-here')
 
 async def try_one(url):
     try:

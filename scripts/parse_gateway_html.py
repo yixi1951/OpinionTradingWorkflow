@@ -1,5 +1,6 @@
-import requests, re
-r = requests.get('http://localhost:18789?token=6f751f53aed82616bb4288d8d4a0c16a06afc062f15fb202', timeout=5)
+import requests, re, os
+token = os.getenv('WS_GATEWAY_TOKEN', 'your-token-here')
+r = requests.get(f'http://localhost:18789?token={token}', timeout=5)
 print('STATUS', r.status_code)
 srcs = re.findall(r'<script[^>]+src=["\']([^"\']+)["\']', r.text)
 for s in srcs:

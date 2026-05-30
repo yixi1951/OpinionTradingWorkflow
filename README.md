@@ -248,7 +248,7 @@ python -m pip install -r requirements.txt
 ```powershell
 # 让代理连接到你的网关地址/令牌（默认为 ws://localhost:18789）
 $env:WS_GATEWAY_URL = "ws://localhost:18789"
-$env:WS_GATEWAY_TOKEN = "6f751f53aed82616bb4288d8d4a0c16a06afc062f15fb202"
+$env:WS_GATEWAY_TOKEN = "your-actual-token-here"
 
 # 启动代理（默认对外监听 18790）
 python -m uvicorn openclaw_ws_proxy:app --host 127.0.0.1 --port 18790

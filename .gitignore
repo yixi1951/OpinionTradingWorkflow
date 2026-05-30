@@ -17,3 +17,11 @@ venv/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+secrets/
