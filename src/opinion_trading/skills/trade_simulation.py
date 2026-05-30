@@ -69,7 +69,9 @@ class PaperTradingSkill:
         }
         return trades, updated_state
 
-    def portfolio_value(self, today_aggregated: Dict[str, AggregatedSentiment], state: Dict) -> float:
+    def portfolio_value(
+        self, today_aggregated: Dict[str, AggregatedSentiment], state: Dict
+    ) -> float:
         cash = float(state.get("cash", self.initial_cash))
         positions: Dict[str, int] = dict(state.get("positions", {}))
 
@@ -82,7 +84,9 @@ class PaperTradingSkill:
 
         return cash + position_value
 
-    def _estimate_price(self, symbol: str, today_aggregated: Dict[str, AggregatedSentiment]) -> float:
+    def _estimate_price(
+        self, symbol: str, today_aggregated: Dict[str, AggregatedSentiment]
+    ) -> float:
         default_price = 20.0
         agg = today_aggregated.get(symbol)
         if agg is None:

@@ -16,7 +16,11 @@ from opinion_trading.core.monthly_training import (
     load_training_history,
     save_monthly_training_report,
 )
-from opinion_trading.core.visualization import load_backtest_csv, plot_sharpe_vs_threshold, top_n_table
+from opinion_trading.core.visualization import (
+    load_backtest_csv,
+    plot_sharpe_vs_threshold,
+    top_n_table,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -25,7 +29,15 @@ def parse_args() -> argparse.Namespace:
         "--mode",
         type=str,
         default="daily",
-        choices=["daily", "realtime", "train", "evaluate", "backtest", "optimize", "visualize"],
+        choices=[
+            "daily",
+            "realtime",
+            "train",
+            "evaluate",
+            "backtest",
+            "optimize",
+            "visualize",
+        ],
         help="Execution mode",
     )
     parser.add_argument(
@@ -40,8 +52,12 @@ def parse_args() -> argparse.Namespace:
         default="config/settings.yaml",
         help="Path to config file",
     )
-    parser.add_argument("--start-date", type=str, default="2025-01-01", help="Backtest start date")
-    parser.add_argument("--end-date", type=str, default="2025-12-31", help="Backtest end date")
+    parser.add_argument(
+        "--start-date", type=str, default="2025-01-01", help="Backtest start date"
+    )
+    parser.add_argument(
+        "--end-date", type=str, default="2025-12-31", help="Backtest end date"
+    )
     parser.add_argument(
         "--bearish-threshold",
         type=float,
@@ -96,9 +112,15 @@ def parse_args() -> argparse.Namespace:
         default=0.25,
         help="Trigger alert when symbol score change abs(delta) exceeds this threshold in realtime mode",
     )
-    parser.add_argument("--yellow-threshold", type=float, default=0.20, help="Yellow alert threshold")
-    parser.add_argument("--orange-threshold", type=float, default=0.35, help="Orange alert threshold")
-    parser.add_argument("--red-threshold", type=float, default=0.50, help="Red alert threshold")
+    parser.add_argument(
+        "--yellow-threshold", type=float, default=0.20, help="Yellow alert threshold"
+    )
+    parser.add_argument(
+        "--orange-threshold", type=float, default=0.35, help="Orange alert threshold"
+    )
+    parser.add_argument(
+        "--red-threshold", type=float, default=0.50, help="Red alert threshold"
+    )
     return parser.parse_args()
 
 
@@ -161,7 +183,9 @@ def main() -> None:
 
         signals = load_signals("data/memory/signal_history.jsonl")
         prices = load_prices(args.price_file)
-        merged, summary = evaluate_signals(signals, prices, args.start_date, args.end_date)
+        merged, summary = evaluate_signals(
+            signals, prices, args.start_date, args.end_date
+        )
         outputs = save_evaluation("data/reports", merged, summary)
         print("=== Evaluation Completed ===")
         print(f"Output CSV: {outputs['csv']}")
@@ -177,7 +201,9 @@ def main() -> None:
         signal_df = load_training_history("data/memory")
         if signal_df.empty:
             print("=== Training Completed ===")
-            print("No signal or realtime pick history found. Run daily or realtime mode first.")
+            print(
+                "No signal or realtime pick history found. Run daily or realtime mode first."
+            )
             return
 
         max_trade_date = signal_df["trade_date"].max()
@@ -196,7 +222,9 @@ def main() -> None:
         except Exception:
             price_df = load_prices(args.price_file)
 
-        monthly_df, summary = build_monthly_training_frame(signal_df, price_df, months=args.months)
+        monthly_df, summary = build_monthly_training_frame(
+            signal_df, price_df, months=args.months
+        )
         outputs = save_monthly_training_report("data/reports", monthly_df, summary)
 
         print("=== Training Completed ===")
@@ -216,7 +244,9 @@ def main() -> None:
     end_date = backtester.parse_date(args.end_date)
 
     if args.mode == "backtest":
-        platforms: List[str] = [x.strip() for x in args.platforms.split(",") if x.strip()]
+        platforms: List[str] = [
+            x.strip() for x in args.platforms.split(",") if x.strip()
+        ]
         result = backtester.run_single(
             start_date=start_date,
             end_date=end_date,
@@ -258,7 +288,9 @@ def main() -> None:
         print("=== Visualization Completed ===")
         print(f"Image: {img_out}")
         for platforms, ann, mdd, sharpe in top_n_table(rows, n=5):
-            print(f"Top | {platforms} | annual={ann:.4f} | mdd={mdd:.4f} | sharpe={sharpe:.4f}")
+            print(
+                f"Top | {platforms} | annual={ann:.4f} | mdd={mdd:.4f} | sharpe={sharpe:.4f}"
+            )
         return
 
 

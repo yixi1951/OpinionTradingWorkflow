@@ -28,11 +28,15 @@ class DailyReportBuilder:
         lines.append("")
         lines.append("## Best Platform Combination")
         lines.append(f"- Selected combo: {', '.join(best_platform_combo)}")
-        lines.append(f"- Combo score: {combo_scores.get('+'.join(best_platform_combo), 0.0):.4f}")
+        lines.append(
+            f"- Combo score: {combo_scores.get('+'.join(best_platform_combo), 0.0):.4f}"
+        )
         lines.append("")
         lines.append("## Sentiment Snapshot")
         for symbol, agg in aggregated_today.items():
-            platform_view = ", ".join(f"{k}: {v:.3f}" for k, v in agg.platform_scores.items())
+            platform_view = ", ".join(
+                f"{k}: {v:.3f}" for k, v in agg.platform_scores.items()
+            )
             lines.append(f"- {symbol} | avg={agg.average_score:.3f} | {platform_view}")
         lines.append("")
 

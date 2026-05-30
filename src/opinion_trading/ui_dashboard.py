@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import glob
-from datetime import datetime
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict
 
 import altair as alt
 import pandas as pd
 import streamlit as st
 
-from opinion_trading.core.evaluation import evaluate_signals, load_prices, normalize_price_frame
+from opinion_trading.core.evaluation import (
+    evaluate_signals,
+    load_prices,
+    normalize_price_frame,
+)
 from opinion_trading.core.monthly_training import (
     build_monthly_training_frame,
     fetch_prices_with_timeout,
@@ -210,7 +213,9 @@ LANG = {
 # additional translation keys
 LANG["en"]["saved_uploaded_to"] = "Saved uploaded prices to {path}"
 LANG["zh"]["saved_uploaded_to"] = "已保存上传价格到 {path}"
-LANG["en"]["no_signal_history"] = "No signal or realtime pick history found yet. Run daily or realtime mode first."
+LANG["en"][
+    "no_signal_history"
+] = "No signal or realtime pick history found yet. Run daily or realtime mode first."
 LANG["zh"]["no_signal_history"] = "尚无信号或实时选股历史。请先运行 daily 或 realtime 模式。"
 LANG["en"]["platform_label"] = "Platform"
 LANG["zh"]["platform_label"] = "平台"
@@ -222,7 +227,9 @@ LANG["zh"]["monthly_metrics_title"] = "月度指标"
 
 def t(key: str) -> str:
     try:
-        lang = st.session_state.get("lang", "zh") if hasattr(st, "session_state") else "zh"
+        lang = (
+            st.session_state.get("lang", "zh") if hasattr(st, "session_state") else "zh"
+        )
     except Exception:
         lang = "zh"
     return LANG.get(lang, LANG["en"]).get(key, key)
@@ -295,7 +302,6 @@ def _inject_dashboard_styles() -> None:
     )
 
 
-
 def _latest_file(pattern: str) -> str:
     files = sorted(glob.glob(pattern))
     return files[-1] if files else ""
@@ -353,7 +359,9 @@ def _load_signal_history(path: str) -> pd.DataFrame:
     return pd.read_json(path, lines=True)
 
 
-def _load_latest_monthly_training(report_dir: str) -> tuple[pd.DataFrame, Dict[str, object]]:
+def _load_latest_monthly_training(
+    report_dir: str,
+) -> tuple[pd.DataFrame, Dict[str, object]]:
     return load_latest_monthly_training(report_dir)
 
 
@@ -418,7 +426,11 @@ def _render_reason_cards(raw_df: pd.DataFrame, picks_df: pd.DataFrame) -> None:
         try:
             return t(key)
         except Exception:
-            lang = st.session_state.get("lang", "zh") if hasattr(st, "session_state") else "zh"
+            lang = (
+                st.session_state.get("lang", "zh")
+                if hasattr(st, "session_state")
+                else "zh"
+            )
             return LANG.get(lang, LANG["en"]).get(key, key)
 
     if raw_df.empty or picks_df.empty:
@@ -460,12 +472,16 @@ def _render_reason_cards(raw_df: pd.DataFrame, picks_df: pd.DataFrame) -> None:
             )
 
 
-def _top_comment_rows(raw_df: pd.DataFrame, symbol: str, top_n: int = 5) -> Dict[str, pd.DataFrame]:
+def _top_comment_rows(
+    raw_df: pd.DataFrame, symbol: str, top_n: int = 5
+) -> Dict[str, pd.DataFrame]:
     if raw_df.empty:
         return {"positive": pd.DataFrame(), "negative": pd.DataFrame()}
 
     view = raw_df[raw_df["symbol"] == symbol].copy()
-    view["ai_score"] = pd.to_numeric(view.get("ai_score", 0), errors="coerce").fillna(0.0)
+    view["ai_score"] = pd.to_numeric(view.get("ai_score", 0), errors="coerce").fillna(
+        0.0
+    )
     positive = view.sort_values("ai_score", ascending=False).head(top_n)
     negative = view.sort_values("ai_score", ascending=True).head(top_n)
     return {"positive": positive, "negative": negative}
@@ -473,7 +489,9 @@ def _top_comment_rows(raw_df: pd.DataFrame, symbol: str, top_n: int = 5) -> Dict
 
 def main() -> None:
     # language selection
-    st.set_page_config(page_title=LANG.get("en", {}).get("page_title", "OpenClaw"), layout="wide")
+    st.set_page_config(
+        page_title=LANG.get("en", {}).get("page_title", "OpenClaw"), layout="wide"
+    )
     _inject_dashboard_styles()
     # default language stored in session_state
     if "lang" not in st.session_state:
@@ -481,10 +499,19 @@ def main() -> None:
 
     # sidebar language selector
     with st.sidebar:
-        opts = [("en", LANG.get("en", {}).get("language_en", "English")), ("zh", LANG.get("zh", {}).get("language_zh", "中文"))]
+        opts = [
+            ("en", LANG.get("en", {}).get("language_en", "English")),
+            ("zh", LANG.get("zh", {}).get("language_zh", "中文")),
+        ]
         cur = st.session_state.get("lang", "zh")
         idx = 0 if cur == "en" else 1
-        sel = st.selectbox(t("language_label"), options=opts, index=idx, key="_lang_display", format_func=lambda x: x[1])
+        sel = st.selectbox(
+            t("language_label"),
+            options=opts,
+            index=idx,
+            key="_lang_display",
+            format_func=lambda x: x[1],
+        )
         if isinstance(sel, tuple):
             st.session_state["lang"] = sel[0]
 
@@ -524,17 +551,25 @@ def main() -> None:
 
     # Sentiment trend
     st.subheader(t("sentiment_trend"))
-    sentiment_df = _load_sentiment_history(str(Path(memory_dir) / "sentiment_history.jsonl"))
+    sentiment_df = _load_sentiment_history(
+        str(Path(memory_dir) / "sentiment_history.jsonl")
+    )
     with st.container(border=True):
         if not sentiment_df.empty:
-            sentiment_df["trade_date"] = pd.to_datetime(sentiment_df["trade_date"], errors="coerce")
+            sentiment_df["trade_date"] = pd.to_datetime(
+                sentiment_df["trade_date"], errors="coerce"
+            )
             chart = (
                 alt.Chart(sentiment_df)
                 .mark_line(point=True, strokeWidth=2.4)
                 .encode(
                     x=alt.X("trade_date:T", title=t("month")),
                     y=alt.Y("sentiment_score:Q", title=t("sentiment_score_label")),
-                    color=alt.Color("platform:N", scale=alt.Scale(scheme="category10"), title=t("platform_label")),
+                    color=alt.Color(
+                        "platform:N",
+                        scale=alt.Scale(scheme="category10"),
+                        title=t("platform_label"),
+                    ),
                     tooltip=["trade_date", "platform", "symbol", "sentiment_score"],
                 )
                 .properties(title=t("sentiment_trend"), height=280)
@@ -550,7 +585,10 @@ def main() -> None:
         if contrib_df.empty:
             st.info(t("no_contribution_data"))
         else:
-            symbol = st.selectbox(t("select_symbol_for_contribution"), sorted(contrib_df["symbol"].unique()))
+            symbol = st.selectbox(
+                t("select_symbol_for_contribution"),
+                sorted(contrib_df["symbol"].unique()),
+            )
             view = contrib_df[contrib_df["symbol"] == symbol]
             display_df = view[["platform", "platform_score", "weight_pct"]].rename(
                 columns={
@@ -567,7 +605,11 @@ def main() -> None:
                 .encode(
                     x=alt.X("weight_pct:Q", title=t("contribution_pct")),
                     y=alt.Y("platform:N", sort="-x", title=None),
-                    color=alt.Color("platform:N", scale=alt.Scale(scheme="tableau10"), title=t("platform_label")),
+                    color=alt.Color(
+                        "platform:N",
+                        scale=alt.Scale(scheme="tableau10"),
+                        title=t("platform_label"),
+                    ),
                     tooltip=["platform", "weight_pct", "platform_score"],
                 )
                 .properties(title=t("platform_contribution"), height=240)
@@ -579,7 +621,11 @@ def main() -> None:
                 .mark_arc(innerRadius=68, outerRadius=120)
                 .encode(
                     theta=alt.Theta("weight_pct:Q"),
-                    color=alt.Color("platform:N", scale=alt.Scale(scheme="tableau10"), title=t("platform_label")),
+                    color=alt.Color(
+                        "platform:N",
+                        scale=alt.Scale(scheme="tableau10"),
+                        title=t("platform_label"),
+                    ),
                     tooltip=["platform", "weight_pct", "platform_score"],
                 )
                 .properties(title=t("platform_contribution"), height=280)
@@ -588,8 +634,15 @@ def main() -> None:
 
     # Radar
     st.subheader(t("platform_radar"))
-    radar_symbol = st.selectbox(t("select_symbol_for_radar"), sorted(sentiment_df["symbol"].unique()) if not sentiment_df.empty else [])
-    radar_df = _platform_scores_radar(sentiment_df, radar_symbol) if radar_symbol else pd.DataFrame()
+    radar_symbol = st.selectbox(
+        t("select_symbol_for_radar"),
+        sorted(sentiment_df["symbol"].unique()) if not sentiment_df.empty else [],
+    )
+    radar_df = (
+        _platform_scores_radar(sentiment_df, radar_symbol)
+        if radar_symbol
+        else pd.DataFrame()
+    )
     with st.container(border=True):
         if radar_df.empty:
             st.info(t("no_radar_data"))
@@ -600,8 +653,14 @@ def main() -> None:
                 .mark_area(opacity=0.18)
                 .encode(
                     theta=alt.Theta("platform:N", title=None),
-                    radius=alt.Radius("abs_score:Q", scale=alt.Scale(domain=[0, max_val])),
-                    color=alt.Color("platform:N", scale=alt.Scale(scheme="tableau10"), title=t("platform_label")),
+                    radius=alt.Radius(
+                        "abs_score:Q", scale=alt.Scale(domain=[0, max_val])
+                    ),
+                    color=alt.Color(
+                        "platform:N",
+                        scale=alt.Scale(scheme="tableau10"),
+                        title=t("platform_label"),
+                    ),
                     tooltip=["platform", "sentiment_score"],
                 )
             )
@@ -610,21 +669,29 @@ def main() -> None:
                 .mark_line(point=True, strokeWidth=5, opacity=0.14)
                 .encode(
                     theta=alt.Theta("platform:N", title=None),
-                    radius=alt.Radius("abs_score:Q", scale=alt.Scale(domain=[0, max_val])),
+                    radius=alt.Radius(
+                        "abs_score:Q", scale=alt.Scale(domain=[0, max_val])
+                    ),
                     color=alt.value("#2563EB"),
                 )
             )
             radar_line = (
                 alt.Chart(radar_df)
-                .mark_line(point=alt.OverlayMarkDef(filled=True, size=85), strokeWidth=2.6)
+                .mark_line(
+                    point=alt.OverlayMarkDef(filled=True, size=85), strokeWidth=2.6
+                )
                 .encode(
                     theta=alt.Theta("platform:N", title=None),
-                    radius=alt.Radius("abs_score:Q", scale=alt.Scale(domain=[0, max_val])),
+                    radius=alt.Radius(
+                        "abs_score:Q", scale=alt.Scale(domain=[0, max_val])
+                    ),
                     color=alt.value("#0F172A"),
                     tooltip=["platform", "sentiment_score"],
                 )
             )
-            radar = (radar_area + radar_shadow + radar_line).properties(title=t("platform_radar"), height=360)
+            radar = (radar_area + radar_shadow + radar_line).properties(
+                title=t("platform_radar"), height=360
+            )
             st.altair_chart(radar, use_container_width=True)
 
     # Top comments
@@ -636,22 +703,22 @@ def main() -> None:
         sel_symbol = st.selectbox(t("select_symbol"), sorted(raw_df["symbol"].unique()))
         top_rows = _top_comment_rows(raw_df, sel_symbol)
         st.markdown(f"**{t('positive_highlight')}**")
-        pos_df = top_rows["positive"][['title', 'summary', 'ai_score', 'url']].rename(
+        pos_df = top_rows["positive"][["title", "summary", "ai_score", "url"]].rename(
             columns={
-                'title': t('col_title'),
-                'summary': t('col_summary'),
-                'ai_score': t('col_ai_score'),
-                'url': t('col_url'),
+                "title": t("col_title"),
+                "summary": t("col_summary"),
+                "ai_score": t("col_ai_score"),
+                "url": t("col_url"),
             }
         )
         st.dataframe(pos_df, use_container_width=True)
         st.markdown(f"**{t('negative_highlight')}**")
-        neg_df = top_rows["negative"][['title', 'summary', 'ai_score', 'url']].rename(
+        neg_df = top_rows["negative"][["title", "summary", "ai_score", "url"]].rename(
             columns={
-                'title': t('col_title'),
-                'summary': t('col_summary'),
-                'ai_score': t('col_ai_score'),
-                'url': t('col_url'),
+                "title": t("col_title"),
+                "summary": t("col_summary"),
+                "ai_score": t("col_ai_score"),
+                "url": t("col_url"),
             }
         )
         st.dataframe(neg_df, use_container_width=True)
@@ -667,12 +734,18 @@ def main() -> None:
     st.subheader(t("evaluation"))
     price_source_mode = st.radio(
         t("price_source"),
-        LANG.get(st.session_state.get("lang", "zh"), LANG["en"]).get("price_options", []),
+        LANG.get(st.session_state.get("lang", "zh"), LANG["en"]).get(
+            "price_options", []
+        ),
         horizontal=True,
         index=0,
     )
-    uploaded_price_file = st.file_uploader(t("upload_label"), type=["csv"], key="price_upload")
-    price_csv = st.text_input(t("local_csv_path"), "data/reports/price_history_cache.csv")
+    uploaded_price_file = st.file_uploader(
+        t("upload_label"), type=["csv"], key="price_upload"
+    )
+    price_csv = st.text_input(
+        t("local_csv_path"), "data/reports/price_history_cache.csv"
+    )
     if uploaded_price_file is not None:
         uploaded_price_df = _load_uploaded_price_frame(uploaded_price_file)
         if uploaded_price_df.empty:
@@ -691,9 +764,15 @@ def main() -> None:
     if st.button(t("run_evaluation")):
         try:
             signals_path = str(Path(memory_dir) / "signal_history.jsonl")
-            signal_df = pd.read_json(signals_path, lines=True) if Path(signals_path).exists() else pd.DataFrame()
+            signal_df = (
+                pd.read_json(signals_path, lines=True)
+                if Path(signals_path).exists()
+                else pd.DataFrame()
+            )
             if not signal_df.empty:
-                signal_df["trade_date"] = pd.to_datetime(signal_df["trade_date"], errors="coerce")
+                signal_df["trade_date"] = pd.to_datetime(
+                    signal_df["trade_date"], errors="coerce"
+                )
             if price_source_mode == "Upload CSV":
                 price_df = _load_uploaded_price_frame(uploaded_price_file)
                 if price_df.empty:
@@ -705,18 +784,29 @@ def main() -> None:
                 if not start_date or not end_date:
                     st.warning(t("yahoo_need_dates"))
                     return
-                symbols = sorted(signal_df["symbol"].dropna().unique()) if not signal_df.empty else []
+                symbols = (
+                    sorted(signal_df["symbol"].dropna().unique())
+                    if not signal_df.empty
+                    else []
+                )
                 price_df = fetch_prices_with_timeout(symbols, start_date, end_date)
                 if price_df.empty:
                     st.warning(t("yahoo_no_prices"))
                     return
-            merged, summary = evaluate_signals(signal_df, price_df, start_date or None, end_date or None)
+            merged, summary = evaluate_signals(
+                signal_df, price_df, start_date or None, end_date or None
+            )
             st.markdown(
                 f"**{t('eval_accuracy')}**: {summary.accuracy:.2%} | **{t('eval_avg_return')}**: {summary.avg_return:.4%} | "
                 f"**{t('eval_win_rate')}**: {summary.win_rate:.2%} | **{t('eval_sharpe_like')}**: {summary.sharpe_like:.4f}"
             )
             if not merged.empty:
-                st.dataframe(merged[["trade_date", "symbol", "action", "next_return", "correct"]], use_container_width=True)
+                st.dataframe(
+                    merged[
+                        ["trade_date", "symbol", "action", "next_return", "correct"]
+                    ],
+                    use_container_width=True,
+                )
         except Exception as e:
             st.error(t("evaluation_failed").format(error=e))
 
@@ -734,7 +824,10 @@ def main() -> None:
     with summary_cols[1]:
         st.metric(t("score_alerts"), len(alerts_df))
     with summary_cols[2]:
-        st.metric(t("sentiment_trend"), 0 if sentiment_df.empty else sentiment_df["platform"].nunique())
+        st.metric(
+            t("sentiment_trend"),
+            0 if sentiment_df.empty else sentiment_df["platform"].nunique(),
+        )
     with summary_cols[3]:
         st.metric(t("monthly_training"), 0 if monthly_df.empty else len(monthly_df))
 
@@ -742,13 +835,19 @@ def main() -> None:
         if signal_history_df.empty:
             st.info(t("no_signal_history"))
         else:
-            signal_history_df["trade_date"] = pd.to_datetime(signal_history_df["trade_date"], errors="coerce")
-            signal_history_df = signal_history_df.dropna(subset=["trade_date", "symbol"])
+            signal_history_df["trade_date"] = pd.to_datetime(
+                signal_history_df["trade_date"], errors="coerce"
+            )
+            signal_history_df = signal_history_df.dropna(
+                subset=["trade_date", "symbol"]
+            )
             if signal_history_df.empty:
                 st.info(t("valid_dates_missing"))
             else:
                 max_trade_date = signal_history_df["trade_date"].max()
-                min_trade_date = (max_trade_date - pd.DateOffset(months=max(1, train_months) - 1)).normalize()
+                min_trade_date = (
+                    max_trade_date - pd.DateOffset(months=max(1, train_months) - 1)
+                ).normalize()
                 symbols = sorted(signal_history_df["symbol"].dropna().unique())
                 try:
                     if price_source_mode == "Upload CSV":
@@ -770,8 +869,12 @@ def main() -> None:
                         train_price_df,
                         months=train_months,
                     )
-                    outputs = save_monthly_training_report(report_dir, monthly_df, monthly_summary_obj)
-                    monthly_df, monthly_summary = _load_latest_monthly_training(report_dir)
+                    outputs = save_monthly_training_report(
+                        report_dir, monthly_df, monthly_summary_obj
+                    )
+                    monthly_df, monthly_summary = _load_latest_monthly_training(
+                        report_dir
+                    )
                     st.success(f"{t('monthly_saved')}: {outputs['csv']}")
                 except Exception as e:
                     st.error(t("monthly_failed").format(error=e))
@@ -780,17 +883,33 @@ def main() -> None:
         if monthly_df.empty:
             st.info(t("no_monthly_report"))
         else:
-            summary_data = monthly_summary.get("summary", {}) if isinstance(monthly_summary, dict) else {}
+            summary_data = (
+                monthly_summary.get("summary", {})
+                if isinstance(monthly_summary, dict)
+                else {}
+            )
         if summary_data:
             cols = st.columns(4)
             with cols[0]:
-                st.metric(t("metric_forecast_success_rate"), f"{float(summary_data.get('forecast_success_rate', 0.0)):.2%}")
+                st.metric(
+                    t("metric_forecast_success_rate"),
+                    f"{float(summary_data.get('forecast_success_rate', 0.0)):.2%}",
+                )
             with cols[1]:
-                st.metric(t("metric_rolling_success_rate"), f"{float(summary_data.get('rolling_success_rate', 0.0)):.2%}")
+                st.metric(
+                    t("metric_rolling_success_rate"),
+                    f"{float(summary_data.get('rolling_success_rate', 0.0)):.2%}",
+                )
             with cols[2]:
-                st.metric(t("metric_latest_month_accuracy"), f"{float(summary_data.get('latest_month_accuracy', 0.0)):.2%}")
+                st.metric(
+                    t("metric_latest_month_accuracy"),
+                    f"{float(summary_data.get('latest_month_accuracy', 0.0)):.2%}",
+                )
             with cols[3]:
-                st.metric(t("metric_forecast_direction"), str(summary_data.get('forecast_direction', 'NEUTRAL')))
+                st.metric(
+                    t("metric_forecast_direction"),
+                    str(summary_data.get("forecast_direction", "NEUTRAL")),
+                )
 
             if summary_data.get("start_month") and summary_data.get("end_month"):
                 st.caption(
@@ -800,10 +919,18 @@ def main() -> None:
 
         monthly_df = monthly_df.copy()
         if not monthly_df.empty:
-            monthly_df["accuracy"] = pd.to_numeric(monthly_df.get("accuracy", 0), errors="coerce").fillna(0.0)
-            monthly_df["avg_return"] = pd.to_numeric(monthly_df.get("avg_return", 0), errors="coerce").fillna(0.0)
-            monthly_df["signals"] = pd.to_numeric(monthly_df.get("signals", 0), errors="coerce").fillna(0.0)
-            monthly_df["win_rate"] = pd.to_numeric(monthly_df.get("win_rate", 0), errors="coerce").fillna(0.0)
+            monthly_df["accuracy"] = pd.to_numeric(
+                monthly_df.get("accuracy", 0), errors="coerce"
+            ).fillna(0.0)
+            monthly_df["avg_return"] = pd.to_numeric(
+                monthly_df.get("avg_return", 0), errors="coerce"
+            ).fillna(0.0)
+            monthly_df["signals"] = pd.to_numeric(
+                monthly_df.get("signals", 0), errors="coerce"
+            ).fillna(0.0)
+            monthly_df["win_rate"] = pd.to_numeric(
+                monthly_df.get("win_rate", 0), errors="coerce"
+            ).fillna(0.0)
 
             monthly_line = (
                 alt.Chart(monthly_df)
@@ -812,7 +939,11 @@ def main() -> None:
                 .encode(
                     x=alt.X("month:N", title=t("month")),
                     y=alt.Y("value:Q", title=t("rate")),
-                    color=alt.Color("metric:N", scale=alt.Scale(scheme="tableau10"), title=t("metric_forecast_direction")),
+                    color=alt.Color(
+                        "metric:N",
+                        scale=alt.Scale(scheme="tableau10"),
+                        title=t("metric_forecast_direction"),
+                    ),
                     tooltip=["month", "metric", "value"],
                 )
                 .properties(title=t("monthly_metrics_title"), height=260)
@@ -825,14 +956,28 @@ def main() -> None:
                 .encode(
                     x=alt.X("month:N", title=t("month")),
                     y=alt.Y("signals:Q", title=t("signal_count")),
-                    color=alt.Color("accuracy:Q", scale=alt.Scale(scheme="tealblues"), title=t("eval_accuracy")),
+                    color=alt.Color(
+                        "accuracy:Q",
+                        scale=alt.Scale(scheme="tealblues"),
+                        title=t("eval_accuracy"),
+                    ),
                     tooltip=["month", "signals", "accuracy", "avg_return", "win_rate"],
                 )
                 .properties(title=t("monthly_metrics_title"), height=250)
             )
             st.altair_chart(monthly_bar, use_container_width=True)
 
-            monthly_display = monthly_df[["month", "signals", "correct_signals", "accuracy", "avg_return", "win_rate", "avg_confidence"]].rename(
+            monthly_display = monthly_df[
+                [
+                    "month",
+                    "signals",
+                    "correct_signals",
+                    "accuracy",
+                    "avg_return",
+                    "win_rate",
+                    "avg_confidence",
+                ]
+            ].rename(
                 columns={
                     "month": t("month"),
                     "signals": t("signal_count"),

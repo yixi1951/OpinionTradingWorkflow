@@ -16,7 +16,11 @@ class SentimentCollectionSkill:
         self.provider = provider
 
     def collect_for_days(
-        self, symbols: List[str], platforms: List[str], trade_date: date, lookback_days: int = 1
+        self,
+        symbols: List[str],
+        platforms: List[str],
+        trade_date: date,
+        lookback_days: int = 1,
     ) -> List[OpinionSnapshot]:
         snapshots: List[OpinionSnapshot] = []
 
@@ -24,7 +28,9 @@ class SentimentCollectionSkill:
             d = trade_date - timedelta(days=offset)
             for symbol in symbols:
                 for platform in platforms:
-                    row = self.provider.fetch(platform=platform, symbol=symbol, trade_date=d)
+                    row = self.provider.fetch(
+                        platform=platform, symbol=symbol, trade_date=d
+                    )
                     snapshots.append(
                         OpinionSnapshot(
                             timestamp=datetime.now(),

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Iterable
 
 import pandas as pd
@@ -29,7 +28,9 @@ def _to_eastmoney_secid(symbol: str) -> str:
     return f"0.{code}"
 
 
-def _fetch_prices_eastmoney(symbols: Iterable[str], start_date: str, end_date: str) -> pd.DataFrame:
+def _fetch_prices_eastmoney(
+    symbols: Iterable[str], start_date: str, end_date: str
+) -> pd.DataFrame:
     rows = []
     start_token = start_date.replace("-", "")
     end_token = end_date.replace("-", "")
@@ -75,7 +76,9 @@ def _fetch_prices_eastmoney(symbols: Iterable[str], start_date: str, end_date: s
     return pd.DataFrame(rows)
 
 
-def _fetch_prices_akshare(symbols: Iterable[str], start_date: str, end_date: str) -> pd.DataFrame:
+def _fetch_prices_akshare(
+    symbols: Iterable[str], start_date: str, end_date: str
+) -> pd.DataFrame:
     if ak is None:
         return pd.DataFrame()
 
@@ -116,7 +119,9 @@ def _fetch_prices_akshare(symbols: Iterable[str], start_date: str, end_date: str
     return pd.DataFrame(rows)
 
 
-def fetch_prices(symbols: Iterable[str], start_date: str, end_date: str) -> pd.DataFrame:
+def fetch_prices(
+    symbols: Iterable[str], start_date: str, end_date: str
+) -> pd.DataFrame:
     eastmoney_df = _fetch_prices_eastmoney(symbols, start_date, end_date)
     if not eastmoney_df.empty:
         return eastmoney_df

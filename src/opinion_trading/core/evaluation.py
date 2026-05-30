@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import pandas as pd
 
@@ -21,14 +21,32 @@ class EvalSummary:
 def load_signals(signal_path: str) -> pd.DataFrame:
     path = Path(signal_path)
     if not path.exists():
-        return pd.DataFrame(columns=["trade_date", "symbol", "action", "confidence", "reason", "platforms"])
+        return pd.DataFrame(
+            columns=[
+                "trade_date",
+                "symbol",
+                "action",
+                "confidence",
+                "reason",
+                "platforms",
+            ]
+        )
     rows = []
     for line in path.read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
         rows.append(json.loads(line))
     if not rows:
-        return pd.DataFrame(columns=["trade_date", "symbol", "action", "confidence", "reason", "platforms"])
+        return pd.DataFrame(
+            columns=[
+                "trade_date",
+                "symbol",
+                "action",
+                "confidence",
+                "reason",
+                "platforms",
+            ]
+        )
     df = pd.DataFrame(rows)
     df["trade_date"] = pd.to_datetime(df["trade_date"], errors="coerce")
     return df
@@ -41,7 +59,11 @@ def load_prices(price_csv: str) -> pd.DataFrame:
 
 def normalize_price_frame(price_df: pd.DataFrame) -> pd.DataFrame:
     df = price_df.copy()
-    if "date" not in df.columns or "symbol" not in df.columns or "close" not in df.columns:
+    if (
+        "date" not in df.columns
+        or "symbol" not in df.columns
+        or "close" not in df.columns
+    ):
         raise ValueError("price CSV must contain columns: date, symbol, close")
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df = df.dropna(subset=["date", "symbol", "close"])
@@ -89,7 +111,9 @@ def evaluate_signals(
 
         frames = []
         for sym in signal_df["symbol"].dropna().unique():
-            s_sub = signal_df[signal_df["symbol"] == sym].sort_values("trade_date").copy()
+            s_sub = (
+                signal_df[signal_df["symbol"] == sym].sort_values("trade_date").copy()
+            )
             p_sub = prices[prices["symbol"] == sym].sort_values("date").copy()
             # only keep price rows that have a computable next_return
             p_sub = p_sub.dropna(subset=["next_return"])
@@ -159,7 +183,9 @@ def evaluate_signals(
     return merged, summary
 
 
-def save_evaluation(report_dir: str, merged: pd.DataFrame, summary: EvalSummary) -> Dict[str, str]:
+def save_evaluation(
+    report_dir: str, merged: pd.DataFrame, summary: EvalSummary
+) -> Dict[str, str]:
     report_path = Path(report_dir)
     report_path.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")

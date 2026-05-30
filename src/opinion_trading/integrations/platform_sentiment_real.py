@@ -8,7 +8,9 @@ from urllib.parse import urljoin
 import requests
 from bs4 import BeautifulSoup
 
-from opinion_trading.integrations.platform_sentiment_stub import PlatformSentimentProvider as StubProvider
+from opinion_trading.integrations.platform_sentiment_stub import (
+    PlatformSentimentProvider as StubProvider,
+)
 from opinion_trading.core.ai_sentiment import AISentimentAnalyzer
 
 
@@ -38,15 +40,25 @@ class RealPlatformSentimentProvider:
 
     def fetch(self, platform: str, symbol: str, trade_date: date) -> Dict[str, float]:
         try:
-            raw_rows = self.collect_raw_posts(platform=platform, symbol=symbol, trade_date=trade_date)
+            raw_rows = self.collect_raw_posts(
+                platform=platform, symbol=symbol, trade_date=trade_date
+            )
             if raw_rows:
                 sentiment = self._score_text(
-                    " ".join(f"{row.get('title', '')} {row.get('content', '')}" for row in raw_rows)
+                    " ".join(
+                        f"{row.get('title', '')} {row.get('content', '')}"
+                        for row in raw_rows
+                    )
                 )
                 return {
                     "sentiment_score": sentiment,
                     "post_count": len(raw_rows),
-                    "source": str(raw_rows[0].get("source_page", raw_rows[0].get("url", self._build_url(platform, symbol)))),
+                    "source": str(
+                        raw_rows[0].get(
+                            "source_page",
+                            raw_rows[0].get("url", self._build_url(platform, symbol)),
+                        )
+                    ),
                 }
 
             url = self._build_url(platform=platform, symbol=symbol)
@@ -63,21 +75,31 @@ class RealPlatformSentimentProvider:
             if not self.fallback_to_stub:
                 raise
 
-            row = self.stub.fetch(platform=platform, symbol=symbol, trade_date=trade_date)
+            row = self.stub.fetch(
+                platform=platform, symbol=symbol, trade_date=trade_date
+            )
             row["source"] = f"fallback://{platform}"
             return row
 
-    def collect_raw_posts(self, platform: str, symbol: str, trade_date: date, max_posts: int = 6) -> List[Dict[str, str]]:
+    def collect_raw_posts(
+        self, platform: str, symbol: str, trade_date: date, max_posts: int = 6
+    ) -> List[Dict[str, str]]:
         try:
             list_url = self._build_url(platform=platform, symbol=symbol)
             html = self._download_html(list_url)
 
             if platform in {"guba", "eastmoney"}:
-                rows = self._collect_guba_rows(list_url, html, platform, symbol, trade_date, max_posts=max_posts)
+                rows = self._collect_guba_rows(
+                    list_url, html, platform, symbol, trade_date, max_posts=max_posts
+                )
             elif platform in {"sina_finance"}:
-                rows = self._collect_generic_rows(list_url, html, platform, symbol, trade_date, max_posts=max_posts)
+                rows = self._collect_generic_rows(
+                    list_url, html, platform, symbol, trade_date, max_posts=max_posts
+                )
             else:
-                rows = self._collect_generic_rows(list_url, html, platform, symbol, trade_date, max_posts=max_posts)
+                rows = self._collect_generic_rows(
+                    list_url, html, platform, symbol, trade_date, max_posts=max_posts
+                )
 
             if rows:
                 return rows
@@ -107,14 +129,19 @@ class RealPlatformSentimentProvider:
 
             # prefer anchors that look like article links (contain date/time or longer titles)
             anchor_text = self._clean_text(anchor.get_text(" ", strip=True))
-            parent_text = self._clean_text(anchor.parent.get_text(" ", strip=True) if anchor.parent else "")
+            parent_text = self._clean_text(
+                anchor.parent.get_text(" ", strip=True) if anchor.parent else ""
+            )
             if not anchor_text:
                 continue
 
             looks_like_article = False
             if len(anchor_text) >= 20:
                 looks_like_article = True
-            if any(token in anchor_text + parent_text for token in ("年", "20", ":", "发布", "时间")):
+            if any(
+                token in anchor_text + parent_text
+                for token in ("年", "20", ":", "发布", "时间")
+            ):
                 looks_like_article = True
 
             if not looks_like_article:
@@ -152,7 +179,9 @@ class RealPlatformSentimentProvider:
     ) -> List[Dict[str, str]]:
         soup = BeautifulSoup(html, "lxml")
         if platform == "sina_finance":
-            return self._collect_sina_rows(list_url, soup, symbol, trade_date, max_posts=max_posts)
+            return self._collect_sina_rows(
+                list_url, soup, symbol, trade_date, max_posts=max_posts
+            )
 
         rows: List[Dict[str, str]] = []
         seen: set[str] = set()
@@ -206,7 +235,11 @@ class RealPlatformSentimentProvider:
             if not anchor_text or not self._looks_like_content(anchor_text):
                 continue
 
-            parent_text = self._clean_text(anchor.parent.get_text(" ", strip=True) if anchor.parent else anchor_text)
+            parent_text = self._clean_text(
+                anchor.parent.get_text(" ", strip=True)
+                if anchor.parent
+                else anchor_text
+            )
             time_text = self._extract_time(parent_text, trade_date=trade_date)
 
             if not time_text:
@@ -229,7 +262,9 @@ class RealPlatformSentimentProvider:
                     summary=parent_text,
                     post_time=time_text,
                     content=parent_text,
-                    url=urljoin(list_url, self._clean_text(anchor.get("href", ""))) if anchor.get("href") else list_url,
+                    url=urljoin(list_url, self._clean_text(anchor.get("href", "")))
+                    if anchor.get("href")
+                    else list_url,
                     source_page=list_url,
                     is_noise=self._is_noise_text(parent_text),
                     capture_status="success",
@@ -257,7 +292,15 @@ class RealPlatformSentimentProvider:
 
         # try to extract richer article content using common article containers
         content_candidate = ""
-        for sel in ("div#zwcon", "div.article-content", "div#article", "div.article", "div#content", "div.main-content", "div.content"):
+        for sel in (
+            "div#zwcon",
+            "div.article-content",
+            "div#article",
+            "div.article",
+            "div#content",
+            "div.main-content",
+            "div.content",
+        ):
             node = soup.select_one(sel)
             if node:
                 candidate = self._clean_text(node.get_text(" ", strip=True))
@@ -267,14 +310,22 @@ class RealPlatformSentimentProvider:
 
         if not content_candidate:
             # fallback to longest block of text in the page
-            paragraphs = [self._clean_text(p.get_text(" ", strip=True)) for p in soup.find_all(["p", "div"]) if p]
+            paragraphs = [
+                self._clean_text(p.get_text(" ", strip=True))
+                for p in soup.find_all(["p", "div"])
+                if p
+            ]
             paragraphs = sorted(paragraphs, key=lambda x: len(x), reverse=True)
             if paragraphs:
                 best = paragraphs[0]
                 if len(best) >= 160:
                     content_candidate = best
 
-        content = content_candidate or self._extract_article_content(text) or self._normalize_content(text)
+        content = (
+            content_candidate
+            or self._extract_article_content(text)
+            or self._normalize_content(text)
+        )
 
         title = self._short_title(page_title or content or text)
         post_time = self._extract_time(text, trade_date=trade_date)
@@ -315,7 +366,9 @@ class RealPlatformSentimentProvider:
             )
         }
 
-    def _collect_fallback_rows(self, list_url: str, platform: str, symbol: str, trade_date: date) -> List[Dict[str, str]]:
+    def _collect_fallback_rows(
+        self, list_url: str, platform: str, symbol: str, trade_date: date
+    ) -> List[Dict[str, str]]:
         title = f"{symbol} {platform} fallback record"
         return [
             self._build_raw_row(
@@ -334,8 +387,9 @@ class RealPlatformSentimentProvider:
             )
         ]
 
-    def _collect_stub_rows(self, platform: str, symbol: str, trade_date: date) -> List[Dict[str, str]]:
-        row = self.stub.fetch(platform=platform, symbol=symbol, trade_date=trade_date)
+    def _collect_stub_rows(
+        self, platform: str, symbol: str, trade_date: date
+    ) -> List[Dict[str, str]]:
         return [
             self._build_raw_row(
                 trade_date=trade_date,
@@ -477,7 +531,9 @@ class RealPlatformSentimentProvider:
         capture_status: str,
         failure_reason: str,
     ) -> Dict[str, str]:
-        summary_text = self._build_summary(summary if summary is not None else title, content)
+        summary_text = self._build_summary(
+            summary if summary is not None else title, content
+        )
         norm_content = self._normalize_content(content)
 
         # compute keyword score

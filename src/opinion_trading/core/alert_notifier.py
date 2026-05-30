@@ -51,7 +51,10 @@ class AlertNotifier:
         if not self.wecom_webhook:
             return {"enabled": False, "ok": False, "detail": "WECOM_WEBHOOK not set"}
         try:
-            payload = {"msgtype": "markdown", "markdown": {"content": message.replace("\n", "\n> ")}}
+            payload = {
+                "msgtype": "markdown",
+                "markdown": {"content": message.replace("\n", "\n> ")},
+            }
             r = requests.post(self.wecom_webhook, json=payload, timeout=self.timeout)
             r.raise_for_status()
             return {"enabled": True, "ok": True, "detail": "sent"}
@@ -60,7 +63,11 @@ class AlertNotifier:
 
     def _push_telegram(self, message: str) -> Dict:
         if not self.telegram_bot_token or not self.telegram_chat_id:
-            return {"enabled": False, "ok": False, "detail": "TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID not set"}
+            return {
+                "enabled": False,
+                "ok": False,
+                "detail": "TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID not set",
+            }
         try:
             url = f"https://api.telegram.org/bot{self.telegram_bot_token}/sendMessage"
             payload = {"chat_id": self.telegram_chat_id, "text": message}

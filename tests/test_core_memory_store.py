@@ -1,6 +1,3 @@
-import json
-from pathlib import Path
-
 from opinion_trading.core.memory_store import JsonLineMemoryStore
 
 

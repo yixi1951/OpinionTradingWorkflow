@@ -30,10 +30,14 @@ def _env_int(name: str, default: int) -> int:
     try:
         return int(raw_value)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=f"{name} must be an integer") from exc
+        raise HTTPException(
+            status_code=400, detail=f"{name} must be an integer"
+        ) from exc
 
 
-def _render_template(template: str, *, token: str, request_id: str, texts: List[str]) -> str:
+def _render_template(
+    template: str, *, token: str, request_id: str, texts: List[str]
+) -> str:
     return (
         template.replace("{{token}}", token)
         .replace("{{id}}", request_id)
@@ -138,7 +142,7 @@ def _extract_scores_from_text(text: str) -> Optional[List[float]]:
         right_brace = cleaned.rfind("}")
         if 0 <= left_brace < right_brace:
             try:
-                parsed = json.loads(cleaned[left_brace:right_brace + 1])
+                parsed = json.loads(cleaned[left_brace : right_brace + 1])
             except Exception:
                 parsed = None
         else:
@@ -150,7 +154,9 @@ def _extract_scores_from_text(text: str) -> Optional[List[float]]:
             return extracted
 
     # Fallback: extract numeric array from malformed JSON-like text.
-    array_match = re.search(r"\[\s*-?\d+(?:\.\d+)?(?:\s*,\s*-?\d+(?:\.\d+)?)*\s*\]", cleaned)
+    array_match = re.search(
+        r"\[\s*-?\d+(?:\.\d+)?(?:\s*,\s*-?\d+(?:\.\d+)?)*\s*\]", cleaned
+    )
     if array_match:
         try:
             raw_array = json.loads(array_match.group(0))
@@ -269,12 +275,17 @@ async def score_texts(req: SentimentRequest):
     """
 
     if websockets is None:
-        raise HTTPException(status_code=500, detail="websockets package not installed; run `pip install -r requirements.txt`")
+        raise HTTPException(
+            status_code=500,
+            detail="websockets package not installed; run `pip install -r requirements.txt`",
+        )
 
     ws_url = os.getenv("WS_GATEWAY_URL", "ws://localhost:18789")
     ws_token = os.getenv("WS_GATEWAY_TOKEN")
     if not ws_token:
-        raise HTTPException(status_code=400, detail="WS_GATEWAY_TOKEN is not set in environment")
+        raise HTTPException(
+            status_code=400, detail="WS_GATEWAY_TOKEN is not set in environment"
+        )
 
     request_id = str(uuid.uuid4())
     auth_template = os.getenv("WS_GATEWAY_AUTH_TEMPLATE")
@@ -292,7 +303,9 @@ async def score_texts(req: SentimentRequest):
     ]
 
     auth_msg = (
-        _render_template(auth_template, token=ws_token, request_id=request_id, texts=req.texts)
+        _render_template(
+            auth_template, token=ws_token, request_id=request_id, texts=req.texts
+        )
         if auth_template
         else None
     )
@@ -314,7 +327,9 @@ async def score_texts(req: SentimentRequest):
                 await ws.send(auth_msg)
 
                 try:
-                    auth_reply_raw = await asyncio.wait_for(ws.recv(), timeout=auth_timeout)
+                    auth_reply_raw = await asyncio.wait_for(
+                        ws.recv(), timeout=auth_timeout
+                    )
                 except asyncio.TimeoutError:
                     auth_reply_raw = None
 
@@ -324,15 +339,28 @@ async def score_texts(req: SentimentRequest):
                     except Exception:
                         auth_reply = None
                     if isinstance(auth_reply, dict):
-                        auth_ok = auth_reply.get("ok") is True or auth_reply.get("status") in {"ok", "success", "authenticated"}
+                        auth_ok = auth_reply.get("ok") is True or auth_reply.get(
+                            "status"
+                        ) in {"ok", "success", "authenticated"}
                         if auth_reply.get("error"):
-                            raise HTTPException(status_code=502, detail=f"Gateway auth failed: {auth_reply['error']}")
-                        if not auth_ok and os.getenv("WS_GATEWAY_REQUIRE_AUTH_OK", "0") == "1":
-                            raise HTTPException(status_code=502, detail=f"Gateway auth reply not accepted: {auth_reply}")
+                            raise HTTPException(
+                                status_code=502,
+                                detail=f"Gateway auth failed: {auth_reply['error']}",
+                            )
+                        if (
+                            not auth_ok
+                            and os.getenv("WS_GATEWAY_REQUIRE_AUTH_OK", "0") == "1"
+                        ):
+                            raise HTTPException(
+                                status_code=502,
+                                detail=f"Gateway auth reply not accepted: {auth_reply}",
+                            )
             else:
                 # Automatic JSON-RPC connect flow: wait for connect.challenge event
                 try:
-                    challenge_raw = await asyncio.wait_for(ws.recv(), timeout=auth_timeout)
+                    challenge_raw = await asyncio.wait_for(
+                        ws.recv(), timeout=auth_timeout
+                    )
                 except asyncio.TimeoutError:
                     challenge_raw = None
 
@@ -341,7 +369,11 @@ async def score_texts(req: SentimentRequest):
                         chal = json.loads(challenge_raw)
                     except Exception:
                         chal = None
-                    if isinstance(chal, dict) and chal.get("type") == "event" and chal.get("event") == "connect.challenge":
+                    if (
+                        isinstance(chal, dict)
+                        and chal.get("type") == "event"
+                        and chal.get("event") == "connect.challenge"
+                    ):
                         # send a `req` connect using the same scope set as the Control UI
                         connect_req = {
                             "type": "req",
@@ -350,7 +382,12 @@ async def score_texts(req: SentimentRequest):
                             "params": {
                                 "minProtocol": 4,
                                 "maxProtocol": 4,
-                                "client": {"id": "openclaw-control-ui", "version": "proxy", "platform": "web", "mode": "ui"},
+                                "client": {
+                                    "id": "openclaw-control-ui",
+                                    "version": "proxy",
+                                    "platform": "web",
+                                    "mode": "ui",
+                                },
                                 "role": "operator",
                                 "scopes": connect_scopes,
                                 "auth": {"token": ws_token},
@@ -363,12 +400,19 @@ async def score_texts(req: SentimentRequest):
                             await ws.send(auth_msg)
 
             if request_template:
-                request_msg = _render_template(request_template, token=ws_token, request_id=request_id, texts=req.texts)
+                request_msg = _render_template(
+                    request_template,
+                    token=ws_token,
+                    request_id=request_id,
+                    texts=req.texts,
+                )
                 await ws.send(request_msg)
 
                 try:
                     while True:
-                        raw = await asyncio.wait_for(ws.recv(), timeout=response_timeout)
+                        raw = await asyncio.wait_for(
+                            ws.recv(), timeout=response_timeout
+                        )
                         try:
                             payload = json.loads(raw)
                         except Exception:
@@ -378,39 +422,63 @@ async def score_texts(req: SentimentRequest):
                         if scores is not None:
                             return {"scores": scores}
 
-                        if isinstance(payload, dict) and payload.get("id") == request_id:
+                        if (
+                            isinstance(payload, dict)
+                            and payload.get("id") == request_id
+                        ):
                             nested_scores = _extract_scores(payload.get("data"))
                             if nested_scores is not None:
                                 return {"scores": nested_scores}
 
                 except asyncio.TimeoutError as exc:
-                    raise HTTPException(status_code=502, detail="Timeout waiting for gateway response") from exc
+                    raise HTTPException(
+                        status_code=502, detail="Timeout waiting for gateway response"
+                    ) from exc
 
             session_create_id = str(uuid.uuid4())
-            await ws.send(json.dumps({"type": "req", "id": session_create_id, "method": "sessions.create", "params": {"model": model_name}}))
+            await ws.send(
+                json.dumps(
+                    {
+                        "type": "req",
+                        "id": session_create_id,
+                        "method": "sessions.create",
+                        "params": {"model": model_name},
+                    }
+                )
+            )
 
             session_key: Optional[str] = None
             deadline = asyncio.get_running_loop().time() + response_timeout
             while True:
                 remaining = deadline - asyncio.get_running_loop().time()
                 if remaining <= 0:
-                    raise HTTPException(status_code=502, detail="Timeout waiting for gateway response")
+                    raise HTTPException(
+                        status_code=502, detail="Timeout waiting for gateway response"
+                    )
                 raw = await asyncio.wait_for(ws.recv(), timeout=remaining)
                 try:
                     payload = json.loads(raw)
                 except Exception:
                     continue
-                if payload.get("type") == "res" and payload.get("id") == session_create_id:
+                if (
+                    payload.get("type") == "res"
+                    and payload.get("id") == session_create_id
+                ):
                     create_payload = payload.get("payload") or {}
-                    session_key = create_payload.get("key") or create_payload.get("sessionKey")
+                    session_key = create_payload.get("key") or create_payload.get(
+                        "sessionKey"
+                    )
                     if not isinstance(session_key, str) or not session_key:
-                        raise HTTPException(status_code=502, detail=f"Gateway did not return a session key: {payload}")
+                        raise HTTPException(
+                            status_code=502,
+                            detail=f"Gateway did not return a session key: {payload}",
+                        )
                     break
 
             prompt = [
                 "你是一个情绪评分引擎。",
                 "必须只输出严格 JSON，禁止 markdown、解释、前后缀。",
-                "唯一允许格式：{\"scores\":[n1,n2,...]}。",
+                '唯一允许格式：{"scores":[n1,n2,...]}。',
                 "scores 中每个元素必须是 number，不是 string，不是 object。",
                 "scores 长度必须等于输入文本数量。",
                 "每个分数范围在 -1 到 1 之间，越大越正面，越小越负面。",
@@ -462,7 +530,10 @@ async def score_texts(req: SentimentRequest):
                     event_payload = payload.get("payload") or {}
                     if event_payload.get("sessionKey") != session_key:
                         continue
-                    if send_run_id and event_payload.get("runId") not in {None, send_run_id}:
+                    if send_run_id and event_payload.get("runId") not in {
+                        None,
+                        send_run_id,
+                    }:
                         continue
                     text = _extract_assistant_text(event_payload)
                     if text:
@@ -471,11 +542,17 @@ async def score_texts(req: SentimentRequest):
                         if scores is not None:
                             return {"scores": scores}
 
-                if payload.get("type") == "event" and payload.get("event") in {"chat", "session.message"}:
+                if payload.get("type") == "event" and payload.get("event") in {
+                    "chat",
+                    "session.message",
+                }:
                     event_payload = payload.get("payload") or {}
                     if event_payload.get("sessionKey") != session_key:
                         continue
-                    if send_run_id and event_payload.get("runId") not in {None, send_run_id}:
+                    if send_run_id and event_payload.get("runId") not in {
+                        None,
+                        send_run_id,
+                    }:
                         continue
                     text = _extract_assistant_text(event_payload)
                     if text:
@@ -494,4 +571,6 @@ async def score_texts(req: SentimentRequest):
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"WebSocket proxy error: {exc}") from exc
+        raise HTTPException(
+            status_code=502, detail=f"WebSocket proxy error: {exc}"
+        ) from exc

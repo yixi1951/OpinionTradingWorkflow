@@ -12,7 +12,9 @@ class RawPostCsvStore:
         self.raw_dir = Path(raw_dir)
         self.raw_dir.mkdir(parents=True, exist_ok=True)
 
-    def save_partitioned_rows(self, trade_date: str, rows: Iterable[Dict]) -> Dict[str, Path]:
+    def save_partitioned_rows(
+        self, trade_date: str, rows: Iterable[Dict]
+    ) -> Dict[str, Path]:
         rows_list = [self._normalize_row(row) for row in rows]
         combined_path = self.raw_dir / f"raw_posts_{trade_date}.csv"
         self._write_csv(combined_path, rows_list)
@@ -30,10 +32,19 @@ class RawPostCsvStore:
             self._write_csv(target, platform_rows)
             source_paths[platform] = target
 
-        return {"combined": combined_path, **{f"source:{platform}": path for platform, path in source_paths.items()}}
+        return {
+            "combined": combined_path,
+            **{f"source:{platform}": path for platform, path in source_paths.items()},
+        }
 
-    def save_failure_logs(self, trade_date: str, rows: Iterable[Dict]) -> Dict[str, Path]:
-        failure_rows = [self._normalize_row(row) for row in rows if str(row.get("capture_status", "success")).lower() != "success"]
+    def save_failure_logs(
+        self, trade_date: str, rows: Iterable[Dict]
+    ) -> Dict[str, Path]:
+        failure_rows = [
+            self._normalize_row(row)
+            for row in rows
+            if str(row.get("capture_status", "success")).lower() != "success"
+        ]
 
         failure_dir = self.raw_dir / "failures"
         failure_dir.mkdir(parents=True, exist_ok=True)
@@ -51,7 +62,10 @@ class RawPostCsvStore:
             self._write_jsonl(target, platform_rows)
             source_paths[platform] = target
 
-        return {"combined": combined_path, **{f"source:{platform}": path for platform, path in source_paths.items()}}
+        return {
+            "combined": combined_path,
+            **{f"source:{platform}": path for platform, path in source_paths.items()},
+        }
 
     def _write_csv(self, target: Path, rows: List[Dict]) -> None:
         fieldnames = [
@@ -85,7 +99,12 @@ class RawPostCsvStore:
 
     def _normalize_row(self, row: Dict) -> Dict:
         normalized = dict(row)
-        normalized.setdefault("summary", self._build_summary(normalized.get("title", ""), normalized.get("content", "")))
+        normalized.setdefault(
+            "summary",
+            self._build_summary(
+                normalized.get("title", ""), normalized.get("content", "")
+            ),
+        )
         normalized.setdefault("capture_status", "success")
         normalized.setdefault("failure_reason", "")
         normalized.setdefault("is_noise", False)

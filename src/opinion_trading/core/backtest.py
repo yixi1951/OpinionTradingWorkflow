@@ -9,7 +9,9 @@ from typing import Dict, Iterable, List, Sequence
 
 from opinion_trading.core.config_loader import load_runtime_config
 from opinion_trading.core.metrics import compute_performance_metrics
-from opinion_trading.integrations.platform_sentiment_stub import PlatformSentimentProvider
+from opinion_trading.integrations.platform_sentiment_stub import (
+    PlatformSentimentProvider,
+)
 from opinion_trading.skills.sentiment_analysis import SentimentAnalysisSkill
 from opinion_trading.skills.sentiment_collection import SentimentCollectionSkill
 from opinion_trading.skills.trade_simulation import PaperTradingSkill
@@ -98,7 +100,9 @@ class StrategyBacktester:
         all_platforms = self.config.strategy.platforms
 
         for bearish_threshold in bearish_values:
-            for size in range(self.config.strategy.min_platforms_for_signal, len(all_platforms) + 1):
+            for size in range(
+                self.config.strategy.min_platforms_for_signal, len(all_platforms) + 1
+            ):
                 for combo in combinations(all_platforms, size):
                     results.append(
                         self.run_single(

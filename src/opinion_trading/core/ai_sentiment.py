@@ -23,13 +23,21 @@ class AISentimentAnalyzer:
         # By default do not auto-download a model. To enable local transformers pipeline,
         # set environment variable ENABLE_TRANSFORMERS_PIPELINE=1. This avoids large model
         # downloads during normal runs.
-        enable = str(os.environ.get("ENABLE_TRANSFORMERS_PIPELINE", "0")) in ("1", "true", "True")
+        enable = str(os.environ.get("ENABLE_TRANSFORMERS_PIPELINE", "0")) in (
+            "1",
+            "true",
+            "True",
+        )
         if enable:
             try:
                 from transformers import pipeline  # type: ignore
 
                 env_model = os.environ.get("AI_MODEL_NAME")
-                model = model_name or env_model or "distilbert-base-uncased-finetuned-sst-2-english"
+                model = (
+                    model_name
+                    or env_model
+                    or "distilbert-base-uncased-finetuned-sst-2-english"
+                )
                 self._pipeline = pipeline("sentiment-analysis", model=model)
             except Exception:
                 self._pipeline = None
@@ -57,7 +65,11 @@ class AISentimentAnalyzer:
                 for r in results:
                     label = str(r.get("label", ""))
                     score = float(r.get("score", 0.0))
-                    if label.upper().startswith("POS") or label.upper().startswith("1") or label.upper().startswith("2"):
+                    if (
+                        label.upper().startswith("POS")
+                        or label.upper().startswith("1")
+                        or label.upper().startswith("2")
+                    ):
                         # POSITIVE -> map to (0,1]
                         mapped = min(1.0, max(-1.0, (score)))
                     else:

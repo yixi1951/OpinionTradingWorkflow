@@ -16,7 +16,9 @@ class QualityReportBuilder:
         self.report_dir = Path(report_dir)
         self.report_dir.mkdir(parents=True, exist_ok=True)
 
-    def build(self, trade_date: str, raw_rows: Iterable[Dict], raw_csv_path: Path) -> Path:
+    def build(
+        self, trade_date: str, raw_rows: Iterable[Dict], raw_csv_path: Path
+    ) -> Path:
         rows = list(raw_rows)
         target = self.report_dir / f"quality_{trade_date}.md"
 
@@ -30,7 +32,9 @@ class QualityReportBuilder:
         lines.extend(self._format_summary(overall))
         lines.append("")
         lines.append("## Per Platform")
-        lines.append("| Platform | Rows | Title Coverage | Time Coverage | Content Coverage | Noise Rate | Status |")
+        lines.append(
+            "| Platform | Rows | Title Coverage | Time Coverage | Content Coverage | Noise Rate | Status |"
+        )
         lines.append("|---|---:|---:|---:|---:|---:|---|")
         for platform, summary in per_platform.items():
             lines.append(self._format_platform_row(platform, summary))
@@ -50,7 +54,10 @@ class QualityReportBuilder:
         grouped: Dict[str, List[Dict]] = defaultdict(list)
         for row in rows:
             grouped[str(row.get("platform", "unknown"))].append(row)
-        return {platform: self._summarize(items) for platform, items in sorted(grouped.items())}
+        return {
+            platform: self._summarize(items)
+            for platform, items in sorted(grouped.items())
+        }
 
     def _summarize(self, rows: List[Dict]) -> Dict[str, float]:
         total = len(rows)
@@ -74,7 +81,9 @@ class QualityReportBuilder:
         content_coverage = content_ok / total
         noise_rate = noise_count / total
 
-        status = self._passes(title_coverage, time_coverage, content_coverage, noise_rate)
+        status = self._passes(
+            title_coverage, time_coverage, content_coverage, noise_rate
+        )
         return {
             "rows": float(total),
             "title_coverage": title_coverage,
@@ -96,19 +105,29 @@ class QualityReportBuilder:
         ]
 
     def _format_platform_row(self, platform: str, summary: Dict[str, float]) -> str:
-        status_text = "PASS" if self._passes(
-            summary["title_coverage"],
-            summary["time_coverage"],
-            summary["content_coverage"],
-            summary["noise_rate"],
-        ) else "FAIL"
+        status_text = (
+            "PASS"
+            if self._passes(
+                summary["title_coverage"],
+                summary["time_coverage"],
+                summary["content_coverage"],
+                summary["noise_rate"],
+            )
+            else "FAIL"
+        )
         return (
             f"| {platform} | {int(summary['rows'])} | {summary['title_coverage']:.2%} | "
             f"{summary['time_coverage']:.2%} | {summary['content_coverage']:.2%} | "
             f"{summary['noise_rate']:.2%} | {status_text} |"
         )
 
-    def _passes(self, title_coverage: float, time_coverage: float, content_coverage: float, noise_rate: float) -> bool:
+    def _passes(
+        self,
+        title_coverage: float,
+        time_coverage: float,
+        content_coverage: float,
+        noise_rate: float,
+    ) -> bool:
         return (
             title_coverage >= self.TITLE_THRESHOLD
             and time_coverage >= self.TIME_THRESHOLD
@@ -127,7 +146,10 @@ class QualityReportBuilder:
         post_time = self._normalize_text(row.get("post_time"))
         if not post_time:
             return False
-        return bool(re.search(r"20\d{2}[-/]\d{1,2}[-/]\d{1,2}", post_time) or re.search(r"\d{1,2}:\d{2}", post_time))
+        return bool(
+            re.search(r"20\d{2}[-/]\d{1,2}[-/]\d{1,2}", post_time)
+            or re.search(r"\d{1,2}:\d{2}", post_time)
+        )
 
     def _has_content(self, row: Dict) -> bool:
         content = self._normalize_text(row.get("content"))
@@ -150,7 +172,10 @@ class QualityReportBuilder:
         low = text.lower()
         if len(text) <= 8:
             return True
-        if any(token.lower() in low for token in ["登录", "注册", "下载app", "扫一扫", "免责声明", "返回", "举报", "郑重声明"]):
+        if any(
+            token.lower() in low
+            for token in ["登录", "注册", "下载app", "扫一扫", "免责声明", "返回", "举报", "郑重声明"]
+        ):
             return True
         return False
 

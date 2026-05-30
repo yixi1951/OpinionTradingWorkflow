@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import asdict
 from pathlib import Path
 from typing import Dict, Iterable, List
 
 
-def build_daily_summary(trade_date: str, rows: Iterable[Dict], out_dir: str) -> Dict[str, Path]:
+def build_daily_summary(
+    trade_date: str, rows: Iterable[Dict], out_dir: str
+) -> Dict[str, Path]:
     target_dir = Path(out_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
 
@@ -31,26 +32,41 @@ def build_daily_summary(trade_date: str, rows: Iterable[Dict], out_dir: str) -> 
         "time_coverage",
         "content_coverage",
     ]
-    csv_lines.append(",".join(csv_header)
-    )
+    csv_lines.append(",".join(csv_header))
 
     md_lines: List[str] = []
     md_lines.append(f"# Daily Collection Summary - {trade_date}")
     md_lines.append("")
-    md_lines.append("| Platform | Total | Success | Fail | Success% | Noise% | Title% | Time% | Content% |")
+    md_lines.append(
+        "| Platform | Total | Success | Fail | Success% | Noise% | Title% | Time% | Content% |"
+    )
     md_lines.append("|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
 
     for platform, items in sorted(per_platform.items()):
         total = len(items)
-        success = sum(1 for it in items if str(it.get("capture_status", "")).lower() == "success")
+        success = sum(
+            1 for it in items if str(it.get("capture_status", "")).lower() == "success"
+        )
         failure = total - success
         success_rate = success / total if total else 0.0
         noise = sum(1 for it in items if bool(it.get("is_noise")))
         noise_rate = noise / total if total else 0.0
 
-        title_cov = sum(1 for it in items if str(it.get("title", "")).strip()) / total if total else 0.0
-        time_cov = sum(1 for it in items if str(it.get("post_time", "")).strip()) / total if total else 0.0
-        content_cov = sum(1 for it in items if str(it.get("content", "")).strip()) / total if total else 0.0
+        title_cov = (
+            sum(1 for it in items if str(it.get("title", "")).strip()) / total
+            if total
+            else 0.0
+        )
+        time_cov = (
+            sum(1 for it in items if str(it.get("post_time", "")).strip()) / total
+            if total
+            else 0.0
+        )
+        content_cov = (
+            sum(1 for it in items if str(it.get("content", "")).strip()) / total
+            if total
+            else 0.0
+        )
 
         csv_values = [
             trade_date,
@@ -73,29 +89,47 @@ def build_daily_summary(trade_date: str, rows: Iterable[Dict], out_dir: str) -> 
 
     # overall row
     total_all = len(rows_list)
-    success_all = sum(1 for it in rows_list if str(it.get("capture_status", "")).lower() == "success")
+    success_all = sum(
+        1 for it in rows_list if str(it.get("capture_status", "")).lower() == "success"
+    )
     failure_all = total_all - success_all
     success_rate_all = success_all / total_all if total_all else 0.0
     noise_all = sum(1 for it in rows_list if bool(it.get("is_noise")))
     noise_rate_all = noise_all / total_all if total_all else 0.0
 
-    title_cov_all = sum(1 for it in rows_list if str(it.get("title", "")).strip()) / total_all if total_all else 0.0
-    time_cov_all = sum(1 for it in rows_list if str(it.get("post_time", "")).strip()) / total_all if total_all else 0.0
-    content_cov_all = sum(1 for it in rows_list if str(it.get("content", "")).strip()) / total_all if total_all else 0.0
+    title_cov_all = (
+        sum(1 for it in rows_list if str(it.get("title", "")).strip()) / total_all
+        if total_all
+        else 0.0
+    )
+    time_cov_all = (
+        sum(1 for it in rows_list if str(it.get("post_time", "")).strip()) / total_all
+        if total_all
+        else 0.0
+    )
+    content_cov_all = (
+        sum(1 for it in rows_list if str(it.get("content", "")).strip()) / total_all
+        if total_all
+        else 0.0
+    )
 
-    csv_lines.append(",".join([
-        trade_date,
-        "ALL",
-        str(total_all),
-        str(success_all),
-        str(failure_all),
-        f"{success_rate_all:.3f}",
-        str(noise_all),
-        f"{noise_rate_all:.3f}",
-        f"{title_cov_all:.3f}",
-        f"{time_cov_all:.3f}",
-        f"{content_cov_all:.3f}",
-    ]))
+    csv_lines.append(
+        ",".join(
+            [
+                trade_date,
+                "ALL",
+                str(total_all),
+                str(success_all),
+                str(failure_all),
+                f"{success_rate_all:.3f}",
+                str(noise_all),
+                f"{noise_rate_all:.3f}",
+                f"{title_cov_all:.3f}",
+                f"{time_cov_all:.3f}",
+                f"{content_cov_all:.3f}",
+            ]
+        )
+    )
 
     md_lines.append("")
     md_lines.append("## Totals")

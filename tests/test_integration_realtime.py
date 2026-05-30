@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import date
 from types import SimpleNamespace
 
 import pytest
@@ -48,7 +47,12 @@ class StubAnalystAgent:
                 )
             }
         }
-        return [], aggregated, [platforms[0]], {platforms[0]: snapshots[0].sentiment_score}
+        return (
+            [],
+            aggregated,
+            [platforms[0]],
+            {platforms[0]: snapshots[0].sentiment_score},
+        )
 
 
 class StubStore:
@@ -88,7 +92,9 @@ def workflow(monkeypatch, tmp_path):
         report_dir=str(tmp_path / "reports"),
         raw_dir=str(tmp_path / "raw"),
     )
-    monkeypatch.setattr("opinion_trading.agents.workflow.load_runtime_config", lambda _: fake_config)
+    monkeypatch.setattr(
+        "opinion_trading.agents.workflow.load_runtime_config", lambda _: fake_config
+    )
     wf = OpinionTradingWorkflow(config_path="dummy.yaml")
     wf.collector = StubCollectorAgent()
     wf.analyst = StubAnalystAgent()
@@ -99,7 +105,9 @@ def workflow(monkeypatch, tmp_path):
 
 
 def test_run_realtime_single_iteration(workflow):
-    result = workflow.run_realtime(iterations=2, interval_seconds=0, top_n=1, alert_threshold=0.1)
+    result = workflow.run_realtime(
+        iterations=2, interval_seconds=0, top_n=1, alert_threshold=0.1
+    )
 
     assert result["mode"] == "realtime"
     assert result["iterations"] == 2

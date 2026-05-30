@@ -15,7 +15,9 @@ from opinion_trading.core.quality_report import QualityReportBuilder
 from opinion_trading.core.raw_store import RawPostCsvStore
 from opinion_trading.core.report_builder import DailyReportBuilder
 from opinion_trading.core.daily_aggregator import build_daily_summary
-from opinion_trading.integrations.platform_sentiment_real import RealPlatformSentimentProvider
+from opinion_trading.integrations.platform_sentiment_real import (
+    RealPlatformSentimentProvider,
+)
 from opinion_trading.skills.sentiment_analysis import SentimentAnalysisSkill
 from opinion_trading.skills.sentiment_collection import SentimentCollectionSkill
 from opinion_trading.skills.trade_simulation import PaperTradingSkill
@@ -60,20 +62,30 @@ class OpinionTradingWorkflow:
                     )
                 )
 
-        raw_outputs = self.raw_store.save_partitioned_rows(run_date.isoformat(), raw_rows)
-        failure_outputs = self.raw_store.save_failure_logs(run_date.isoformat(), raw_rows)
+        raw_outputs = self.raw_store.save_partitioned_rows(
+            run_date.isoformat(), raw_rows
+        )
+        failure_outputs = self.raw_store.save_failure_logs(
+            run_date.isoformat(), raw_rows
+        )
         raw_csv_path = raw_outputs["combined"]
-        quality_report_path = self.quality_reporter.build(run_date.isoformat(), raw_rows, raw_csv_path)
+        quality_report_path = self.quality_reporter.build(
+            run_date.isoformat(), raw_rows, raw_csv_path
+        )
 
         # build daily collection summary (CSV + MD)
-        daily_summary_outputs = build_daily_summary(run_date.isoformat(), raw_rows, self.config.report_dir)
+        daily_summary_outputs = build_daily_summary(
+            run_date.isoformat(), raw_rows, self.config.report_dir
+        )
 
         snapshots = self.collector.run(
             symbols=self.config.symbols,
             platforms=self.config.strategy.platforms,
             trade_date=run_date,
         )
-        self.store.append_many("sentiment_history.jsonl", [x.to_dict() for x in snapshots])
+        self.store.append_many(
+            "sentiment_history.jsonl", [x.to_dict() for x in snapshots]
+        )
 
         signals, aggregated, best_combo, combo_scores = self.analyst.run(
             trade_date=run_date,
@@ -111,7 +123,9 @@ class OpinionTradingWorkflow:
             "trades": len(trades),
             "report": str(report_path),
             "raw_csv": str(raw_csv_path),
-            "raw_sources": {k: str(v) for k, v in raw_outputs.items() if k != "combined"},
+            "raw_sources": {
+                k: str(v) for k, v in raw_outputs.items() if k != "combined"
+            },
             "failure_logs": {k: str(v) for k, v in failure_outputs.items()},
             "quality_report": str(quality_report_path),
             "daily_summary": str(daily_summary_outputs.get("csv")),
@@ -144,7 +158,9 @@ class OpinionTradingWorkflow:
                 platforms=self.config.strategy.platforms,
                 trade_date=run_date,
             )
-            self.store.append_many("realtime_sentiment_history.jsonl", [x.to_dict() for x in snapshots])
+            self.store.append_many(
+                "realtime_sentiment_history.jsonl", [x.to_dict() for x in snapshots]
+            )
 
             signals, aggregated, best_combo, _ = self.analyst.run(
                 trade_date=run_date,
@@ -152,7 +168,9 @@ class OpinionTradingWorkflow:
                 platforms=self.config.strategy.platforms,
             )
             latest_combo = best_combo
-            self.store.append_many("signal_history.jsonl", [x.to_dict() for x in signals])
+            self.store.append_many(
+                "signal_history.jsonl", [x.to_dict() for x in signals]
+            )
 
             today_aggregated = aggregated.get(run_date, {})
 
@@ -234,7 +252,9 @@ class OpinionTradingWorkflow:
             if i < iterations - 1:
                 sleep(max(1, interval_seconds))
 
-        report_paths = self._write_realtime_pick_report(latest_picks, latest_combo, cycle_results, alerts)
+        report_paths = self._write_realtime_pick_report(
+            latest_picks, latest_combo, cycle_results, alerts
+        )
         return {
             "run_time": datetime.now().isoformat(),
             "mode": "realtime",
@@ -253,7 +273,9 @@ class OpinionTradingWorkflow:
             "alert_file": str(report_paths["alerts"]),
         }
 
-    def _write_realtime_pick_report(self, picks, best_combo, cycle_results, alerts) -> Dict[str, Path]:
+    def _write_realtime_pick_report(
+        self, picks, best_combo, cycle_results, alerts
+    ) -> Dict[str, Path]:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         report_dir = Path(self.config.report_dir)
         report_dir.mkdir(parents=True, exist_ok=True)
@@ -263,7 +285,9 @@ class OpinionTradingWorkflow:
         alert_path = report_dir / f"realtime_alerts_{ts}.jsonl"
 
         with csv_path.open("w", encoding="utf-8-sig", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=["symbol", "avg_score", "platform_scores"])
+            writer = csv.DictWriter(
+                f, fieldnames=["symbol", "avg_score", "platform_scores"]
+            )
             writer.writeheader()
             for row in picks:
                 writer.writerow(
@@ -271,7 +295,8 @@ class OpinionTradingWorkflow:
                         "symbol": row.get("symbol", ""),
                         "avg_score": f"{float(row.get('avg_score', 0.0)):.4f}",
                         "platform_scores": ", ".join(
-                            f"{k}:{v:.3f}" for k, v in row.get("platform_scores", {}).items()
+                            f"{k}:{v:.3f}"
+                            for k, v in row.get("platform_scores", {}).items()
                         ),
                     }
                 )
@@ -287,7 +312,10 @@ class OpinionTradingWorkflow:
             for idx, row in enumerate(picks, start=1):
                 md_lines.append(
                     f"- #{idx} {row.get('symbol', '')} | avg_score={float(row.get('avg_score', 0.0)):.4f} | "
-                    + ", ".join(f"{k}:{v:.3f}" for k, v in row.get("platform_scores", {}).items())
+                    + ", ".join(
+                        f"{k}:{v:.3f}"
+                        for k, v in row.get("platform_scores", {}).items()
+                    )
                 )
         else:
             md_lines.append("- No picks generated.")

@@ -38,7 +38,9 @@ def backtester(monkeypatch):
         symbols=["600519.SH"],
     )
 
-    monkeypatch.setattr("opinion_trading.core.backtest.load_runtime_config", lambda _: fake_config)
+    monkeypatch.setattr(
+        "opinion_trading.core.backtest.load_runtime_config", lambda _: fake_config
+    )
     bt = StrategyBacktester(config_path="dummy.yaml")
     bt.collector = FakeCollector()
     return bt

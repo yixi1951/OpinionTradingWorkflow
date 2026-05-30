@@ -17,7 +17,14 @@ from opinion_trading.core.evaluation import (
 def test_load_signals_missing_file_returns_empty_df(tmp_path):
     df = load_signals(str(tmp_path / "missing.jsonl"))
     assert df.empty
-    assert list(df.columns) == ["trade_date", "symbol", "action", "confidence", "reason", "platforms"]
+    assert list(df.columns) == [
+        "trade_date",
+        "symbol",
+        "action",
+        "confidence",
+        "reason",
+        "platforms",
+    ]
 
 
 def test_load_signals_and_prices_and_evaluate(tmp_path):
@@ -25,22 +32,26 @@ def test_load_signals_and_prices_and_evaluate(tmp_path):
     signal_path.write_text(
         "\n".join(
             [
-                json.dumps({
-                    "trade_date": "2026-05-01",
-                    "symbol": "600519.SH",
-                    "action": "BUY",
-                    "confidence": 0.8,
-                    "reason": "test",
-                    "platforms": ["guba"],
-                }),
-                json.dumps({
-                    "trade_date": "2026-05-02",
-                    "symbol": "600519.SH",
-                    "action": "SELL",
-                    "confidence": 0.7,
-                    "reason": "test",
-                    "platforms": ["guba"],
-                }),
+                json.dumps(
+                    {
+                        "trade_date": "2026-05-01",
+                        "symbol": "600519.SH",
+                        "action": "BUY",
+                        "confidence": 0.8,
+                        "reason": "test",
+                        "platforms": ["guba"],
+                    }
+                ),
+                json.dumps(
+                    {
+                        "trade_date": "2026-05-02",
+                        "symbol": "600519.SH",
+                        "action": "SELL",
+                        "confidence": 0.7,
+                        "reason": "test",
+                        "platforms": ["guba"],
+                    }
+                ),
             ]
         ),
         encoding="utf-8",

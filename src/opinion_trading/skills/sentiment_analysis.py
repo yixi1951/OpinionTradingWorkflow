@@ -5,7 +5,11 @@ from datetime import date
 from itertools import combinations
 from typing import Dict, List, Sequence, Tuple
 
-from opinion_trading.core.models import AggregatedSentiment, OpinionSnapshot, TradeSignal
+from opinion_trading.core.models import (
+    AggregatedSentiment,
+    OpinionSnapshot,
+    TradeSignal,
+)
 
 
 class SentimentAnalysisSkill:
@@ -21,20 +25,29 @@ class SentimentAnalysisSkill:
         self.bullish_threshold = bullish_threshold
         self.min_platforms_for_signal = min_platforms_for_signal
         self.reversal_min_delta = reversal_min_delta
-        self.platform_weights = {str(k): float(v) for k, v in (platform_weights or {}).items()}
+        self.platform_weights = {
+            str(k): float(v) for k, v in (platform_weights or {}).items()
+        }
 
-    def aggregate(self, snapshots: Sequence[OpinionSnapshot]) -> Dict[date, Dict[str, AggregatedSentiment]]:
-        grouped: Dict[date, Dict[str, Dict[str, List[float]]]] = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+    def aggregate(
+        self, snapshots: Sequence[OpinionSnapshot]
+    ) -> Dict[date, Dict[str, AggregatedSentiment]]:
+        grouped: Dict[date, Dict[str, Dict[str, List[float]]]] = defaultdict(
+            lambda: defaultdict(lambda: defaultdict(list))
+        )
 
         for row in snapshots:
-            grouped[row.trade_date][row.symbol][row.platform].append(row.sentiment_score)
+            grouped[row.trade_date][row.symbol][row.platform].append(
+                row.sentiment_score
+            )
 
         result: Dict[date, Dict[str, AggregatedSentiment]] = {}
         for trade_date, symbol_map in grouped.items():
             result[trade_date] = {}
             for symbol, platform_map in symbol_map.items():
                 platform_scores = {
-                    platform: sum(scores) / len(scores) for platform, scores in platform_map.items()
+                    platform: sum(scores) / len(scores)
+                    for platform, scores in platform_map.items()
                 }
                 result[trade_date][symbol] = AggregatedSentiment(
                     trade_date=trade_date,
@@ -56,13 +69,16 @@ class SentimentAnalysisSkill:
         if current_date not in aggregated_by_date:
             return signals
 
-        previous_dates = sorted([d for d in aggregated_by_date.keys() if d < current_date])
+        previous_dates = sorted(
+            [d for d in aggregated_by_date.keys() if d < current_date]
+        )
         prev_date = previous_dates[-1] if previous_dates else None
 
         for symbol, now_agg in aggregated_by_date[current_date].items():
             now_scores = now_agg.platform_scores
-            now_bearish = [p for p in platforms if now_scores.get(p, 0.0) < self.bearish_threshold]
-            now_bullish = [p for p in platforms if now_scores.get(p, 0.0) > self.bullish_threshold]
+            now_bullish = [
+                p for p in platforms if now_scores.get(p, 0.0) > self.bullish_threshold
+            ]
 
             if len(now_bullish) >= self.min_platforms_for_signal:
                 confidence = min(0.99, 0.6 + 0.1 * len(now_bullish))
@@ -82,13 +98,18 @@ class SentimentAnalysisSkill:
                 continue
 
             prev_scores = aggregated_by_date[prev_date][symbol].platform_scores
-            prev_bearish = [p for p in platforms if prev_scores.get(p, 0.0) < self.bearish_threshold]
+            prev_bearish = [
+                p for p in platforms if prev_scores.get(p, 0.0) < self.bearish_threshold
+            ]
 
             shared_bearish = [p for p in prev_bearish if p in platforms]
             if len(shared_bearish) < self.min_platforms_for_signal:
                 continue
 
-            deltas = [now_scores.get(p, prev_scores.get(p, 0.0)) - prev_scores.get(p, 0.0) for p in shared_bearish]
+            deltas = [
+                now_scores.get(p, prev_scores.get(p, 0.0)) - prev_scores.get(p, 0.0)
+                for p in shared_bearish
+            ]
             avg_delta = sum(deltas) / len(deltas) if deltas else 0.0
 
             if avg_delta >= self.reversal_min_delta:
@@ -119,7 +140,9 @@ class SentimentAnalysisSkill:
         for size in range(self.min_platforms_for_signal, len(all_platforms) + 1):
             for combo in combinations(all_platforms, size):
                 combo_list = list(combo)
-                combo_score = self._combo_quality_score(current_date, aggregated_by_date, combo_list)
+                combo_score = self._combo_quality_score(
+                    current_date, aggregated_by_date, combo_list
+                )
                 key = "+".join(combo_list)
                 platform_scores[key] = combo_score
                 if combo_score > best_score:
@@ -150,7 +173,11 @@ class SentimentAnalysisSkill:
             if not values:
                 continue
             resonance = max(values) - min(values)
-            weighted_avg = sum(v * w for v, w in zip(values, weights)) / sum(weights) if sum(weights) > 0 else sum(values) / len(values)
+            weighted_avg = (
+                sum(v * w for v, w in zip(values, weights)) / sum(weights)
+                if sum(weights) > 0
+                else sum(values) / len(values)
+            )
             score_sum += abs(weighted_avg) - 0.2 * resonance
             count += 1
 

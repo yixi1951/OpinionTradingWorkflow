@@ -12,13 +12,17 @@ from opinion_trading.core.openclaw_adapter import OpenClawClient  # noqa: E402
 
 class OpenClawAdapterTests(unittest.TestCase):
     def test_score_texts_posts_payload_and_returns_scores(self) -> None:
-        client = OpenClawClient(base_url="http://127.0.0.1:18080", token="demo-token", timeout=3)
+        client = OpenClawClient(
+            base_url="http://127.0.0.1:18080", token="demo-token", timeout=3
+        )
 
         response = MagicMock()
         response.json.return_value = {"scores": [0.4, -0.1]}
         response.raise_for_status.return_value = None
 
-        with patch("opinion_trading.core.openclaw_adapter.requests.post", return_value=response) as mock_post:
+        with patch(
+            "opinion_trading.core.openclaw_adapter.requests.post", return_value=response
+        ) as mock_post:
             scores = client.score_texts(["利好", "风险"])
 
         self.assertEqual(scores, [0.4, -0.1])

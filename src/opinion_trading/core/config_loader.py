@@ -13,7 +13,9 @@ from opinion_trading.core.models import RuntimeConfig, StrategyConfig
 
 def _load_yaml(path: Path) -> Dict[str, Any]:
     if yaml is None:
-        raise ModuleNotFoundError("PyYAML is required. Install with: pip install -r requirements.txt")
+        raise ModuleNotFoundError(
+            "PyYAML is required. Install with: pip install -r requirements.txt"
+        )
     with path.open("r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
@@ -26,7 +28,9 @@ def load_runtime_config(config_path: str = "config/settings.yaml") -> RuntimeCon
 
     strategy_config = StrategyConfig(
         platforms=strategy["platforms"],
-        platform_weights={k: float(v) for k, v in strategy.get("platform_weights", {}).items()},
+        platform_weights={
+            k: float(v) for k, v in strategy.get("platform_weights", {}).items()
+        },
         bearish_threshold=float(strategy["bearish_threshold"]),
         bullish_threshold=float(strategy["bullish_threshold"]),
         min_platforms_for_signal=int(strategy["min_platforms_for_signal"]),

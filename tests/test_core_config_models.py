@@ -1,5 +1,4 @@
 import yaml
-from pathlib import Path
 
 from opinion_trading.core.config_loader import load_runtime_config
 from opinion_trading.core.models import StrategyConfig

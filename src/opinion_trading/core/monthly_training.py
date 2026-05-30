@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeou
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, Tuple
 
 import pandas as pd
 
@@ -49,17 +49,22 @@ def build_monthly_training_frame(
             forecast_success_rate=0.0,
             forecast_direction="NEUTRAL",
         )
-        return pd.DataFrame(columns=[
-            "month",
-            "signals",
-            "correct_signals",
-            "accuracy",
-            "avg_return",
-            "win_rate",
-            "avg_confidence",
-            "bullish_signals",
-            "bearish_signals",
-        ]), summary
+        return (
+            pd.DataFrame(
+                columns=[
+                    "month",
+                    "signals",
+                    "correct_signals",
+                    "accuracy",
+                    "avg_return",
+                    "win_rate",
+                    "avg_confidence",
+                    "bullish_signals",
+                    "bearish_signals",
+                ]
+            ),
+            summary,
+        )
 
     merged, _ = evaluate_signals(signal_df, price_df)
     if merged.empty:
@@ -75,17 +80,22 @@ def build_monthly_training_frame(
             forecast_success_rate=0.0,
             forecast_direction="NEUTRAL",
         )
-        return pd.DataFrame(columns=[
-            "month",
-            "signals",
-            "correct_signals",
-            "accuracy",
-            "avg_return",
-            "win_rate",
-            "avg_confidence",
-            "bullish_signals",
-            "bearish_signals",
-        ]), summary
+        return (
+            pd.DataFrame(
+                columns=[
+                    "month",
+                    "signals",
+                    "correct_signals",
+                    "accuracy",
+                    "avg_return",
+                    "win_rate",
+                    "avg_confidence",
+                    "bullish_signals",
+                    "bearish_signals",
+                ]
+            ),
+            summary,
+        )
 
     valid = merged.dropna(subset=["next_return", "correct"]).copy()
     if valid.empty:
@@ -101,32 +111,34 @@ def build_monthly_training_frame(
             forecast_success_rate=0.0,
             forecast_direction="NEUTRAL",
         )
-        return pd.DataFrame(columns=[
-            "month",
-            "signals",
-            "correct_signals",
-            "accuracy",
-            "avg_return",
-            "win_rate",
-            "avg_confidence",
-            "bullish_signals",
-            "bearish_signals",
-        ]), summary
+        return (
+            pd.DataFrame(
+                columns=[
+                    "month",
+                    "signals",
+                    "correct_signals",
+                    "accuracy",
+                    "avg_return",
+                    "win_rate",
+                    "avg_confidence",
+                    "bullish_signals",
+                    "bearish_signals",
+                ]
+            ),
+            summary,
+        )
 
     valid["month"] = valid["trade_date"].dt.to_period("M").astype(str)
     valid["is_bullish"] = valid["action"].astype(str).str.upper().eq("BUY")
 
-    monthly = (
-        valid.groupby("month", as_index=False)
-        .agg(
-            signals=("symbol", "size"),
-            correct_signals=("correct", "sum"),
-            accuracy=("correct", "mean"),
-            avg_return=("next_return", "mean"),
-            win_rate=("next_return", lambda s: float((s > 0).mean())),
-            avg_confidence=("confidence", "mean"),
-            bullish_signals=("is_bullish", "sum"),
-        )
+    monthly = valid.groupby("month", as_index=False).agg(
+        signals=("symbol", "size"),
+        correct_signals=("correct", "sum"),
+        accuracy=("correct", "mean"),
+        avg_return=("next_return", "mean"),
+        win_rate=("next_return", lambda s: float((s > 0).mean())),
+        avg_confidence=("confidence", "mean"),
+        bullish_signals=("is_bullish", "sum"),
     )
     monthly["bearish_signals"] = monthly["signals"] - monthly["bullish_signals"]
 
@@ -153,9 +165,21 @@ def build_monthly_training_frame(
     weights = pd.Series(range(1, len(tail) + 1), index=tail.index, dtype=float)
     weight_total = float(weights.sum()) if not weights.empty else 1.0
 
-    forecast_success_rate = float((tail["accuracy"] * weights).sum() / weight_total) if weight_total > 0 else 0.0
-    rolling_avg_return = float((tail["avg_return"] * weights).sum() / weight_total) if weight_total > 0 else 0.0
-    rolling_win_rate = float((tail["win_rate"] * weights).sum() / weight_total) if weight_total > 0 else 0.0
+    forecast_success_rate = (
+        float((tail["accuracy"] * weights).sum() / weight_total)
+        if weight_total > 0
+        else 0.0
+    )
+    rolling_avg_return = (
+        float((tail["avg_return"] * weights).sum() / weight_total)
+        if weight_total > 0
+        else 0.0
+    )
+    rolling_win_rate = (
+        float((tail["win_rate"] * weights).sum() / weight_total)
+        if weight_total > 0
+        else 0.0
+    )
 
     if rolling_avg_return > 0.002:
         forecast_direction = "BULLISH"
@@ -198,13 +222,29 @@ def load_training_history(memory_dir: str) -> pd.DataFrame:
         if rows:
             pick_df = pd.DataFrame(rows)
             if "trade_date" in pick_df.columns:
-                pick_df["trade_date"] = pd.to_datetime(pick_df["trade_date"], errors="coerce")
+                pick_df["trade_date"] = pd.to_datetime(
+                    pick_df["trade_date"], errors="coerce"
+                )
             if "action" not in pick_df.columns:
-                score_col = "score" if "score" in pick_df.columns else "avg_score" if "avg_score" in pick_df.columns else None
+                score_col = (
+                    "score"
+                    if "score" in pick_df.columns
+                    else "avg_score"
+                    if "avg_score" in pick_df.columns
+                    else None
+                )
                 if score_col is not None:
-                    pick_df["action"] = pick_df[score_col].apply(lambda v: "BUY" if float(v) >= 0 else "SELL")
+                    pick_df["action"] = pick_df[score_col].apply(
+                        lambda v: "BUY" if float(v) >= 0 else "SELL"
+                    )
             if "confidence" not in pick_df.columns:
-                score_col = "score" if "score" in pick_df.columns else "avg_score" if "avg_score" in pick_df.columns else None
+                score_col = (
+                    "score"
+                    if "score" in pick_df.columns
+                    else "avg_score"
+                    if "avg_score" in pick_df.columns
+                    else None
+                )
                 if score_col is not None:
                     pick_df["confidence"] = pick_df[score_col].abs().clip(0.0, 1.0)
                 else:
@@ -213,20 +253,46 @@ def load_training_history(memory_dir: str) -> pd.DataFrame:
                 pick_df["reason"] = "realtime pick history"
             if "platforms" not in pick_df.columns:
                 pick_df["platforms"] = [[] for _ in range(len(pick_df))]
-            frames.append(pick_df[["trade_date", "symbol", "action", "confidence", "reason", "platforms"]].copy())
+            frames.append(
+                pick_df[
+                    [
+                        "trade_date",
+                        "symbol",
+                        "action",
+                        "confidence",
+                        "reason",
+                        "platforms",
+                    ]
+                ].copy()
+            )
 
-    report_df = load_training_history_from_reports(str(Path(memory_dir).parent / "reports"))
+    report_df = load_training_history_from_reports(
+        str(Path(memory_dir).parent / "reports")
+    )
     if not report_df.empty:
         frames.append(report_df)
 
     if not frames:
-        return pd.DataFrame(columns=["trade_date", "symbol", "action", "confidence", "reason", "platforms"])
+        return pd.DataFrame(
+            columns=[
+                "trade_date",
+                "symbol",
+                "action",
+                "confidence",
+                "reason",
+                "platforms",
+            ]
+        )
 
     combined = pd.concat(frames, ignore_index=True)
     combined["trade_date"] = pd.to_datetime(combined["trade_date"], errors="coerce")
     combined = combined.dropna(subset=["trade_date", "symbol"])
-    combined = combined.drop_duplicates(subset=["trade_date", "symbol", "action"], keep="last")
-    return combined[["trade_date", "symbol", "action", "confidence", "reason", "platforms"]].copy()
+    combined = combined.drop_duplicates(
+        subset=["trade_date", "symbol", "action"], keep="last"
+    )
+    return combined[
+        ["trade_date", "symbol", "action", "confidence", "reason", "platforms"]
+    ].copy()
 
 
 def load_training_history_from_reports(report_dir: str) -> pd.DataFrame:
@@ -246,7 +312,11 @@ def load_training_history_from_reports(report_dir: str) -> pd.DataFrame:
         if pick_df.empty:
             continue
         for _, row in pick_df.iterrows():
-            score_value = float(row.get("avg_score", 0.0)) if not pd.isna(row.get("avg_score", 0.0)) else 0.0
+            score_value = (
+                float(row.get("avg_score", 0.0))
+                if not pd.isna(row.get("avg_score", 0.0))
+                else 0.0
+            )
             rows.append(
                 {
                     "trade_date": trade_date,
@@ -259,12 +329,23 @@ def load_training_history_from_reports(report_dir: str) -> pd.DataFrame:
             )
 
     if not rows:
-        return pd.DataFrame(columns=["trade_date", "symbol", "action", "confidence", "reason", "platforms"])
+        return pd.DataFrame(
+            columns=[
+                "trade_date",
+                "symbol",
+                "action",
+                "confidence",
+                "reason",
+                "platforms",
+            ]
+        )
 
     df = pd.DataFrame(rows)
     df["trade_date"] = pd.to_datetime(df["trade_date"], errors="coerce")
     df = df.dropna(subset=["trade_date", "symbol"])
-    return df[["trade_date", "symbol", "action", "confidence", "reason", "platforms"]].copy()
+    return df[
+        ["trade_date", "symbol", "action", "confidence", "reason", "platforms"]
+    ].copy()
 
 
 def save_monthly_training_report(
@@ -286,7 +367,9 @@ def save_monthly_training_report(
         "summary": summary.to_dict(),
         "monthly_rows": monthly_df.to_dict(orient="records"),
     }
-    json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    json_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
     lines = [
         f"# Monthly Training Report - {ts}",
@@ -318,7 +401,9 @@ def save_monthly_training_report(
     return {"csv": str(csv_path), "md": str(md_path), "json": str(json_path)}
 
 
-def load_latest_monthly_training(report_dir: str) -> Tuple[pd.DataFrame, Dict[str, object]]:
+def load_latest_monthly_training(
+    report_dir: str,
+) -> Tuple[pd.DataFrame, Dict[str, object]]:
     report_path = Path(report_dir)
     csv_files = sorted(report_path.glob("monthly_training_*.csv"))
     json_files = sorted(report_path.glob("monthly_training_*.json"))

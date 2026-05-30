@@ -21,7 +21,9 @@ def plot_sharpe_vs_threshold(rows: List[dict], output_path: str) -> None:
     try:
         import matplotlib.pyplot as plt  # type: ignore[import-not-found]
     except ModuleNotFoundError as exc:  # pragma: no cover
-        raise ModuleNotFoundError("matplotlib is required. Install with: pip install -r requirements.txt") from exc
+        raise ModuleNotFoundError(
+            "matplotlib is required. Install with: pip install -r requirements.txt"
+        ) from exc
 
     x: List[float] = []
     y: List[float] = []
