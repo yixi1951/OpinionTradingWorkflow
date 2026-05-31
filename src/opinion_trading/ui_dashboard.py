@@ -406,13 +406,15 @@ def _platform_scores_radar(sentiment_df: pd.DataFrame, symbol: str) -> pd.DataFr
             denom = g["post_count"].sum()
             return (g["sentiment_score"] * g["post_count"]).sum() / denom if denom else g["sentiment_score"].mean()
 
-        grouped = (
-            view.dropna(subset=["sentiment_score"]) 
-            .groupby("platform")
-            .apply(_wmean)
-            .to_frame("sentiment_score")
-            .reset_index()
-        )
+        res = view.dropna(subset=["sentiment_score"]).groupby("platform").apply(_wmean)
+        if isinstance(res, pd.Series):
+            grouped = res.to_frame("sentiment_score").reset_index()
+        else:
+            # fallback: if DataFrame with single column, rename that column
+            if hasattr(res, "shape") and res.shape[1] == 1:
+                grouped = res.reset_index().rename(columns={res.columns[0]: "sentiment_score"})
+            else:
+                grouped = res.reset_index()
     else:
         grouped = (
             view.dropna(subset=["sentiment_score"]) 
@@ -593,13 +595,14 @@ def main() -> None:
                     denom = g["post_count"].sum()
                     return (g["sentiment_score"] * g["post_count"]).sum() / denom if denom else g["sentiment_score"].mean()
 
-                grouped = (
-                    df.dropna(subset=["sentiment_score"]) 
-                    .groupby(["month", "platform"]) 
-                    .apply(_wmean)
-                    .to_frame("sentiment_score")
-                    .reset_index()
-                )
+                res = df.dropna(subset=["sentiment_score"]).groupby(["month", "platform"]).apply(_wmean)
+                if isinstance(res, pd.Series):
+                    grouped = res.to_frame("sentiment_score").reset_index()
+                else:
+                    if hasattr(res, "shape") and res.shape[1] == 1:
+                        grouped = res.reset_index().rename(columns={res.columns[0]: "sentiment_score"})
+                    else:
+                        grouped = res.reset_index()
             else:
                 grouped = (
                     df.dropna(subset=["sentiment_score"]) 
