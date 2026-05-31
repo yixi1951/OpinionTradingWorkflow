@@ -393,10 +393,30 @@ def _platform_scores_radar(sentiment_df: pd.DataFrame, symbol: str) -> pd.DataFr
     view = sentiment_df.copy()
     view["trade_date"] = pd.to_datetime(view["trade_date"], errors="coerce")
     latest_date = view["trade_date"].max()
-    view = view[(view["trade_date"] == latest_date) & (view["symbol"] == symbol)]
+    view = view[(view["trade_date"] == latest_date) & (view["symbol"] == symbol)].copy()
     if view.empty:
         return pd.DataFrame()
-    grouped = view.groupby("platform", as_index=False)["sentiment_score"].mean()
+    # ensure numeric and treat 0 as missing (0 often indicates no signal)
+    view["sentiment_score"] = pd.to_numeric(view.get("sentiment_score", None), errors="coerce")
+    view.loc[view["sentiment_score"] == 0.0, "sentiment_score"] = pd.NA
+    # use post_count as weight if available
+    if "post_count" in view.columns:
+        view["post_count"] = pd.to_numeric(view.get("post_count", 1), errors="coerce").fillna(1)
+        def _wmean(g):
+            denom = g["post_count"].sum()
+            return (g["sentiment_score"] * g["post_count"]).sum() / denom if denom else g["sentiment_score"].mean()
+
+        grouped = (
+            view.dropna(subset=["sentiment_score"]) 
+            .groupby("platform")
+            .apply(_wmean)
+            .reset_index(name="sentiment_score")
+        )
+    else:
+        grouped = (
+            view.dropna(subset=["sentiment_score"]) 
+            .groupby("platform", as_index=False)["sentiment_score"].mean()
+        )
     grouped["abs_score"] = grouped["sentiment_score"].abs()
     return grouped
 
@@ -556,25 +576,50 @@ def main() -> None:
     )
     with st.container(border=True):
         if not sentiment_df.empty:
-            sentiment_df["trade_date"] = pd.to_datetime(
-                sentiment_df["trade_date"], errors="coerce"
-            )
-            chart = (
-                alt.Chart(sentiment_df)
-                .mark_line(point=True, strokeWidth=2.4)
-                .encode(
-                    x=alt.X("trade_date:T", title=t("month")),
-                    y=alt.Y("sentiment_score:Q", title=t("sentiment_score_label")),
-                    color=alt.Color(
-                        "platform:N",
-                        scale=alt.Scale(scheme="category10"),
-                        title=t("platform_label"),
-                    ),
-                    tooltip=["trade_date", "platform", "symbol", "sentiment_score"],
+            df = sentiment_df.copy()
+            df["trade_date"] = pd.to_datetime(df["trade_date"], errors="coerce")
+            df["sentiment_score"] = pd.to_numeric(df.get("sentiment_score", None), errors="coerce")
+            # treat 0 as missing signal
+            df.loc[df["sentiment_score"] == 0.0, "sentiment_score"] = pd.NA
+
+            # aggregate by date and platform — use post_count as weight when available
+            if "post_count" in df.columns:
+                df["post_count"] = pd.to_numeric(df.get("post_count", 1), errors="coerce").fillna(1)
+                def _wmean(g):
+                    denom = g["post_count"].sum()
+                    return (g["sentiment_score"] * g["post_count"]).sum() / denom if denom else g["sentiment_score"].mean()
+
+                grouped = (
+                    df.dropna(subset=["sentiment_score"]) 
+                    .groupby(["trade_date", "platform"]) 
+                    .apply(_wmean)
+                    .reset_index(name="sentiment_score")
                 )
-                .properties(title=t("sentiment_trend"), height=280)
-            )
-            st.altair_chart(chart, use_container_width=True)
+            else:
+                grouped = (
+                    df.dropna(subset=["sentiment_score"]) 
+                    .groupby(["trade_date", "platform"], as_index=False)["sentiment_score"].mean()
+                )
+
+            if grouped.empty:
+                st.info(t("no_sentiment_history"))
+            else:
+                chart = (
+                    alt.Chart(grouped)
+                    .mark_line(point=True, strokeWidth=2.4)
+                    .encode(
+                        x=alt.X("trade_date:T", title=t("month")),
+                        y=alt.Y("sentiment_score:Q", title=t("sentiment_score_label")),
+                        color=alt.Color(
+                            "platform:N",
+                            scale=alt.Scale(scheme="category10"),
+                            title=t("platform_label"),
+                        ),
+                        tooltip=["trade_date", "platform", "sentiment_score"],
+                    )
+                    .properties(title=t("sentiment_trend"), height=280)
+                )
+                st.altair_chart(chart, use_container_width=True)
         else:
             st.info(t("no_sentiment_history"))
 
@@ -932,9 +977,17 @@ def main() -> None:
                 monthly_df.get("win_rate", 0), errors="coerce"
             ).fillna(0.0)
 
+            # melt in pandas to avoid Altair transform_fold type-inference issues
+            monthly_melted = (
+                monthly_df[["month", "accuracy", "win_rate"]]
+                .melt(id_vars=["month"], value_vars=["accuracy", "win_rate"],
+                      var_name="metric", value_name="value")
+            )
+            monthly_melted["metric"] = monthly_melted["metric"].astype(str)
+            monthly_melted["value"] = pd.to_numeric(monthly_melted["value"], errors="coerce").fillna(0.0)
+
             monthly_line = (
-                alt.Chart(monthly_df)
-                .transform_fold(["accuracy", "win_rate"], as_=["metric", "value"])
+                alt.Chart(monthly_melted)
                 .mark_line(point=True)
                 .encode(
                     x=alt.X("month:N", title=t("month")),
