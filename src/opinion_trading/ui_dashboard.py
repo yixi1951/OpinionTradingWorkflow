@@ -410,8 +410,8 @@ def _platform_scores_radar(sentiment_df: pd.DataFrame, symbol: str) -> pd.DataFr
             view.dropna(subset=["sentiment_score"]) 
             .groupby("platform")
             .apply(_wmean)
+            .to_frame("sentiment_score")
             .reset_index()
-            .rename(columns={0: "sentiment_score"})
         )
     else:
         grouped = (
@@ -597,8 +597,8 @@ def main() -> None:
                     df.dropna(subset=["sentiment_score"]) 
                     .groupby(["month", "platform"]) 
                     .apply(_wmean)
+                    .to_frame("sentiment_score")
                     .reset_index()
-                    .rename(columns={0: "sentiment_score"})
                 )
             else:
                 grouped = (
