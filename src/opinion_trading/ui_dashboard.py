@@ -370,8 +370,13 @@ def _platform_contributions(sentiment_df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
     view = sentiment_df.copy()
     view["trade_date"] = pd.to_datetime(view["trade_date"], errors="coerce")
-    latest_date = view["trade_date"].max()
-    view = view[view["trade_date"] == latest_date]
+    # Use latest available date per symbol (not global latest) so contributions
+    # reflect the most recent data for each symbol individually.
+    view = view.dropna(subset=["trade_date"]).copy()
+    if view.empty:
+        return pd.DataFrame()
+    latest_per_symbol = view.groupby("symbol")["trade_date"].transform("max")
+    view = view[view["trade_date"] == latest_per_symbol]
     if view.empty:
         return pd.DataFrame()
     grouped = (
