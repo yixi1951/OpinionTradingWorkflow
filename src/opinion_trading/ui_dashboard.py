@@ -406,21 +406,17 @@ def _platform_scores_radar(sentiment_df: pd.DataFrame, symbol: str) -> pd.DataFr
             denom = g["post_count"].sum()
             return (g["sentiment_score"] * g["post_count"]).sum() / denom if denom else g["sentiment_score"].mean()
 
-        res = view.dropna(subset=["sentiment_score"]).groupby("platform").apply(_wmean)
-        # Normalize result into a DataFrame safely, then ensure a `sentiment_score` column
-        df_res = pd.DataFrame(res)
-        # reset index when index holds grouping keys
-        try:
-            if df_res.index.nlevels >= 1:
-                df_res = df_res.reset_index()
-        except Exception:
-            df_res = df_res.reset_index()
-
-        # pick a sensible value column and rename to sentiment_score
-        val_cols = [c for c in df_res.columns if c not in ("platform", "month")]
-        if "sentiment_score" not in df_res.columns and val_cols:
-            df_res = df_res.rename(columns={val_cols[0]: "sentiment_score"})
-        grouped = df_res
+        tmp = view.dropna(subset=["sentiment_score"]).copy()
+        if tmp.empty:
+            grouped = pd.DataFrame(columns=["platform", "sentiment_score"])
+        elif "post_count" in tmp.columns:
+            sums = tmp.groupby("platform")["post_count"].sum()
+            numer = tmp.groupby("platform").apply(lambda g: (g["sentiment_score"] * g["post_count"]).sum())
+            series = numer / sums
+            grouped = pd.DataFrame({"platform": list(series.index), "sentiment_score": list(series.values)})
+        else:
+            series = tmp.groupby("platform")["sentiment_score"].mean()
+            grouped = pd.DataFrame({"platform": list(series.index), "sentiment_score": list(series.values)})
     else:
         grouped = (
             view.dropna(subset=["sentiment_score"]) 
@@ -601,18 +597,19 @@ def main() -> None:
                     denom = g["post_count"].sum()
                     return (g["sentiment_score"] * g["post_count"]).sum() / denom if denom else g["sentiment_score"].mean()
 
-                res = df.dropna(subset=["sentiment_score"]).groupby(["month", "platform"]).apply(_wmean)
-                df_res = pd.DataFrame(res)
-                try:
-                    if df_res.index.nlevels >= 1:
-                        df_res = df_res.reset_index()
-                except Exception:
-                    df_res = df_res.reset_index()
-
-                val_cols = [c for c in df_res.columns if c not in ("platform", "month")]
-                if "sentiment_score" not in df_res.columns and val_cols:
-                    df_res = df_res.rename(columns={val_cols[0]: "sentiment_score"})
-                grouped = df_res
+                tmp2 = df.dropna(subset=["sentiment_score"]).copy()
+                if tmp2.empty:
+                    grouped = pd.DataFrame(columns=["month", "platform", "sentiment_score"])
+                elif "post_count" in tmp2.columns:
+                    sums = tmp2.groupby(["month", "platform"])["post_count"].sum()
+                    numer = tmp2.groupby(["month", "platform"]).apply(lambda g: (g["sentiment_score"] * g["post_count"]).sum())
+                    series = numer / sums
+                    idx = pd.DataFrame(list(series.index), columns=["month", "platform"])
+                    grouped = pd.concat([idx.reset_index(drop=True), pd.DataFrame({"sentiment_score": list(series.values)})], axis=1)
+                else:
+                    series = tmp2.groupby(["month", "platform"])["sentiment_score"].mean()
+                    idx = pd.DataFrame(list(series.index), columns=["month", "platform"])
+                    grouped = pd.concat([idx.reset_index(drop=True), pd.DataFrame({"sentiment_score": list(series.values)})], axis=1)
             else:
                 grouped = (
                     df.dropna(subset=["sentiment_score"]) 
