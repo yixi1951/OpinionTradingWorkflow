@@ -18,6 +18,16 @@ def _to_akshare_symbol(symbol: str) -> str:
     return sym
 
 
+def _to_akshare_daily_symbol(symbol: str) -> str:
+    sym = symbol.upper()
+    code = sym.split(".", 1)[0]
+    if sym.endswith(".SH"):
+        return f"sh{code}"
+    if sym.endswith(".SZ"):
+        return f"sz{code}"
+    return code
+
+
 def _to_eastmoney_secid(symbol: str) -> str:
     sym = symbol.upper()
     code = sym.split(".", 1)[0]
@@ -76,6 +86,48 @@ def _fetch_prices_eastmoney(
     return pd.DataFrame(rows)
 
 
+def _fetch_prices_sina(
+    symbols: Iterable[str], start_date: str, end_date: str
+) -> pd.DataFrame:
+    if ak is None:
+        return pd.DataFrame()
+
+    rows = []
+    start_token = start_date.replace("-", "")
+    end_token = end_date.replace("-", "")
+
+    for symbol in symbols:
+        ak_symbol = _to_akshare_daily_symbol(symbol)
+        try:
+            data = ak.stock_zh_a_daily(
+                symbol=ak_symbol,
+                start_date=start_token,
+                end_date=end_token,
+                adjust="",
+            )
+        except Exception:
+            continue
+
+        if data is None or data.empty:
+            continue
+
+        date_col = "date" if "date" in data.columns else None
+        close_col = "close" if "close" in data.columns else None
+        if date_col is None or close_col is None:
+            continue
+
+        for _, row in data.iterrows():
+            rows.append(
+                {
+                    "date": pd.to_datetime(row[date_col]).strftime("%Y-%m-%d"),
+                    "symbol": symbol,
+                    "close": float(row[close_col]),
+                }
+            )
+
+    return pd.DataFrame(rows)
+
+
 def _fetch_prices_akshare(
     symbols: Iterable[str], start_date: str, end_date: str
 ) -> pd.DataFrame:
@@ -122,12 +174,19 @@ def _fetch_prices_akshare(
 def fetch_prices(
     symbols: Iterable[str], start_date: str, end_date: str
 ) -> pd.DataFrame:
-    eastmoney_df = _fetch_prices_eastmoney(symbols, start_date, end_date)
-    if not eastmoney_df.empty:
-        return eastmoney_df
+    # Prefer free AkShare-backed sources first. `stock_zh_a_daily` typically uses
+    # Sina data, then fall back to the other AkShare wrapper, and finally use a
+    # direct Eastmoney request if needed.
+    sina_df = _fetch_prices_sina(symbols, start_date, end_date)
+    if not sina_df.empty:
+        return sina_df
 
     ak_df = _fetch_prices_akshare(symbols, start_date, end_date)
     if not ak_df.empty:
         return ak_df
+
+    eastmoney_df = _fetch_prices_eastmoney(symbols, start_date, end_date)
+    if not eastmoney_df.empty:
+        return eastmoney_df
 
     return pd.DataFrame()
