@@ -96,6 +96,10 @@ class RealPlatformSentimentProvider:
                 rows = self._collect_generic_rows(
                     list_url, html, platform, symbol, trade_date, max_posts=max_posts
                 )
+            elif platform in {"douyin"}:
+                rows = self._collect_douyin_rows(
+                    list_url, html, platform, symbol, trade_date, max_posts=max_posts
+                )
             else:
                 rows = self._collect_generic_rows(
                     list_url, html, platform, symbol, trade_date, max_posts=max_posts
@@ -277,6 +281,113 @@ class RealPlatformSentimentProvider:
 
         return rows
 
+
+    def _collect_douyin_rows(
+        self,
+        list_url: str,
+        html: str,
+        platform: str,
+        symbol: str,
+        trade_date: date,
+        max_posts: int,
+    ) -> List[Dict[str, str]]:
+        """Best-effort Douyin scraper: extract structured JSON-LD, meta tags, or visible text.
+
+        Douyin is JS-heavy so this is best-effort and may return few rows. Falls back
+        to generic text extraction when structured metadata is available.
+        """
+        soup = BeautifulSoup(html, "lxml")
+        rows: List[Dict[str, str]] = []
+
+        # try JSON-LD structured data
+        for script in soup.select('script[type="application/ld+json"]'):
+            try:
+                text = self._clean_text(script.string or "")
+                if not text:
+                    continue
+                import json
+
+                payload = json.loads(text)
+                # payload may be an object or list
+                items = payload if isinstance(payload, list) else [payload]
+                for item in items:
+                    title = item.get("headline") or item.get("name") or ""
+                    desc = item.get("description") or ""
+                    if title or desc:
+                        rows.append(
+                            self._build_raw_row(
+                                trade_date=trade_date,
+                                platform=platform,
+                                symbol=symbol,
+                                title=title or desc[:120],
+                                summary=(desc[:300] if desc else title[:300]),
+                                post_time=self._extract_time(desc or title, trade_date=trade_date),
+                                content=desc or title,
+                                url=list_url,
+                                source_page=list_url,
+                                is_noise=self._is_noise_text((title + " " + desc)),
+                                capture_status="success",
+                                failure_reason="",
+                            )
+                        )
+                        if len(rows) >= max_posts:
+                            return rows
+            except Exception:
+                continue
+
+        # fallback to og/meta tags
+        og_title = (soup.select_one('meta[property="og:title"]') or {}).get("content") if soup.select_one('meta[property="og:title"]') else None
+        og_desc = (soup.select_one('meta[property="og:description"]') or {}).get("content") if soup.select_one('meta[property="og:description"]') else None
+        if og_title or og_desc:
+            rows.append(
+                self._build_raw_row(
+                    trade_date=trade_date,
+                    platform=platform,
+                    symbol=symbol,
+                    title=self._short_title(og_title or og_desc or ""),
+                    summary=(og_desc or og_title or "")[:300],
+                    post_time=self._extract_time(og_desc or og_title or "", trade_date=trade_date),
+                    content=(og_desc or og_title or ""),
+                    url=list_url,
+                    source_page=list_url,
+                    is_noise=self._is_noise_text((og_title or "" + og_desc or "")),
+                    capture_status="success",
+                    failure_reason="",
+                )
+            )
+
+        # last-resort: extract visible text blocks similar to generic collector
+        if not rows:
+            seen: set[str] = set()
+            for node in soup.select("p, h1, h2, h3, div, span"):
+                text = self._clean_text(node.get_text(" ", strip=True))
+                if not self._looks_like_content(text):
+                    continue
+                key = text[:160]
+                if key in seen:
+                    continue
+                seen.add(key)
+                rows.append(
+                    self._build_raw_row(
+                        trade_date=trade_date,
+                        platform=platform,
+                        symbol=symbol,
+                        title=text[:120],
+                        summary=text[:300],
+                        post_time=self._extract_time(text, trade_date=trade_date),
+                        content=text,
+                        url=list_url,
+                        source_page=list_url,
+                        is_noise=self._is_noise_text(text),
+                        capture_status="success",
+                        failure_reason="",
+                    )
+                )
+                if len(rows) >= max_posts:
+                    break
+
+        return rows
+
     def _parse_article_page(
         self,
         platform: str,
@@ -417,6 +528,10 @@ class RealPlatformSentimentProvider:
             return f"https://s.weibo.com/weibo?q={symbol}"
         if platform == "xueqiu":
             return f"https://xueqiu.com/S/{code}"
+        if platform == "douyin":
+            # Douyin is JS-heavy; use search page as a best-effort entrypoint
+            # example: https://www.douyin.com/search/{keyword}
+            return f"https://www.douyin.com/search/{symbol}"
 
         raise ValueError(f"Unsupported platform: {platform}")
 
