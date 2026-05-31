@@ -407,14 +407,20 @@ def _platform_scores_radar(sentiment_df: pd.DataFrame, symbol: str) -> pd.DataFr
             return (g["sentiment_score"] * g["post_count"]).sum() / denom if denom else g["sentiment_score"].mean()
 
         res = view.dropna(subset=["sentiment_score"]).groupby("platform").apply(_wmean)
-        if isinstance(res, pd.Series):
-            grouped = res.to_frame("sentiment_score").reset_index()
-        else:
-            # fallback: if DataFrame with single column, rename that column
-            if hasattr(res, "shape") and res.shape[1] == 1:
-                grouped = res.reset_index().rename(columns={res.columns[0]: "sentiment_score"})
-            else:
-                grouped = res.reset_index()
+        # Normalize result into a DataFrame safely, then ensure a `sentiment_score` column
+        df_res = pd.DataFrame(res)
+        # reset index when index holds grouping keys
+        try:
+            if df_res.index.nlevels >= 1:
+                df_res = df_res.reset_index()
+        except Exception:
+            df_res = df_res.reset_index()
+
+        # pick a sensible value column and rename to sentiment_score
+        val_cols = [c for c in df_res.columns if c not in ("platform", "month")]
+        if "sentiment_score" not in df_res.columns and val_cols:
+            df_res = df_res.rename(columns={val_cols[0]: "sentiment_score"})
+        grouped = df_res
     else:
         grouped = (
             view.dropna(subset=["sentiment_score"]) 
@@ -596,13 +602,17 @@ def main() -> None:
                     return (g["sentiment_score"] * g["post_count"]).sum() / denom if denom else g["sentiment_score"].mean()
 
                 res = df.dropna(subset=["sentiment_score"]).groupby(["month", "platform"]).apply(_wmean)
-                if isinstance(res, pd.Series):
-                    grouped = res.to_frame("sentiment_score").reset_index()
-                else:
-                    if hasattr(res, "shape") and res.shape[1] == 1:
-                        grouped = res.reset_index().rename(columns={res.columns[0]: "sentiment_score"})
-                    else:
-                        grouped = res.reset_index()
+                df_res = pd.DataFrame(res)
+                try:
+                    if df_res.index.nlevels >= 1:
+                        df_res = df_res.reset_index()
+                except Exception:
+                    df_res = df_res.reset_index()
+
+                val_cols = [c for c in df_res.columns if c not in ("platform", "month")]
+                if "sentiment_score" not in df_res.columns and val_cols:
+                    df_res = df_res.rename(columns={val_cols[0]: "sentiment_score"})
+                grouped = df_res
             else:
                 grouped = (
                     df.dropna(subset=["sentiment_score"]) 
