@@ -410,7 +410,8 @@ def _platform_scores_radar(sentiment_df: pd.DataFrame, symbol: str) -> pd.DataFr
             view.dropna(subset=["sentiment_score"]) 
             .groupby("platform")
             .apply(_wmean)
-            .reset_index(name="sentiment_score")
+            .reset_index()
+            .rename(columns={0: "sentiment_score"})
         )
     else:
         grouped = (
@@ -582,7 +583,10 @@ def main() -> None:
             # treat 0 as missing signal
             df.loc[df["sentiment_score"] == 0.0, "sentiment_score"] = pd.NA
 
-            # aggregate by date and platform — use post_count as weight when available
+            # use monthly aggregation to avoid sparse daily series
+            df["month"] = df["trade_date"].dt.to_period("M").astype(str)
+
+            # aggregate by month and platform — use post_count as weight when available
             if "post_count" in df.columns:
                 df["post_count"] = pd.to_numeric(df.get("post_count", 1), errors="coerce").fillna(1)
                 def _wmean(g):
@@ -591,35 +595,75 @@ def main() -> None:
 
                 grouped = (
                     df.dropna(subset=["sentiment_score"]) 
-                    .groupby(["trade_date", "platform"]) 
+                    .groupby(["month", "platform"]) 
                     .apply(_wmean)
-                    .reset_index(name="sentiment_score")
+                    .reset_index()
+                    .rename(columns={0: "sentiment_score"})
                 )
             else:
                 grouped = (
                     df.dropna(subset=["sentiment_score"]) 
-                    .groupby(["trade_date", "platform"], as_index=False)["sentiment_score"].mean()
+                    .groupby(["month", "platform"], as_index=False)["sentiment_score"].mean()
                 )
 
             if grouped.empty:
                 st.info(t("no_sentiment_history"))
             else:
-                chart = (
-                    alt.Chart(grouped)
-                    .mark_line(point=True, strokeWidth=2.4)
-                    .encode(
-                        x=alt.X("trade_date:T", title=t("month")),
-                        y=alt.Y("sentiment_score:Q", title=t("sentiment_score_label")),
-                        color=alt.Color(
-                            "platform:N",
-                            scale=alt.Scale(scheme="category10"),
-                            title=t("platform_label"),
-                        ),
-                        tooltip=["trade_date", "platform", "sentiment_score"],
-                    )
-                    .properties(title=t("sentiment_trend"), height=280)
+                # compute per-platform sample counts (non-missing sentiment)
+                counts = (
+                    df.dropna(subset=["sentiment_score"]) 
+                    .groupby("platform")
+                    .size()
+                    .reset_index(name="samples")
                 )
-                st.altair_chart(chart, use_container_width=True)
+
+                # UI: allow hiding low-sample platforms
+                cols = st.columns([1, 1, 1])
+                min_samples = cols[0].number_input(
+                    "Min samples per platform",
+                    min_value=0,
+                    value=1,
+                    step=1,
+                )
+                show_counts = cols[1].checkbox("Show platform sample counts", value=True)
+                # prepare filtered grouped frame
+                valid_platforms = counts[counts["samples"] >= int(min_samples)]["platform"].tolist()
+                filtered = grouped[grouped["platform"].isin(valid_platforms)].copy()
+
+                # CSV download
+                csv_bytes = filtered.to_csv(index=False).encode("utf-8")
+                cols[2].download_button(
+                    label="Download CSV",
+                    data=csv_bytes,
+                    file_name="agg_monthly_filtered.csv",
+                    mime="text/csv",
+                )
+
+                if show_counts:
+                    st.markdown(
+                        "**Platform sample counts**: " + 
+                        ", ".join([f"{r['platform']}={r['samples']}" for _, r in counts.iterrows()])
+                    )
+
+                if filtered.empty:
+                    st.warning("No platforms remain after filtering; lower Min samples.")
+                else:
+                    chart = (
+                        alt.Chart(filtered)
+                        .mark_line(point=True, strokeWidth=2.4)
+                        .encode(
+                            x=alt.X("month:N", title=t("month")),
+                            y=alt.Y("sentiment_score:Q", title=t("sentiment_score_label")),
+                            color=alt.Color(
+                                "platform:N",
+                                scale=alt.Scale(scheme="category10"),
+                                title=t("platform_label"),
+                            ),
+                            tooltip=["month", "platform", "sentiment_score"],
+                        )
+                        .properties(title=t("sentiment_trend"), height=280)
+                    )
+                    st.altair_chart(chart, use_container_width=True)
         else:
             st.info(t("no_sentiment_history"))
 
@@ -907,8 +951,14 @@ def main() -> None:
                             min_trade_date.strftime("%Y-%m-%d"),
                             max_trade_date.strftime("%Y-%m-%d"),
                         )
+                        # If Yahoo returns empty, try local cache fallback before failing
                         if train_price_df.empty:
-                            raise ValueError(t("empty_yahoo_prices"))
+                            try:
+                                train_price_df = load_prices(price_csv)
+                            except Exception:
+                                train_price_df = pd.DataFrame()
+                            if train_price_df.empty:
+                                raise ValueError(t("empty_yahoo_prices"))
                     monthly_df, monthly_summary_obj = build_monthly_training_frame(
                         signal_history_df,
                         train_price_df,
