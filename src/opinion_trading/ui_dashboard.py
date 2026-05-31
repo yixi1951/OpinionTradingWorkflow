@@ -370,17 +370,18 @@ def _platform_contributions(sentiment_df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
     view = sentiment_df.copy()
     view["trade_date"] = pd.to_datetime(view["trade_date"], errors="coerce")
-    # Use latest available date per symbol (not global latest) so contributions
-    # reflect the most recent data for each symbol individually.
-    view = view.dropna(subset=["trade_date"]).copy()
-    if view.empty:
+    # For each (symbol, platform) pick the most recent non-null sentiment_score
+    view = view.sort_values("trade_date")
+    # treat 0 as missing signal
+    view["sentiment_score"] = pd.to_numeric(view.get("sentiment_score", None), errors="coerce")
+    view.loc[view["sentiment_score"] == 0.0, "sentiment_score"] = pd.NA
+    # keep last non-null per (symbol, platform)
+    non_null = view.dropna(subset=["sentiment_score"]).copy()
+    if non_null.empty:
         return pd.DataFrame()
-    latest_per_symbol = view.groupby("symbol")["trade_date"].transform("max")
-    view = view[view["trade_date"] == latest_per_symbol]
-    if view.empty:
-        return pd.DataFrame()
+    last_per_pair = non_null.drop_duplicates(subset=["symbol", "platform"], keep="last")
     grouped = (
-        view.groupby(["symbol", "platform"], as_index=False)["sentiment_score"]
+        last_per_pair.groupby(["symbol", "platform"], as_index=False)["sentiment_score"]
         .mean()
         .rename(columns={"sentiment_score": "platform_score"})
     )
