@@ -1362,7 +1362,8 @@ def main() -> None:
                         platform = row.get("platform", "")
                         score = float(row.get("ai_score", 0))
                         url = str(row.get("url", "") or "")
-                        with st.expander(f"{platform} · {score:+.2f} · {text[:36]}…"):
+                        label = text if len(text) <= 36 else f"{text[:36]}…"
+                        with st.expander(f"{platform} · {score:+.2f} · {label}"):
                             st.write(text)
                             if url and url.startswith("http"):
                                 st.markdown(f"[{t('col_url')}]({url})")
@@ -1378,7 +1379,8 @@ def main() -> None:
                         platform = row.get("platform", "")
                         score = float(row.get("ai_score", 0))
                         url = str(row.get("url", "") or "")
-                        with st.expander(f"{platform} · {score:+.2f} · {text[:36]}…"):
+                        label = text if len(text) <= 36 else f"{text[:36]}…"
+                        with st.expander(f"{platform} · {score:+.2f} · {label}"):
                             st.write(text)
                             if url and url.startswith("http"):
                                 st.markdown(f"[{t('col_url')}]({url})")
