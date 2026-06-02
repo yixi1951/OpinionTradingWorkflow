@@ -14,10 +14,12 @@ class OpenClawClient:
     """
 
     def __init__(
-        self, base_url: str | None = None, token: str | None = None, timeout: int = 10
+        self, base_url: str | None = None, token: str | None = None, timeout: int | None = None
     ) -> None:
         self.base_url = base_url or os.environ.get("OPENCLAW_URL")
         self.token = token or os.environ.get("OPENCLAW_TOKEN")
+        if timeout is None:
+            timeout = int(os.environ.get("OPENCLAW_TIMEOUT", "180"))
         self.timeout = timeout
 
     def is_configured(self) -> bool:

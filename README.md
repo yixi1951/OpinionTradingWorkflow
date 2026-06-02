@@ -1,502 +1,214 @@
-# 基于 OpenClaw 的自动化舆情选股与投研系统
+# OpinionTradingWorkflow
 
-这是一个可落地的个人项目模板，目标是打通一条完整链路：
+**多平台舆情采集 · LLM 情感分析 · 实时选股 · 可解释投研仪表盘**
 
-- 采集真实平台舆情
-- 计算情绪并生成交易信号
-- 执行模拟交易
-- 产出日报、原始证据链、质量报告
+Python 个人项目：从股吧、新浪财经、微博、东方财富、雪球、抖音等渠道抓取舆情，经 OpenClaw + DeepSeek 打分后聚合为选股信号，并通过 Streamlit 展示 Top 排名、评论证据链与回测结果。
 
-新手建议先看 [d
-ocs/beginner_tutorial_zh.md](docs/beginner_tutorial_zh.md)。
+> 适合作为 **数据工程 / 量化研究 / AI 应用** 方向的个人作品展示。
 
-## 1. 你能得到什么
+---
 
-- 多智能体流水线：采集员 -> 分析师 -> 交易员 -> 报告员
-- 可复现实验产物：memory、日报、回测、可视化
-- 证据链产物：按平台拆分的原始帖子 CSV + 失败日志
-- 自动质量评估：标题覆盖率、时间覆盖率、正文覆盖率、噪声率
+## 项目亮点（简历可写）
 
-## 2. 具体流程与操作步骤
+- **端到端流水线**：采集 → 清洗/质检 → LLM 情感打分 → 多平台加权聚合 → 实时 Top-N 选股 → 日报 & 告警
+- **真实 LLM 集成**：OpenClaw Gateway + WebSocket→HTTP 代理，对接 **DeepSeek V4 Flash**（云端 API，单轮 realtime ~9 分钟）
+- **可解释输出**：每条选股附带各平台分项得分；UI「评论依据」Tab 展示正/负评论原文摘录
+- **数据质量闭环**：自动生成质量报告（标题/时间/正文覆盖率、噪声率），按平台拆分原始 CSV 作为证据链
+- **工程化细节**：Stub 兜底保证演示可复现；`OPENCLAW_SKIP_ROW_SCORE` 控制 LLM 调用量；Windows 一键脚本 + CI 测试
 
-### 步骤 1：进入项目并激活环境
+---
+
+## 技术栈
+
+| 类别 | 技术 |
+|------|------|
+| 语言 / 运行时 | Python 3.12 |
+| 数据采集 | requests + 自定义 HTML 解析（6 平台） |
+| LLM | OpenClaw Gateway、DeepSeek API、自研 WS 代理 |
+| 数据处理 | pandas、JSONL 持久化 |
+| 可视化 | Streamlit、Altair |
+| 行情 | akshare（含本地缓存回退） |
+| 测试 / CI | pytest、GitHub Actions |
+
+---
+
+## 系统架构
+
+```mermaid
+flowchart LR
+    subgraph ingest [数据采集]
+        P1[股吧] --> R[platform_sentiment_real]
+        P2[新浪/微博/东财/雪球/抖音] --> R
+    end
+    R --> Q[质量报告 + 原始 CSV]
+    R --> OC[OpenClaw / DeepSeek]
+    OC --> AGG[多平台加权聚合]
+    AGG --> PICK[Top-N 选股 + 告警]
+    PICK --> UI[Streamlit 仪表盘]
+    PICK --> REP[日报 / JSONL 历史]
+```
+
+---
+
+## 示例产出
+
+**实时选股**（`data/reports/realtime_picks_20260602_225443.md`）：
+
+| 排名 | 代码 | 综合得分 | 平台分项 |
+|------|------|---------|---------|
+| #1 | 601318.SH | +0.036 | sina +0.30, weibo −0.10 |
+| #2 | 600519.SH | +0.030 | sina +0.50, eastmoney −0.20 |
+| #3 | 000001.SZ | −0.131 | sina −0.70 |
+
+**数据质量**（`data/reports/quality_2026-06-02.md`）：38 条原始帖，Overall **PASS**（标题/时间/正文覆盖率 100%）。
+
+---
+
+## 快速开始
+
+### 环境准备
 
 ```powershell
-cd C:\Users\ASUS\Desktop\project
+git clone https://github.com/yixi1951/OpinionTradingWorkflow.git
+cd OpinionTradingWorkflow
+python -m venv .venv
 .\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
 ```
 
-如果 PowerShell 提示脚本执行受限：
+### 方式 A：Stub 演示（~2 分钟，无需 API）
 
 ```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+powershell -ExecutionPolicy Bypass -File .\scripts\run_demo.ps1
+streamlit run src/opinion_trading/ui_dashboard.py --server.port 8501
 ```
 
-### 步骤 2：安装依赖
+浏览器打开 http://localhost:8501
+
+### 方式 B：真实 OpenClaw + DeepSeek（~10 分钟）
+
+**前置**：安装 [OpenClaw](https://www.npmjs.com/package/openclaw)，运行 `openclaw configure` 配置 DeepSeek API Key。
 
 ```powershell
-python -m pip install -r requirements.txt
+# 一键：启动 gateway + HTTP 代理 + 冒烟测试 + daily/realtime
+powershell -ExecutionPolicy Bypass -File .\scripts\run_demo_openclaw.ps1 -WithUI
 ```
 
-### 步骤 3：运行 daily 主流程
+脚本会自动读取 `%USERPROFILE%\.openclaw\openclaw.json` 中的 token 与默认模型（`deepseek/deepseek-v4-flash`）。
+
+仅测连通、跳过 realtime：
 
 ```powershell
-python run_pipeline.py --mode daily --date 2026-03-15
+powershell -ExecutionPolicy Bypass -File .\scripts\run_demo_openclaw.ps1 -SkipRealtime
 ```
 
-### 步骤 4：核对运行结果（最重要）
-
-运行完成后检查：
-
-- 日报：`data/reports/2026-03-15.md`
-- 总原始 CSV：`data/raw/raw_posts_2026-03-15.csv`
-- 按来源原始 CSV：
-  - `data/raw/by_source/raw_posts_2026-03-15_guba.csv`
-  - `data/raw/by_source/raw_posts_2026-03-15_sina_finance.csv`
-  - `data/raw/by_source/raw_posts_2026-03-15_weibo.csv`
-- 抓取失败日志：`data/raw/failures/fetch_failures_2026-03-15.jsonl`
-- 质量报告：`data/reports/quality_2026-03-15.md`
-
-### 步骤 5：解读证据链字段
-
-原始 CSV 关键字段：
-
-- `title`：帖子标题
-- `summary`：标题 + 正文摘要，用于快速人工验收
-- `post_time`：解析出的发布时间
-- `content`：正文截断内容
-- `capture_status`：抓取状态，常见值 `success` / `fallback`
-- `failure_reason`：抓取失败或回退原因
-
-### 步骤 6：继续做回测与优化（可选）
+**手动分步**（可选）：
 
 ```powershell
-python run_pipeline.py --mode backtest --start-date 2025-01-01 --end-date 2025-12-31 --bearish-threshold -0.6 --platforms guba,eastmoney,sina_finance,xueqiu,weibo
-python run_pipeline.py --mode optimize --start-date 2025-01-01 --end-date 2025-12-31
-python run_pipeline.py --mode visualize --backtest-file data/reports/backtest_results.csv
+# 终端 1
+openclaw gateway run --port 18789 --force
+
+# 终端 2
+$env:WS_GATEWAY_URL = "ws://127.0.0.1:18789"
+$env:WS_GATEWAY_TOKEN = "<your-token>"          # 见 openclaw.json
+$env:WS_GATEWAY_MODEL = "deepseek/deepseek-v4-flash"
+$env:WS_GATEWAY_RESPONSE_TIMEOUT = "90"
+python -m uvicorn openclaw_ws_proxy:app --host 127.0.0.1 --port 18790
+
+# 终端 3
+$env:OPENCLAW_URL = "http://127.0.0.1:18790"
+$env:OPENCLAW_TIMEOUT = "90"
+$env:OPENCLAW_SKIP_ROW_SCORE = "1"
+python run_pipeline.py --mode realtime --iterations 1 --top-n 3
 ```
 
-### 步骤 7：实时模式（OpenClaw 舆情 -> AI 选股）
+### 仪表盘四个 Tab
 
-先设置 OpenClaw 地址（本地 stub 或真实服务都可）：
+| Tab | 内容 |
+|-----|------|
+| 实时选股 | Top 3 卡片、分级告警、选股原因 |
+| 舆情分析 | 情感趋势、平台贡献、雷达图 |
+| 评论依据 | 正/负评论摘录（证据链） |
+| 回测评估 | 信号准确率、Sharpe、月度训练 |
+
+---
+
+## 主要命令
 
 ```powershell
-$env:OPENCLAW_URL = "http://127.0.0.1:18080"
-Remove-Item Env:OPENCLAW_TOKEN -ErrorAction SilentlyContinue
-```
+# 日报流水线
+python run_pipeline.py --mode daily --date 2026-06-02
 
-运行实时轮询（每 60 秒一轮，共 30 轮）：
+# 实时选股（需 OPENCLAW_URL）
+python run_pipeline.py --mode realtime --iterations 1 --top-n 3
 
-```powershell
-python run_pipeline.py --mode realtime --iterations 30 --interval-seconds 60 --top-n 3 --alert-threshold 0.25 --yellow-threshold 0.20 --orange-threshold 0.35 --red-threshold 0.50
-```
-默认会同时分析多个大众舆情来源，并按权重聚合：`guba`、`eastmoney`、`sina_finance`、`xueqiu`、`weibo`。
-如果某个来源暂时不可用，会自动回退到 stub，保证流程继续。
+# 回测 / 评估
+python run_pipeline.py --mode backtest --start-date 2025-01-01 --end-date 2025-12-31
+python run_pipeline.py --mode evaluate
 
-告警分级规则（按分数变化绝对值 abs(delta)）：
-
-- YELLOW：>= `yellow-threshold`
-- ORANGE：>= `orange-threshold`
-- RED：>= `red-threshold`
-
-说明：`alert-threshold` 会作为最小黄线阈值下限（即 `effective_yellow=max(alert-threshold, yellow-threshold)`）。
-
-输出文件：
-
-- `data/reports/realtime_picks_*.csv`：实时选股榜单
-- `data/reports/realtime_picks_*.md`：实时轮询摘要
-- `data/reports/realtime_alerts_*.jsonl`：分数突变告警
-- `data/memory/realtime_alerts.jsonl`：告警历史累计
-
-一键守护（中断自动重启）：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\run_realtime_guard.ps1 -OpenClawUrl "http://127.0.0.1:18080" -Iterations 10 -IntervalSeconds 30 -TopN 3 -AlertThreshold 0.25 -YellowThreshold 0.20 -OrangeThreshold 0.35 -RedThreshold 0.50
-```
-
-如果你有真实 OpenClaw token：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\run_realtime_guard.ps1 -OpenClawUrl "https://your-openclaw-host" -OpenClawToken "your-token" -Iterations 10 -IntervalSeconds 30 -TopN 3 -AlertThreshold 0.25 -YellowThreshold 0.20 -OrangeThreshold 0.35 -RedThreshold 0.50
-```
-
-### 步骤 8：告警推送配置（钉钉 / 企业微信 / Telegram）
-
-按需设置环境变量，未设置的渠道会自动跳过。
-
-```powershell
-# 钉钉机器人 Webhook
-$env:DINGTALK_WEBHOOK = "https://oapi.dingtalk.com/robot/send?access_token=..."
-
-# 企业微信群机器人 Webhook
-$env:WECOM_WEBHOOK = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..."
-
-# Telegram Bot
-$env:TELEGRAM_BOT_TOKEN = "123456:ABCDEF..."
-$env:TELEGRAM_CHAT_ID = "123456789"
-```
-
-推送内容包含：`symbol`、`severity`、`direction`、`delta`、前后分数、时间戳。
-
-### 步骤 9：Windows 计划任务常驻运行（推荐）
-
-先预览将要注册的任务（不落地）：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\register_realtime_task.ps1 -TaskName "OpinionTradingRealtimeGuard" -OpenClawUrl "http://127.0.0.1:18080" -DryRun
-```
-
-正式注册常驻任务（开机/登录自动启动）：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\register_realtime_task.ps1 -TaskName "OpinionTradingRealtimeGuard" -OpenClawUrl "http://127.0.0.1:18080"
-```
-
-常用管理命令：
-
-```powershell
-Start-ScheduledTask -TaskName "OpinionTradingRealtimeGuard"
-Stop-ScheduledTask -TaskName "OpinionTradingRealtimeGuard"
-Unregister-ScheduledTask -TaskName "OpinionTradingRealtimeGuard" -Confirm:$false
-```
-
-### 步骤 10：UI 可视化面板（给客户演示用）
-
-启动 UI：
-
-```powershell
-streamlit run src/opinion_trading/ui_dashboard.py
-```
-
-面板包含：
-
-- 实时选股榜单与告警
-- 平台情绪趋势图
-- 选股依据（Top 正/负评论）
-- 月度正确率与性价比（基于价格数据）
-
-价格数据获取方式：
-
-- 默认 UI 中勾选“Auto fetch prices (Yahoo)”自动拉取
-- 或手动准备 CSV 并关闭自动拉取
-
-### 步骤 11：多月评论回测正确率分析
-
-准备价格数据 CSV（字段必须包含）：
-
-```
-date,symbol,close
-2026-03-13,600519.SH,1500.0
-2026-03-14,600519.SH,1520.0
-```
-
-模板文件已提供：`data/reports/price_history_template.csv`
-
-运行评估：
-
-```powershell
-python run_pipeline.py --mode evaluate --price-file data/reports/price_history_template.csv --start-date 2026-03-01 --end-date 2026-05-31
-```
-
-输出：
-
-- `data/reports/accuracy_eval_*.csv`：逐条信号的正确性
-- `data/reports/accuracy_eval_*.md`：汇总正确率与性价比（Sharpe-like）
-
-### 步骤 12：回归测试与在线端到端验证
-
-离线回归测试：
-
-```powershell
-python -m unittest discover -s tests -p "test_*.py"
-```
-
-要使用 `pytest` 运行新增测试：
-
-```powershell
-pip install -r requirements-dev.txt
+# 测试
 pytest -q
 ```
 
+---
 
-在线端到端验证（使用仓库内的 OpenClaw 兼容 stub）：
+## 目录结构
 
-```powershell
-python -m uvicorn openclaw_stub:app --host 127.0.0.1 --port 18080
+```
+├── run_pipeline.py              # CLI 入口
+├── openclaw_ws_proxy.py         # WebSocket → REST 代理
+├── openclaw_stub.py             # 本地 Stub（无 API 可演示）
+├── config/settings.yaml         # 平台权重、股票池、阈值
+├── scripts/
+│   ├── run_demo.ps1             # Stub 一键演示
+│   ├── run_demo_openclaw.ps1    # OpenClaw 一键演示
+│   └── text_quality.py          # 噪声/ boilerplate 过滤
+├── src/opinion_trading/
+│   ├── agents/workflow.py       # 多智能体编排
+│   ├── integrations/            # 真实/Stub 平台采集
+│   ├── core/                    # 配置、存储、回测、OpenClaw 适配
+│   └── ui_dashboard.py          # Streamlit 仪表盘
+├── data/reports/                # 日报、选股、质量报告（示例已提交）
+└── tests/                       # 单元测试
 ```
 
-另开一个终端运行：
+---
 
-```powershell
-$env:OPENCLAW_URL = "http://127.0.0.1:18080"
-python run_pipeline.py --mode realtime --iterations 1 --interval-seconds 1 --top-n 1 --alert-threshold 0.25 --yellow-threshold 0.20 --orange-threshold 0.35 --red-threshold 0.50
-```
+## 配置说明
 
-### 可选：当你的 OpenClaw 只提供 WebSocket 网关时（使用项目内代理）
+`config/settings.yaml` 核心项：
 
-如果你得到的接入信息是 WebSocket 地址 + 网关令牌（例如：`ws://localhost:18789` 和 `6f75...`），
-可用仓库内的小型代理把 REST 请求转成 WebSocket 调用：
+- **universe.symbols**：股票池（默认 600519.SH、000001.SZ、601318.SH）
+- **strategy.platform_weights**：各平台权重（股吧 1.40、东财 1.30 …）
+- **strategy.bullish_threshold / bearish_threshold**：多空信号阈值
 
-1. 安装依赖（已将 `websockets` 添加到 `requirements.txt`）：
+环境变量：
 
-```powershell
-python -m pip install -r requirements.txt
-```
+| 变量 | 说明 |
+|------|------|
+| `OPENCLAW_URL` | OpenClaw HTTP 地址（代理或 stub） |
+| `OPENCLAW_TIMEOUT` | 单次 LLM 超时秒数（默认 90） |
+| `OPENCLAW_SKIP_ROW_SCORE` | `1` = 跳过逐帖打分，仅聚合层调用 LLM |
 
-2. 在一台可访问该网关的主机启动代理：
+---
 
-```powershell
-# 让代理连接到你的网关地址/令牌（默认为 ws://localhost:18789）
-$env:WS_GATEWAY_URL = "ws://localhost:18789"
-$env:WS_GATEWAY_TOKEN = "your-actual-token-here"
+## 已知局限
 
-# 启动代理（默认对外监听 18790）
-python -m uvicorn openclaw_ws_proxy:app --host 127.0.0.1 --port 18790
-```
+- 部分平台受反爬影响，会有 `fallback` 行；质量报告可追踪
+- 股吧噪声率偏高，持续优化 `text_quality.py` 规则
+- 当前股票池为 3 只 A 股样板；扩展只需改 `settings.yaml`
+- ML 基线（TF-IDF + LinearSVC）已搭建，标注样本量尚小，指标仅供参考
 
-3. 在项目中把 `OPENCLAW_URL` 指向代理：
+---
 
-```powershell
-$env:OPENCLAW_URL = "http://127.0.0.1:18790"
-Remove-Item Env:OPENCLAW_TOKEN -ErrorAction SilentlyContinue
-python run_pipeline.py --mode realtime --iterations 1 --interval-seconds 1 --top-n 1
-```
+## 更多文档
 
-说明：代理实现的是通用模式（先发 `{"op":"auth","token":...}` 再发 `{"op":"score","id":...,"texts":[...]}`），
-如果你的网关使用不同消息格式，请告诉我网关的消息规范，我会调整代理以匹配。
+- [新手教程](docs/beginner_tutorial_zh.md)
+- [项目简介](docs/brief_intro_zh.md)
+- [标注说明](docs/annotation_instructions_zh.md)（可选 ML 验证线）
 
-可配置项：
+---
 
-```powershell
-$env:WS_GATEWAY_AUTH_TEMPLATE = '{"type":"login","token":"{{token}}"}'
-$env:WS_GATEWAY_REQUEST_TEMPLATE = '{"type":"infer","req_id":"{{id}}","payload":{{texts_json}}}'
-$env:WS_GATEWAY_SCORE_KEYS = 'scores,data.scores,data.result.scores'
-$env:WS_GATEWAY_AUTH_TIMEOUT = '1'
-$env:WS_GATEWAY_RESPONSE_TIMEOUT = '10'
-```
+## License
 
-模板占位符：`{{token}}`、`{{id}}`、`{{texts_json}}`。
-
-
-## 3. 代码结构与每个文件的用途
-
-### 3.1 入口与执行控制
-
-- `run_pipeline.py`
-用途：项目启动入口。把 `src` 加入路径后调用主程序。
-
-- `src/opinion_trading/main.py`
-用途：命令行参数解析与模式分发（daily/realtime/evaluate/backtest/optimize/visualize）。
-
-### 3.2 工作流与角色层
-
-- `src/opinion_trading/agents/workflow.py`
-用途：全流程总编排。顺序执行原始采集、质量报告、情绪分析、模拟交易、日报写入；并支持实时轮询选股与分数变化告警。
-
-- `scripts/run_realtime_guard.ps1`
-用途：实时模式守护脚本。进程中断后自动重启，适合长时间运行。
-
-- `scripts/register_realtime_task.ps1`
-用途：注册 Windows 计划任务，让实时守护脚本在开机/登录后自动常驻运行。
-
-- `src/opinion_trading/ui_dashboard.py`
-用途：Streamlit UI 可视化面板，展示 OpenClaw 选股、评论解释与正确率分析。
-
-- `src/opinion_trading/core/evaluation.py`
-用途：多月评论回测正确率分析（需提供价格 CSV）。
-
-- `src/opinion_trading/agents/roles.py`
-用途：定义 Collector/Analyst/Trader 三个角色，解耦职责，便于替换某一层实现。
-
-### 3.3 采集与平台集成层
-
-- `src/opinion_trading/integrations/platform_sentiment_real.py`
-用途：真实网页采集与解析核心。负责：
-1. 构造平台 URL
-2. 下载页面并解析标题/时间/正文
-3. 生成 `summary`、`capture_status`、`failure_reason`
-4. 失败时回退 fallback/stub，保证流程不中断
-
-- `src/opinion_trading/integrations/platform_sentiment_stub.py`
-用途：演示和兜底数据源。真实抓取失败时可回退，确保流程可运行。
-
-### 3.4 Skill 层（业务逻辑）
-
-- `src/opinion_trading/skills/sentiment_collection.py`
-用途：按日期、股票、平台拉取快照，生成 `OpinionSnapshot`。
-
-- `src/opinion_trading/skills/sentiment_analysis.py`
-用途：计算聚合情绪、平台组合评分、交易信号。
-
-- `src/opinion_trading/skills/trade_simulation.py`
-用途：根据信号执行模拟交易，维护现金和持仓状态。
-
-### 3.5 核心基础设施
-
-- `src/opinion_trading/core/config_loader.py`
-用途：加载 `config/settings.yaml`，转为运行时配置对象。
-
-- `src/opinion_trading/core/models.py`
-用途：集中定义数据结构（快照、信号、交易、原始帖子等）。
-
-- `src/opinion_trading/core/memory_store.py`
-用途：JSONL/JSON 持久化（舆情历史、信号历史、交易历史、状态）。
-
-- `src/opinion_trading/core/raw_store.py`
-用途：证据链落盘。
-1. 写总原始 CSV
-2. 按来源拆分 CSV
-3. 写失败日志 JSONL
-
-- `src/opinion_trading/core/quality_report.py`
-用途：自动计算四项质量指标并输出 Markdown 质量报告。
-
-- `src/opinion_trading/core/report_builder.py`
-用途：生成每日策略报告（组合、快照、信号、交易、账户状态）。
-
-- `src/opinion_trading/core/backtest.py`
-用途：历史区间回测与参数优化。
-
-- `src/opinion_trading/core/metrics.py`
-用途：计算年化收益、最大回撤、夏普等指标。
-
-- `src/opinion_trading/core/visualization.py`
-用途：把回测结果画成图并生成 TopN 结果展示。
-
-## 4. 配置文件用途
-
-- `config/settings.yaml`
-用途：项目主配置。
-包含平台列表、阈值、股票池、内存目录、报告目录、原始数据目录。
-
-- `config/openclaw_tasks.yaml`
-用途：OpenClaw 任务模板和自动化指令。
-
-## 5. 产物文件用途
-
-- `data/memory/sentiment_history.jsonl`：每次采集快照历史
-- `data/memory/signal_history.jsonl`：交易信号历史
-- `data/memory/trade_history.jsonl`：模拟交易历史
-- `data/memory/state.json`：账户状态（现金/持仓）
-- `data/reports/YYYY-MM-DD.md`：日报
-- `data/reports/quality_YYYY-MM-DD.md`：质量报告
-- `data/reports/realtime_picks_*.csv`：实时选股榜单
-- `data/reports/realtime_picks_*.md`：实时轮询报告
-- `data/reports/realtime_alerts_*.jsonl`：实时告警落盘
-- `data/reports/accuracy_eval_*.csv`：正确率评估结果
-- `data/reports/accuracy_eval_*.md`：正确率评估摘要
-- `data/raw/raw_posts_YYYY-MM-DD.csv`：总原始帖子证据
-- `data/raw/by_source/*.csv`：按平台拆分的原始证据
-- `data/raw/failures/*.jsonl`：抓取失败证据
-
-## 6. 完成项目的验收建议
-
-建议连续跑 7 天，每天都检查质量报告：
-
-- 标题覆盖率 >= 95%
-- 时间覆盖率 >= 90%
-- 正文覆盖率 >= 85%
-- 噪声率 <= 20%
-
-并确保 `fallback` 比例逐步下降。
-
-## 7. 常见问题
-
-- 问：为什么有时会出现 `fallback` 行？
-答：页面结构变化或反爬导致解析失败，系统会回退以保证任务不中断。
-
-- 问：如何判断采集是否稳定？
-答：看质量报告和失败日志，而不是只看命令行是否报错。
-
-- 问：下一步该优化哪里？
-答：优先优化 `src/opinion_trading/integrations/platform_sentiment_real.py` 的解析规则，先压低 fallback，再优化信号策略。
-
-## 8. 你接下来该怎么做（执行清单）
-
-建议按下面顺序推进，不要并行做太多事：
-
-### 第 1 阶段：本地稳定（1-3 天）
-
-目标：本地 daily 连续稳定，证据链完整。
-
-1. 连续运行 3 天 daily。
-2. 每天检查：
-  - `data/raw/by_source/` 是否有当日三个平台 CSV
-  - `data/raw/failures/` 是否有失败日志
-  - `data/reports/quality_YYYY-MM-DD.md` 是否生成
-3. 记录每日四项指标和 fallback 比例。
-
-通过标准：
-
-- 连续 3 天 daily 不报错
-- 质量报告可正常生成
-- `capture_status=success` 占比达到你设定阈值（建议先 >= 80%）
-
-### 第 2 阶段：抓取优化（3-7 天）
-
-目标：把 fallback 和噪声率压低。
-
-1. 优先优化 `guba` 解析规则。
-2. 再优化 `sina_finance` 时间/正文提取。
-3. 每次改动后只跑一次 daily 验证，不要一次改很多逻辑。
-
-通过标准：
-
-- 连续 3 天 `quality_YYYY-MM-DD.md` 的 Overall 为 PASS
-- 噪声率 <= 20%
-- 时间覆盖率 >= 90%
-
-### 第 3 阶段：策略与展示（2-4 天）
-
-目标：把“能跑”变成“能展示”。
-
-1. 跑 backtest / optimize / visualize。
-2. 整理结果图和对比表。
-3. 在 README 和 docs 里补一段结论：什么参数组合最好、为什么。
-
-## 9. 什么时候可以连接服务器和 OpenClaw
-
-结论先说：
-
-- 本地链路没稳定前，不建议上服务器和 OpenClaw。
-- 满足下面的 Ready 条件后再接，效率最高、排障成本最低。
-
-### 9.1 Ready 条件（全部满足再接）
-
-1. 本地连续 3 天 daily 成功。
-2. 每天都有完整证据链文件：raw CSV / by_source CSV / failures / quality report。
-3. 质量报告连续 3 天 Overall = PASS。
-4. 你能解释每个核心文件用途（本 README 第 3 节）。
-
-### 9.2 连接时机建议
-
-- 最早时机：完成第 2 阶段后。
-- 最佳时机：完成第 3 阶段后（有稳定抓取 + 有回测结果 + 有展示材料）。
-
-### 9.3 先接服务器，后接 OpenClaw（推荐顺序）
-
-1. 先把项目部署到服务器，保证纯命令行可跑：
-  - 安装依赖
-  - 跑 daily
-  - 生成相同产物
-2. 再接 OpenClaw 调度：
-  - 用 `config/openclaw_tasks.yaml` 先跑最小任务
-  - 再接 daily 全流程
-
-原因：
-
-- 先排除环境问题（服务器）
-- 再排除编排问题（OpenClaw）
-- 故障定位会快很多
-
-### 9.4 服务器和 OpenClaw 接入后要做的验证
-
-1. 与本地同一天同参数跑一次，比较关键输出。
-2. 检查路径权限（`data/raw/`、`data/reports/` 是否可写）。
-3. 检查定时任务重复执行时是否会覆盖关键证据文件。
-
-建议做法：
-
-- 保留按日期命名产物
-- 失败日志单独目录保存
-- 每日任务结束后输出一行摘要（signals/trades/quality status）
+MIT（或个人学习用途，请按需调整）

@@ -1,0 +1,15 @@
+{
+  "summary": {
+    "months_trained": 0,
+    "start_month": "",
+    "end_month": "",
+    "total_signals": 0,
+    "latest_month_accuracy": 0.0,
+    "rolling_success_rate": 0.0,
+    "rolling_avg_return": 0.0,
+    "rolling_win_rate": 0.0,
+    "forecast_success_rate": 0.0,
+    "forecast_direction": "NEUTRAL"
+  },
+  "monthly_rows": []
+}

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from datetime import date, datetime
 from typing import Dict, List
@@ -12,6 +13,21 @@ from opinion_trading.integrations.platform_sentiment_stub import (
     PlatformSentimentProvider as StubProvider,
 )
 from opinion_trading.core.ai_sentiment import AISentimentAnalyzer
+
+import sys
+from pathlib import Path as _Path
+
+_scripts_dir = _Path(__file__).resolve().parents[3] / "scripts"
+if _scripts_dir.exists() and str(_scripts_dir) not in sys.path:
+    sys.path.insert(0, str(_scripts_dir))
+try:
+    from text_quality import is_boilerplate, strip_boilerplate
+except ImportError:
+    def is_boilerplate(text: str) -> bool:  # type: ignore[misc]
+        return False
+
+    def strip_boilerplate(text: str, *, max_len: int = 800) -> str:  # type: ignore[misc]
+        return str(text or "")[:max_len]
 
 
 class RealPlatformSentimentProvider:
@@ -437,8 +453,10 @@ class RealPlatformSentimentProvider:
             or self._extract_article_content(text)
             or self._normalize_content(text)
         )
+        content = strip_boilerplate(content) or strip_boilerplate(page_title) or content
 
         title = self._short_title(page_title or content or text)
+        title = strip_boilerplate(title) or title
         post_time = self._extract_time(text, trade_date=trade_date)
 
         # if content is too short, treat as parse failure to reduce fallback pollution
@@ -507,6 +525,7 @@ class RealPlatformSentimentProvider:
                 platform=platform,
                 symbol=symbol,
                 title=f"{symbol} {platform} stub record",
+                summary=f"Stub fallback summary for {platform}.",
                 post_time=trade_date.isoformat(),
                 content=f"Stub fallback content for {platform}.",
                 url=f"fallback://{platform}",
@@ -617,7 +636,8 @@ class RealPlatformSentimentProvider:
         return text[:120]
 
     def _normalize_content(self, value: str) -> str:
-        return self._clean_text(value)[:800]
+        stripped = strip_boilerplate(self._clean_text(value))
+        return stripped if stripped else self._clean_text(value)[:800]
 
     def _build_summary(self, title: str, content: str) -> str:
         title_text = self._clean_text(title)
@@ -656,14 +676,28 @@ class RealPlatformSentimentProvider:
         neg = sum((title + " " + content).count(word) for word in self._NEGATIVE_WORDS)
         keyword_score = (pos - neg) / (pos + neg + 5) if (pos + neg + 5) != 0 else 0.0
 
-        # compute ai score if analyzer available
+        # Row-level OpenClaw calls are disabled by default: each post would
+        # trigger a ~2min LLM round-trip (100+ calls per realtime cycle).
+        # Aggregated sentiment in fetch() -> _score_text() is sufficient.
         ai_score = ""
+        skip_row_ai = os.environ.get("OPENCLAW_SKIP_ROW_SCORE", "1").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
         try:
-            if getattr(self, "ai_analyzer", None):
+            if (
+                not skip_row_ai
+                and getattr(self, "ai_analyzer", None)
+                and getattr(self.ai_analyzer, "openclaw", None)
+                and self.ai_analyzer.openclaw.is_configured()
+            ):
                 scores = self.ai_analyzer.score_texts([f"{title} {content}"])
                 ai_score = scores[0] if scores else ""
         except Exception:
             ai_score = ""
+        if ai_score == "":
+            ai_score = float(keyword_score)
 
         return {
             "trade_date": trade_date.isoformat(),
@@ -694,6 +728,8 @@ class RealPlatformSentimentProvider:
     def _is_noise_text(self, text: str) -> bool:
         low = self._clean_text(text).lower()
         if not low:
+            return True
+        if is_boilerplate(text):
             return True
         if len(low) < 12:
             return True

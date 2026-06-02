@@ -1,0 +1,203 @@
+{
+  "summary": {
+    "months_trained": 17,
+    "start_month": "2025-01",
+    "end_month": "2026-05",
+    "total_signals": 55,
+    "latest_month_accuracy": 0.42857142857142855,
+    "rolling_success_rate": 0.5350140056022409,
+    "rolling_avg_return": -0.004330128421816167,
+    "rolling_win_rate": 0.12698412698412698,
+    "forecast_success_rate": 0.49206349206349204,
+    "forecast_direction": "BEARISH"
+  },
+  "monthly_rows": [
+    {
+      "month": "2025-01",
+      "signals": 3,
+      "correct_signals": 2,
+      "accuracy": 0.6666666666666666,
+      "avg_return": -0.002075630876467328,
+      "win_rate": 0.6666666666666666,
+      "avg_confidence": 0.1466168194800956,
+      "bullish_signals": 1,
+      "bearish_signals": 2
+    },
+    {
+      "month": "2025-02",
+      "signals": 3,
+      "correct_signals": 2,
+      "accuracy": 0.6666666666666666,
+      "avg_return": 0.006776608285731918,
+      "win_rate": 0.6666666666666666,
+      "avg_confidence": 0.1466168194800956,
+      "bullish_signals": 1,
+      "bearish_signals": 2
+    },
+    {
+      "month": "2025-03",
+      "signals": 3,
+      "correct_signals": 1,
+      "accuracy": 0.3333333333333333,
+      "avg_return": -0.01163256139536023,
+      "win_rate": 0.3333333333333333,
+      "avg_confidence": 0.1466168194800956,
+      "bullish_signals": 1,
+      "bearish_signals": 2
+    },
+    {
+      "month": "2025-04",
+      "signals": 3,
+      "correct_signals": 1,
+      "accuracy": 0.3333333333333333,
+      "avg_return": 0.00210686147262867,
+      "win_rate": 1.0,
+      "avg_confidence": 0.1466168194800956,
+      "bullish_signals": 1,
+      "bearish_signals": 2
+    },
+    {
+      "month": "2025-05",
+      "signals": 3,
+      "correct_signals": 2,
+      "accuracy": 0.6666666666666666,
+      "avg_return": -0.00922877096982702,
+      "win_rate": 0.0,
+      "avg_confidence": 0.1466168194800956,
+      "bullish_signals": 1,
+      "bearish_signals": 2
+    },
+    {
+      "month": "2025-06",
+      "signals": 3,
+      "correct_signals": 3,
+      "accuracy": 1.0,
+      "avg_return": 0.003977383628844527,
+      "win_rate": 0.3333333333333333,
+      "avg_confidence": 0.1466168194800956,
+      "bullish_signals": 1,
+      "bearish_signals": 2
+    },
+    {
+      "month": "2025-07",
+      "signals": 3,
+      "correct_signals": 1,
+      "accuracy": 0.3333333333333333,
+      "avg_return": -0.003925732827699192,
+      "win_rate": 0.3333333333333333,
+      "avg_confidence": 0.1466168194800956,
+      "bullish_signals": 1,
+      "bearish_signals": 2
+    },
+    {
+      "month": "2025-08",
+      "signals": 3,
+      "correct_signals": 1,
+      "accuracy": 0.3333333333333333,
+      "avg_return": -0.001059264580304132,
+      "win_rate": 0.3333333333333333,
+      "avg_confidence": 0.1466168194800956,
+      "bullish_signals": 1,
+      "bearish_signals": 2
+    },
+    {
+      "month": "2025-09",
+      "signals": 3,
+      "correct_signals": 2,
+      "accuracy": 0.6666666666666666,
+      "avg_return": -0.007740783119639415,
+      "win_rate": 0.0,
+      "avg_confidence": 0.1466168194800956,
+      "bullish_signals": 1,
+      "bearish_signals": 2
+    },
+    {
+      "month": "2025-10",
+      "signals": 3,
+      "correct_signals": 1,
+      "accuracy": 0.3333333333333333,
+      "avg_return": 0.010527868636417788,
+      "win_rate": 1.0,
+      "avg_confidence": 0.1466168194800956,
+      "bullish_signals": 1,
+      "bearish_signals": 2
+    },
+    {
+      "month": "2025-11",
+      "signals": 3,
+      "correct_signals": 1,
+      "accuracy": 0.3333333333333333,
+      "avg_return": -0.0034808908402217853,
+      "win_rate": 0.3333333333333333,
+      "avg_confidence": 0.1466168194800956,
+      "bullish_signals": 1,
+      "bearish_signals": 2
+    },
+    {
+      "month": "2025-12",
+      "signals": 3,
+      "correct_signals": 2,
+      "accuracy": 0.6666666666666666,
+      "avg_return": -0.002201361374711517,
+      "win_rate": 0.0,
+      "avg_confidence": 0.1466168194800956,
+      "bullish_signals": 1,
+      "bearish_signals": 2
+    },
+    {
+      "month": "2026-01",
+      "signals": 3,
+      "correct_signals": 2,
+      "accuracy": 0.6666666666666666,
+      "avg_return": -0.01053074580757149,
+      "win_rate": 0.0,
+      "avg_confidence": 0.1466168194800956,
+      "bullish_signals": 1,
+      "bearish_signals": 2
+    },
+    {
+      "month": "2026-02",
+      "signals": 3,
+      "correct_signals": 2,
+      "accuracy": 0.6666666666666666,
+      "avg_return": -0.008185086123240613,
+      "win_rate": 0.0,
+      "avg_confidence": 0.1466168194800956,
+      "bullish_signals": 1,
+      "bearish_signals": 2
+    },
+    {
+      "month": "2026-03",
+      "signals": 3,
+      "correct_signals": 1,
+      "accuracy": 0.3333333333333333,
+      "avg_return": 0.006747494280829369,
+      "win_rate": 0.3333333333333333,
+      "avg_confidence": 0.1466168194800956,
+      "bullish_signals": 1,
+      "bearish_signals": 2
+    },
+    {
+      "month": "2026-04",
+      "signals": 3,
+      "correct_signals": 2,
+      "accuracy": 0.6666666666666666,
+      "avg_return": -0.005648878642771037,
+      "win_rate": 0.0,
+      "avg_confidence": 0.1466168194800956,
+      "bullish_signals": 1,
+      "bearish_signals": 2
+    },
+    {
+      "month": "2026-05",
+      "signals": 7,
+      "correct_signals": 3,
+      "accuracy": 0.42857142857142855,
+      "avg_return": -0.007143502508728099,
+      "win_rate": 0.14285714285714285,
+      "avg_confidence": 0.07079292263432668,
+      "bullish_signals": 5,
+      "bearish_signals": 2
+    }
+  ]
+}

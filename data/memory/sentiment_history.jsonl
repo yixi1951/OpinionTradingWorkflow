@@ -280,3 +280,5 @@
 {"timestamp": "2026-05-29T22:48:55.046704", "trade_date": "2026-04-15", "platform": "weibo", "symbol": "601318.SH", "sentiment_score": 0.0, "post_count": 1, "source": "https://s.weibo.com/weibo?q=601318.SH"}
 {"timestamp": "2026-05-29T22:48:56.234783", "trade_date": "2026-04-15", "platform": "eastmoney", "symbol": "601318.SH", "sentiment_score": -0.2857142857142857, "post_count": 6, "source": "https://guba.eastmoney.com/list,sh601318.html"}
 {"timestamp": "2026-05-29T22:48:56.658227", "trade_date": "2026-04-15", "platform": "xueqiu", "symbol": "601318.SH", "sentiment_score": 0.0, "post_count": 6, "source": "https://xueqiu.com/S/sh601318"}
+{"trade_date": "2026-05-31", "platform": "douyin", "symbol": "600519.SH", "sentiment_score": 0.0, "post_count": 1, "source": "https://www.douyin.com/search/600519.SH"}
+{"trade_date": "2026-05-31", "platform": "douyin", "symbol": "000001.SZ", "sentiment_score": 0.0, "post_count": 1, "source": "https://www.douyin.com/search/000001.SZ"}

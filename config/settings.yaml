@@ -9,12 +9,14 @@ strategy:
     - weibo
     - eastmoney
     - xueqiu
+    - douyin
   platform_weights:
     guba: 1.40
     eastmoney: 1.30
     sina_finance: 1.15
     xueqiu: 1.10
     weibo: 0.95
+    douyin: 1.05
   bearish_threshold: -0.6
   bullish_threshold: 0.7
   min_platforms_for_signal: 2

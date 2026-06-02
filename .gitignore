@@ -25,3 +25,14 @@ Thumbs.db
 *.pem
 *.key
 secrets/
+.openclaw/
+
+# Large / generated artifacts (keep sample reports in data/reports/)
+data/raw/html_cache/
+models/metrics_*.json
+correlation_results_*.csv
+data/labels/annotation_bulk*.csv
+data/labels/annotation_combined*.csv
+data/labels/annotation_sample_review*.csv
+data/labels/*_rejected.csv
+data/labels/*_quality_report.csv

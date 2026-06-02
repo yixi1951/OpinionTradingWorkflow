@@ -375,9 +375,10 @@ async def score_texts(req: SentimentRequest):
                         and chal.get("event") == "connect.challenge"
                     ):
                         # send a `req` connect using the same scope set as the Control UI
+                        connect_id = str(uuid.uuid4())
                         connect_req = {
                             "type": "req",
-                            "id": str(uuid.uuid4()),
+                            "id": connect_id,
                             "method": "connect",
                             "params": {
                                 "minProtocol": 4,
@@ -394,6 +395,32 @@ async def score_texts(req: SentimentRequest):
                             },
                         }
                         await ws.send(json.dumps(connect_req))
+
+                        handshake_deadline = (
+                            asyncio.get_running_loop().time() + response_timeout
+                        )
+                        while True:
+                            remaining = handshake_deadline - asyncio.get_running_loop().time()
+                            if remaining <= 0:
+                                raise HTTPException(
+                                    status_code=502,
+                                    detail="Timeout waiting for gateway connect handshake",
+                                )
+                            raw = await asyncio.wait_for(ws.recv(), timeout=remaining)
+                            try:
+                                payload = json.loads(raw)
+                            except Exception:
+                                continue
+                            if (
+                                payload.get("type") == "res"
+                                and payload.get("id") == connect_id
+                            ):
+                                if payload.get("ok") is False:
+                                    raise HTTPException(
+                                        status_code=502,
+                                        detail=f"Gateway connect failed: {payload.get('error', payload)}",
+                                    )
+                                break
                     else:
                         # no challenge; fall back to sending auth_msg if available
                         if auth_msg:

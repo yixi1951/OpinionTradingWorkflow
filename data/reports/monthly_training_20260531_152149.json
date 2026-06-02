@@ -1,0 +1,27 @@
+{
+  "summary": {
+    "months_trained": 1,
+    "start_month": "2026-05",
+    "end_month": "2026-05",
+    "total_signals": 6,
+    "latest_month_accuracy": 0.6666666666666666,
+    "rolling_success_rate": 0.6666666666666666,
+    "rolling_avg_return": 0.006313799923185918,
+    "rolling_win_rate": 0.6666666666666666,
+    "forecast_success_rate": 0.6666666666666666,
+    "forecast_direction": "BULLISH"
+  },
+  "monthly_rows": [
+    {
+      "month": "2026-05",
+      "signals": 6,
+      "correct_signals": 4,
+      "accuracy": 0.6666666666666666,
+      "avg_return": 0.006313799923185918,
+      "win_rate": 0.6666666666666666,
+      "avg_confidence": 0.038149999999999996,
+      "bullish_signals": 6,
+      "bearish_signals": 0
+    }
+  ]
+}
