@@ -21,6 +21,16 @@ from opinion_trading.core.monthly_training import (
     save_monthly_training_report,
 )
 
+from opinion_trading.ui_helpers import (
+    build_pick_contribution,
+    build_pick_narrative,
+    evidence_stats,
+    filter_usable_raw,
+    monthly_methodology_text,
+    parse_platform_scores,
+    top_comment_rows,
+)
+
 
 # Simple i18n dictionary for UI text
 LANG = {
@@ -130,6 +140,22 @@ LANG = {
         "sidebar_paths": "Data paths",
         "hero_tagline": "Multi-platform sentiment · AI stock picks · Explainable signals",
         "no_platform_scores": "No platform breakdown",
+        "guide_trend_title": "How to read: Sentiment trend",
+        "guide_trend_body": "Each line is one platform's monthly average sentiment (-1 bearish ~ +1 bullish). Rising lines = improving mood. Use **Min samples** to hide thin data.",
+        "guide_contrib_title": "How to read: Platform contribution",
+        "guide_contrib_body": "Scores come from the latest realtime pick; weights from config/settings.yaml. **Weighted contrib** = score × platform weight. Higher **weight %** = stronger driver for this pick.",
+        "guide_snapshot_title": "Platform sentiment snapshot",
+        "guide_snapshot_body": "Latest score per platform for the selected symbol. Green = bullish, red = bearish, gray = neutral/no signal.",
+        "guide_comments_title": "How to read: Evidence comments",
+        "guide_comments_body": "Fallback/boilerplate rows are filtered. Comments are ranked by AI sentiment score. Prefer rows with platform tags and links for verification.",
+        "sample_low_warning": "Low sample count — platform stats may be unreliable. Run daily/realtime to collect more posts.",
+        "evidence_summary": "Evidence: {valid} valid / {total} total comments, {platforms} platforms, {fallback} filtered",
+        "no_valid_comments": "No valid comments after filtering fallback/noise. Re-run daily mode for fresher data.",
+        "pick_story": "Pick narrative",
+        "platform_snapshot": "Platform snapshot",
+        "col_config_weight": "config weight",
+        "col_weighted_contrib": "weighted contrib",
+        "col_direction": "direction",
     },
     "zh": {
         "page_title": "OpenClaw AI 选股",
@@ -237,6 +263,22 @@ LANG = {
         "sidebar_paths": "数据路径",
         "hero_tagline": "多平台舆情 · AI 智能选股 · 可解释信号",
         "no_platform_scores": "暂无平台分数明细",
+        "guide_trend_title": "图表说明：情感趋势",
+        "guide_trend_body": "每条折线代表一个平台的**月度平均情感分**（-1 偏空 ~ +1 偏多）。上行=情绪改善，下行=情绪恶化。可通过「Min samples」过滤样本过少的平台。",
+        "guide_contrib_title": "图表说明：平台贡献（选股解释）",
+        "guide_contrib_body": "分数来自**最新一轮 realtime 选股**的各平台分项；权重来自 config/settings.yaml。**加权贡献 = 分数 × 平台权重**，**贡献 %** 越高表示该平台对本次排名影响越大。",
+        "guide_snapshot_title": "平台情感快照",
+        "guide_snapshot_body": "展示所选股票在各平台的**最新情感分**。绿色偏多、红色偏空、灰色中性/无信号，便于快速对比强弱平台。",
+        "guide_comments_title": "图表说明：评论依据",
+        "guide_comments_body": "已自动过滤 fallback/页面导航等噪声。评论按 AI 情感分排序，建议优先查看带**平台标签**和**原文链接**的条目以便核实。",
+        "sample_low_warning": "⚠️ 当前样本偏少，平台统计可能不准确。建议多跑几次 daily/realtime 积累数据。",
+        "evidence_summary": "证据统计：有效评论 {valid}/{total} 条，覆盖 {platforms} 个平台，已过滤 {fallback} 条噪声",
+        "no_valid_comments": "过滤噪声后暂无有效评论。请重新运行 daily 模式抓取最新帖子。",
+        "pick_story": "选股叙事",
+        "platform_snapshot": "平台情感快照",
+        "col_config_weight": "配置权重",
+        "col_weighted_contrib": "加权贡献",
+        "col_direction": "方向",
     },
 }
 
@@ -655,20 +697,21 @@ def _score_badge(score: float) -> str:
     return f"<span style='background:#6B7280;color:white;padding:3px 10px;border-radius:999px;font-size:0.78rem;font-weight:700;'>{neutral}</span>"
 
 
+def _render_info_box(title: str, body: str) -> None:
+    st.markdown(
+        f"""
+        <div style="border-left:4px solid #2563EB;padding:0.65rem 0.9rem;margin:0.35rem 0 0.85rem 0;
+        background:rgba(239,246,255,0.85);border-radius:0 12px 12px 0;color:#334155;font-size:0.88rem;line-height:1.55;">
+        <div style="font-weight:800;color:#1E40AF;margin-bottom:0.25rem;">{title}</div>
+        <div>{body}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def _parse_platform_scores(raw_value) -> Dict[str, float]:
-    if not isinstance(raw_value, str) or not raw_value.strip():
-        return {}
-    out: Dict[str, float] = {}
-    for part in raw_value.split(","):
-        piece = part.strip()
-        if ":" not in piece:
-            continue
-        platform, score_text = piece.split(":", 1)
-        try:
-            out[platform.strip()] = float(score_text.strip())
-        except ValueError:
-            continue
-    return out
+    return parse_platform_scores(raw_value)
 
 
 def _latest_report_meta(report_dir: str) -> tuple[str, str]:
@@ -769,77 +812,101 @@ def _trend_arrow(score: float) -> str:
     return "<span style='color:#9CA3AF;font-size:20px;'>■</span>"
 
 
-def _render_reason_cards(raw_df: pd.DataFrame, picks_df: pd.DataFrame) -> None:
-    def _get_text(key: str) -> str:
-        try:
-            return t(key)
-        except Exception:
-            lang = (
-                st.session_state.get("lang", "zh")
-                if hasattr(st, "session_state")
-                else "zh"
-            )
-            return LANG.get(lang, LANG["en"]).get(key, key)
-
-    if raw_df.empty or picks_df.empty:
-        st.info(_get_text("no_reason_cards"))
+def _render_reason_cards(
+    raw_df: pd.DataFrame,
+    picks_df: pd.DataFrame,
+    sentiment_df: pd.DataFrame,
+    lookback_days: int = 30,
+) -> None:
+    if picks_df.empty:
+        st.info(t("no_reason_cards"))
         return
 
-    symbols = picks_df["symbol"].dropna().unique().tolist()
-    top_symbols = symbols[:3]
-    cols = st.columns(len(top_symbols))
-
-    for idx, symbol in enumerate(top_symbols):
-        pick_row = picks_df[picks_df["symbol"] == symbol].head(1)
-        avg_score = float(pick_row["avg_score"].iloc[0]) if not pick_row.empty else 0.0
-        top_rows = _top_comment_rows(raw_df, symbol, top_n=3)
-        positive = top_rows["positive"].head(1)
-        negative = top_rows["negative"].head(1)
-        pos_summary = positive["summary"].iloc[0] if not positive.empty else ""
-        neg_summary = negative["summary"].iloc[0] if not negative.empty else ""
-        pos_score = float(positive["ai_score"].iloc[0]) if not positive.empty else 0.0
-        neg_score = float(negative["ai_score"].iloc[0]) if not negative.empty else 0.0
-        risk_hint = _get_text("risk_balanced")
-        if pos_score < 0 and neg_score < 0:
-            risk_hint = _get_text("risk_high_negative")
-        elif abs(pos_score) < 0.05:
-            risk_hint = _get_text("risk_weak_signal")
-
-        with cols[idx]:
-            st.markdown(
-                f"""
-                <div class="reason-card">
-                    <div style="font-size:1.15rem;font-weight:800;color:#0F172A;margin-bottom:0.35rem;">{symbol}</div>
-                    <div style="font-size:1.55rem;font-weight:800;color:#0F172A;margin-bottom:0.25rem;">
-                        {avg_score:+.3f} {_trend_arrow(avg_score)}
-                    </div>
-                    <div style="margin-bottom:0.65rem;">{_score_badge(avg_score)}</div>
-                    <div style="font-size:0.84rem;color:#475569;line-height:1.45;margin-bottom:0.45rem;">
-                        <b>{_get_text('positive_highlight')}</b><br>{pos_summary[:120] or '—'}
-                    </div>
-                    <div style="font-size:0.84rem;color:#475569;line-height:1.45;margin-bottom:0.45rem;">
-                        <b>{_get_text('negative_highlight')}</b><br>{neg_summary[:120] or '—'}
-                    </div>
-                    <div style="font-size:0.78rem;color:#64748B;">{risk_hint}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-
-def _top_comment_rows(
-    raw_df: pd.DataFrame, symbol: str, top_n: int = 5
-) -> Dict[str, pd.DataFrame]:
-    if raw_df.empty:
-        return {"positive": pd.DataFrame(), "negative": pd.DataFrame()}
-
-    view = raw_df[raw_df["symbol"] == symbol].copy()
-    view["ai_score"] = pd.to_numeric(view.get("ai_score", 0), errors="coerce").fillna(
+    lang = st.session_state.get("lang", "zh")
+    view = picks_df.copy()
+    view["avg_score"] = pd.to_numeric(view.get("avg_score"), errors="coerce").fillna(
         0.0
     )
-    positive = view.sort_values("ai_score", ascending=False).head(top_n)
-    negative = view.sort_values("ai_score", ascending=True).head(top_n)
-    return {"positive": positive, "negative": negative}
+    view = view.sort_values("avg_score", ascending=False).reset_index(drop=True)
+    symbols = view["symbol"].dropna().tolist()
+
+    for rank, symbol in enumerate(symbols, start=1):
+        pick_row = view[view["symbol"] == symbol].head(1)
+        avg_score = float(pick_row["avg_score"].iloc[0]) if not pick_row.empty else 0.0
+        contrib = build_pick_contribution(
+            symbol, picks_df, raw_df, sentiment_df, lookback_days
+        )
+        st.markdown(f"##### #{rank} {symbol}")
+        st.markdown(build_pick_narrative(symbol, avg_score, contrib, raw_df, lang=lang))
+
+        stats = evidence_stats(raw_df, symbol)
+        st.caption(
+            t("evidence_summary").format(
+                valid=stats["valid"],
+                total=stats["total"],
+                platforms=stats["platforms"],
+                fallback=stats["fallback"],
+            )
+        )
+        if stats["valid"] < 5:
+            st.warning(t("sample_low_warning"))
+
+        top_rows = top_comment_rows(raw_df, symbol, top_n=5)
+        pos_items = top_rows["positive"]
+        neg_items = top_rows["negative"]
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown(f"**{t('positive_highlight')}**")
+            if pos_items.empty:
+                st.caption(t("no_valid_comments"))
+            else:
+                for _, row in pos_items.iterrows():
+                    platform = row.get("platform", "")
+                    score = float(row.get("ai_score", 0))
+                    text = row.get("display_text", row.get("_display", ""))
+                    st.markdown(
+                        f"<div style='padding:0.55rem 0.65rem;margin:0.35rem 0;border-radius:10px;"
+                        f"background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);'>"
+                        f"<span style='font-size:0.72rem;color:#047857;font-weight:700;'>{platform} {score:+.2f}</span><br>"
+                        f"<span style='font-size:0.84rem;color:#334155;'>{text}</span></div>",
+                        unsafe_allow_html=True,
+                    )
+        with c2:
+            st.markdown(f"**{t('negative_highlight')}**")
+            if neg_items.empty:
+                st.caption(t("no_valid_comments"))
+            else:
+                for _, row in neg_items.iterrows():
+                    platform = row.get("platform", "")
+                    score = float(row.get("ai_score", 0))
+                    text = row.get("display_text", row.get("_display", ""))
+                    st.markdown(
+                        f"<div style='padding:0.55rem 0.65rem;margin:0.35rem 0;border-radius:10px;"
+                        f"background:rgba(239,68,68,0.07);border:1px solid rgba(239,68,68,0.18);'>"
+                        f"<span style='font-size:0.72rem;color:#B91C1C;font-weight:700;'>{platform} {score:+.2f}</span><br>"
+                        f"<span style='font-size:0.84rem;color:#334155;'>{text}</span></div>",
+                        unsafe_allow_html=True,
+                    )
+
+        if not contrib.empty:
+            drivers = contrib[contrib["platform_score"].abs() > 0.001].head(4)
+            if not drivers.empty:
+                chips = []
+                for _, dr in drivers.iterrows():
+                    color = (
+                        "#059669"
+                        if dr["platform_score"] > 0.05
+                        else "#DC2626"
+                        if dr["platform_score"] < -0.05
+                        else "#64748B"
+                    )
+                    chips.append(
+                        f"<span style='display:inline-block;margin:0.2rem 0.35rem 0 0;padding:0.2rem 0.55rem;"
+                        f"border-radius:999px;background:rgba(148,163,184,0.12);color:{color};font-size:0.78rem;'>"
+                        f"{dr['platform']} {dr['platform_score']:+.2f} · {dr['weight_pct']:.0f}%</span>"
+                    )
+                st.markdown("".join(chips), unsafe_allow_html=True)
+        st.divider()
 
 
 def main() -> None:
@@ -916,12 +983,13 @@ def main() -> None:
             st.dataframe(alerts_df, use_container_width=True, hide_index=True)
 
         st.markdown(f"#### {t('pick_reason_cards')}")
-        if raw_df.empty or picks_df.empty:
+        if picks_df.empty:
             st.info(t("run_realtime_daily_first"))
         else:
-            _render_reason_cards(raw_df, picks_df)
+            _render_reason_cards(raw_df, picks_df, sentiment_df, lookback_days=30)
 
     with tab_sentiment:
+        _render_info_box(t("guide_trend_title"), t("guide_trend_body"))
         st.markdown(f"#### {t('sentiment_trend')}")
         with st.container(border=True):
             if not sentiment_df.empty:
@@ -1053,6 +1121,7 @@ def main() -> None:
             else:
                 st.info(t("no_sentiment_history"))
 
+        _render_info_box(t("guide_contrib_title"), t("guide_contrib_body"))
         st.markdown(f"#### {t('platform_contribution')}")
         with st.container(border=True):
             lookback_days = st.number_input(
@@ -1061,145 +1130,205 @@ def main() -> None:
                 value=30,
                 step=1,
             )
-            contrib_df = _platform_contributions(
-                sentiment_df, lookback_days=int(lookback_days)
+            pick_symbols = (
+                sorted(picks_df["symbol"].unique()) if not picks_df.empty else []
             )
-            if contrib_df.empty:
+            hist_symbols = (
+                sorted(sentiment_df["symbol"].unique())
+                if not sentiment_df.empty
+                else []
+            )
+            symbol_options = sorted(set(pick_symbols + hist_symbols))
+            if not symbol_options:
                 st.info(t("no_contribution_data"))
             else:
                 symbol = st.selectbox(
                     t("select_symbol_for_contribution"),
-                    sorted(contrib_df["symbol"].unique()),
+                    symbol_options,
                 )
-                view = contrib_df[contrib_df["symbol"] == symbol]
-                for _col in [
-                    "platform",
-                    "platform_score",
-                    "non_zero_rate_pct",
-                    "observations",
-                    "last_seen",
-                    "weight_pct",
-                ]:
-                    if _col not in view.columns:
-                        view[_col] = pd.NA
-                display_df = view[
-                    [
-                        "platform",
-                        "platform_score",
-                        "non_zero_rate_pct",
-                        "observations",
-                        "last_seen",
-                        "weight_pct",
-                    ]
-                ].rename(
-                    columns={
-                        "platform": t("col_platform"),
-                        "platform_score": t("col_platform_score"),
-                        "non_zero_rate_pct": t("col_non_zero_rate"),
-                        "observations": t("col_observations"),
-                        "last_seen": "last_seen",
-                        "weight_pct": t("col_weight_pct"),
-                    }
+                contrib_df = build_pick_contribution(
+                    symbol,
+                    picks_df,
+                    raw_df,
+                    sentiment_df,
+                    lookback_days=int(lookback_days),
                 )
-                st.dataframe(display_df, use_container_width=True)
-
-                chart_cols = st.columns(2)
-                bar = (
-                    alt.Chart(view)
-                    .mark_bar(cornerRadiusEnd=6)
-                    .encode(
-                        x=alt.X("weight_pct:Q", title=t("contribution_pct")),
-                        y=alt.Y("platform:N", sort="-x", title=None),
-                        color=alt.Color(
-                            "platform:N",
-                            scale=alt.Scale(scheme="tableau10"),
-                            title=t("platform_label"),
-                        ),
-                        tooltip=[
-                            "platform",
-                            "weight_pct",
-                            "platform_score",
-                            "non_zero_rate_pct",
-                            "observations",
-                            "last_seen",
-                        ],
+                if contrib_df.empty:
+                    st.info(t("no_contribution_data"))
+                else:
+                    avg_score = 0.0
+                    if not picks_df.empty:
+                        pr = picks_df[picks_df["symbol"] == symbol].head(1)
+                        if not pr.empty:
+                            avg_score = float(
+                                pd.to_numeric(pr["avg_score"], errors="coerce").fillna(
+                                    0
+                                )
+                            )
+                    lang = st.session_state.get("lang", "zh")
+                    st.markdown(
+                        build_pick_narrative(
+                            symbol, avg_score, contrib_df, raw_df, lang=lang
+                        )
                     )
-                    .properties(title=t("platform_contribution"), height=240)
-                )
-                donut = (
-                    alt.Chart(view)
-                    .mark_arc(innerRadius=68, outerRadius=120)
-                    .encode(
-                        theta=alt.Theta("weight_pct:Q"),
-                        color=alt.Color(
-                            "platform:N",
-                            scale=alt.Scale(scheme="tableau10"),
-                            title=t("platform_label"),
-                        ),
-                        tooltip=[
-                            "platform",
-                            "weight_pct",
-                            "platform_score",
-                            "non_zero_rate_pct",
-                            "observations",
-                        ],
+                    stats = evidence_stats(raw_df, symbol)
+                    st.caption(
+                        t("evidence_summary").format(
+                            valid=stats["valid"],
+                            total=stats["total"],
+                            platforms=stats["platforms"],
+                            fallback=stats["fallback"],
+                        )
                     )
-                    .properties(title=t("platform_contribution"), height=280)
-                )
-                chart_cols[0].altair_chart(bar, use_container_width=True)
-                chart_cols[1].altair_chart(donut, use_container_width=True)
+                    if stats["valid"] < 8:
+                        st.warning(t("sample_low_warning"))
 
-        st.markdown(f"#### {t('platform_radar')}")
-        radar_symbol = st.selectbox(
-            t("select_symbol_for_radar"),
-            sorted(sentiment_df["symbol"].unique()) if not sentiment_df.empty else [],
+                    display_df = contrib_df[
+                        [
+                            "platform",
+                            "platform_score",
+                            "config_weight",
+                            "weighted_contrib",
+                            "weight_pct",
+                            "observations",
+                            "direction",
+                        ]
+                    ].rename(
+                        columns={
+                            "platform": t("col_platform"),
+                            "platform_score": t("col_platform_score"),
+                            "config_weight": t("col_config_weight"),
+                            "weighted_contrib": t("col_weighted_contrib"),
+                            "weight_pct": t("col_weight_pct"),
+                            "observations": t("col_observations"),
+                            "direction": t("col_direction"),
+                        }
+                    )
+                    st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+                    chart_view = contrib_df[
+                        contrib_df["platform_score"].abs() > 0.001
+                    ].copy()
+                    if chart_view.empty:
+                        chart_view = contrib_df.copy()
+                    bar = (
+                        alt.Chart(chart_view)
+                        .mark_bar(cornerRadiusEnd=6)
+                        .encode(
+                            x=alt.X(
+                                "weighted_contrib:Q",
+                                title=t("col_weighted_contrib"),
+                            ),
+                            y=alt.Y("platform:N", sort="-x", title=None),
+                            color=alt.condition(
+                                alt.datum.platform_score > 0.05,
+                                alt.value("#059669"),
+                                alt.condition(
+                                    alt.datum.platform_score < -0.05,
+                                    alt.value("#DC2626"),
+                                    alt.value("#94A3B8"),
+                                ),
+                            ),
+                            tooltip=[
+                                "platform",
+                                "platform_score",
+                                "config_weight",
+                                "weighted_contrib",
+                                "weight_pct",
+                                "observations",
+                            ],
+                        )
+                        .properties(title=t("platform_contribution"), height=280)
+                    )
+                    st.altair_chart(bar, use_container_width=True)
+
+        _render_info_box(t("guide_snapshot_title"), t("guide_snapshot_body"))
+        st.markdown(f"#### {t('platform_snapshot')}")
+        pick_symbols = sorted(picks_df["symbol"].unique()) if not picks_df.empty else []
+        hist_symbols = (
+            sorted(sentiment_df["symbol"].unique()) if not sentiment_df.empty else []
         )
-        radar_df = (
-            _platform_scores_radar(sentiment_df, radar_symbol)
-            if radar_symbol
-            else pd.DataFrame()
+        snapshot_options = sorted(set(pick_symbols + hist_symbols))
+        snapshot_symbol = st.selectbox(
+            t("select_symbol_for_radar"),
+            snapshot_options if snapshot_options else [""],
         )
         with st.container(border=True):
-            if radar_df.empty:
+            if not snapshot_symbol:
                 st.info(t("no_radar_data"))
             else:
-                max_val = float(radar_df["abs_score"].max() or 1)
-                radar_area = (
-                    alt.Chart(radar_df)
-                    .mark_area(opacity=0.18)
-                    .encode(
-                        theta=alt.Theta("platform:N", title=None),
-                        radius=alt.Radius(
-                            "abs_score:Q", scale=alt.Scale(domain=[0, max_val])
-                        ),
-                        color=alt.Color(
-                            "platform:N",
-                            scale=alt.Scale(scheme="tableau10"),
-                            title=t("platform_label"),
-                        ),
-                        tooltip=["platform", "sentiment_score"],
-                    )
+                snap = build_pick_contribution(
+                    snapshot_symbol,
+                    picks_df,
+                    raw_df,
+                    sentiment_df,
+                    lookback_days=30,
                 )
-                radar_line = (
-                    alt.Chart(radar_df)
-                    .mark_line(
-                        point=alt.OverlayMarkDef(filled=True, size=85), strokeWidth=2.6
+                if snap.empty:
+                    st.info(t("no_radar_data"))
+                else:
+                    snap_display = snap.copy()
+                    snap_display["sentiment_label"] = snap_display[
+                        "platform_score"
+                    ].apply(lambda s: f"{s:+.3f}")
+                    snap_display["bar_color"] = snap_display["platform_score"].apply(
+                        lambda s: "bull"
+                        if s > 0.05
+                        else "bear"
+                        if s < -0.05
+                        else "flat"
                     )
-                    .encode(
-                        theta=alt.Theta("platform:N", title=None),
-                        radius=alt.Radius(
-                            "abs_score:Q", scale=alt.Scale(domain=[0, max_val])
+                    color_scale = alt.Scale(
+                        domain=["bull", "bear", "flat"],
+                        range=["#059669", "#DC2626", "#94A3B8"],
+                    )
+                    snap_chart = (
+                        alt.Chart(snap_display)
+                        .mark_bar(cornerRadiusEnd=4)
+                        .encode(
+                            x=alt.X(
+                                "platform_score:Q", title=t("sentiment_score_label")
+                            ),
+                            y=alt.Y("platform:N", sort="-x", title=t("platform_label")),
+                            color=alt.Color(
+                                "bar_color:N",
+                                scale=color_scale,
+                                title=t("col_direction"),
+                            ),
+                            tooltip=[
+                                "platform",
+                                "platform_score",
+                                "observations",
+                                "weight_pct",
+                            ],
+                        )
+                        .properties(height=max(220, 36 * len(snap_display)))
+                    )
+                    st.altair_chart(snap_chart, use_container_width=True)
+                    st.dataframe(
+                        snap_display[
+                            [
+                                "platform",
+                                "platform_score",
+                                "observations",
+                                "weight_pct",
+                                "direction",
+                            ]
+                        ].rename(
+                            columns={
+                                "platform": t("col_platform"),
+                                "platform_score": t("col_platform_score"),
+                                "observations": t("col_observations"),
+                                "weight_pct": t("col_weight_pct"),
+                                "direction": t("col_direction"),
+                            }
                         ),
-                        color=alt.value("#0F172A"),
-                        tooltip=["platform", "sentiment_score"],
+                        use_container_width=True,
+                        hide_index=True,
                     )
-                )
-                radar = (radar_area + radar_line).properties(
-                    title=t("platform_radar"), height=360
-                )
-                st.altair_chart(radar, use_container_width=True)
 
     with tab_comments:
+        _render_info_box(t("guide_comments_title"), t("guide_comments_body"))
         st.markdown(f"#### {t('top_comments')}")
         if raw_df.empty:
             st.info(t("no_raw_posts"))
@@ -1207,34 +1336,52 @@ def main() -> None:
             sel_symbol = st.selectbox(
                 t("select_symbol"), sorted(raw_df["symbol"].unique())
             )
-            top_rows = _top_comment_rows(raw_df, sel_symbol)
+            stats = evidence_stats(raw_df, sel_symbol)
+            st.caption(
+                t("evidence_summary").format(
+                    valid=stats["valid"],
+                    total=stats["total"],
+                    platforms=stats["platforms"],
+                    fallback=stats["fallback"],
+                )
+            )
+            if stats["valid"] < 5:
+                st.warning(t("sample_low_warning"))
+
+            top_rows = top_comment_rows(raw_df, sel_symbol, top_n=10)
             comment_cols = st.columns(2)
             with comment_cols[0]:
-                st.markdown(f"**{t('positive_highlight')}**")
-                pos_df = top_rows["positive"][
-                    ["title", "summary", "ai_score", "url"]
-                ].rename(
-                    columns={
-                        "title": t("col_title"),
-                        "summary": t("col_summary"),
-                        "ai_score": t("col_ai_score"),
-                        "url": t("col_url"),
-                    }
+                st.markdown(
+                    f"**{t('positive_highlight')}** ({len(top_rows['positive'])})"
                 )
-                st.dataframe(pos_df, use_container_width=True, hide_index=True)
+                if top_rows["positive"].empty:
+                    st.info(t("no_valid_comments"))
+                else:
+                    for _, row in top_rows["positive"].iterrows():
+                        text = row.get("display_text", "")
+                        platform = row.get("platform", "")
+                        score = float(row.get("ai_score", 0))
+                        url = str(row.get("url", "") or "")
+                        with st.expander(f"{platform} · {score:+.2f} · {text[:36]}…"):
+                            st.write(text)
+                            if url and url.startswith("http"):
+                                st.markdown(f"[{t('col_url')}]({url})")
             with comment_cols[1]:
-                st.markdown(f"**{t('negative_highlight')}**")
-                neg_df = top_rows["negative"][
-                    ["title", "summary", "ai_score", "url"]
-                ].rename(
-                    columns={
-                        "title": t("col_title"),
-                        "summary": t("col_summary"),
-                        "ai_score": t("col_ai_score"),
-                        "url": t("col_url"),
-                    }
+                st.markdown(
+                    f"**{t('negative_highlight')}** ({len(top_rows['negative'])})"
                 )
-                st.dataframe(neg_df, use_container_width=True, hide_index=True)
+                if top_rows["negative"].empty:
+                    st.info(t("no_valid_comments"))
+                else:
+                    for _, row in top_rows["negative"].iterrows():
+                        text = row.get("display_text", "")
+                        platform = row.get("platform", "")
+                        score = float(row.get("ai_score", 0))
+                        url = str(row.get("url", "") or "")
+                        with st.expander(f"{platform} · {score:+.2f} · {text[:36]}…"):
+                            st.write(text)
+                            if url and url.startswith("http"):
+                                st.markdown(f"[{t('col_url')}]({url})")
 
     with tab_eval:
         st.markdown(f"#### {t('evaluation')}")
@@ -1318,6 +1465,10 @@ def main() -> None:
                 st.error(t("evaluation_failed").format(error=e))
 
         st.markdown(f"#### {t('monthly_training')}")
+        lang = st.session_state.get("lang", "zh")
+        method_title, method_body = monthly_methodology_text(lang)
+        with st.expander(method_title, expanded=True):
+            st.markdown(method_body)
         train_months = st.slider(
             t("training_lookback"), min_value=1, max_value=24, value=6
         )
@@ -1432,6 +1583,32 @@ def main() -> None:
                         st.caption(
                             f"{t('coverage')}: {summary_data.get('start_month')} -> {summary_data.get('end_month')} | "
                             f"{t('signal_count')}: {summary_data.get('total_signals', 0)}"
+                        )
+                    if lang == "zh":
+                        direction = str(
+                            summary_data.get("forecast_direction", "NEUTRAL")
+                        )
+                        dir_map = {
+                            "BULLISH": "下一月参考方向：**偏多**（近期看多信号占上风）",
+                            "BEARISH": "下一月参考方向：**偏空**（近期看空信号占上风）",
+                            "NEUTRAL": "下一月参考方向：**中性**（多空信号接近，暂无明显倾向）",
+                        }
+                        st.info(
+                            dir_map.get(
+                                direction,
+                                f"下一月参考方向：{direction}",
+                            )
+                        )
+                        acc = float(summary_data.get("latest_month_accuracy", 0))
+                        st.markdown(
+                            f"**最新月准确率 {acc:.1%}**：表示该月信号与次日涨跌方向一致的比例。"
+                            f"滚动成功率 **{float(summary_data.get('rolling_success_rate', 0)):.1%}** "
+                            f"反映近 {summary_data.get('months_trained', train_months)} 个月的整体稳定性。"
+                        )
+                    else:
+                        st.info(
+                            f"Forecast direction: **{summary_data.get('forecast_direction', 'NEUTRAL')}** "
+                            f"(research signal only, not trading advice)."
                         )
 
                 monthly_df = monthly_df.copy()
