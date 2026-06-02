@@ -9,10 +9,7 @@ from text_quality import is_boilerplate, strip_boilerplate
 
 
 def test_strip_boilerplate_removes_eastmoney_footer() -> None:
-    raw = (
-        "今天加仓2.5万股，总持仓45万股 "
-        "东方财富 扫一扫下载APP 东方财富产品 版权所有:东方财富网"
-    )
+    raw = "今天加仓2.5万股，总持仓45万股 " "东方财富 扫一扫下载APP 东方财富产品 版权所有:东方财富网"
     cleaned = strip_boilerplate(raw)
     assert cleaned == "今天加仓2.5万股，总持仓45万股"
     assert not is_boilerplate(cleaned)

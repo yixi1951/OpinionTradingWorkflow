@@ -25,9 +25,9 @@ jobs:
           pip install -r requirements-dev.txt
       - name: Run linters and type checks
         run: |
-          ruff check .
-          black --check .
-          mypy . || true
+          ruff check src tests openclaw_ws_proxy.py openclaw_stub.py run_pipeline.py
+          black --check src tests openclaw_ws_proxy.py openclaw_stub.py run_pipeline.py
+          mypy src/opinion_trading || true
       - name: Run tests
         run: |
           pytest --cov=src/opinion_trading --cov-report=term-missing --cov-report=xml -q

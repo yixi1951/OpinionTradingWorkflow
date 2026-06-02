@@ -486,12 +486,16 @@ def _load_latest_monthly_training(
     return load_latest_monthly_training(report_dir)
 
 
-def _platform_contributions(sentiment_df: pd.DataFrame, lookback_days: int = 30) -> pd.DataFrame:
+def _platform_contributions(
+    sentiment_df: pd.DataFrame, lookback_days: int = 30
+) -> pd.DataFrame:
     if sentiment_df.empty:
         return pd.DataFrame()
     view = sentiment_df.copy()
     view["trade_date"] = pd.to_datetime(view["trade_date"], errors="coerce")
-    view["sentiment_score"] = pd.to_numeric(view.get("sentiment_score", None), errors="coerce")
+    view["sentiment_score"] = pd.to_numeric(
+        view.get("sentiment_score", None), errors="coerce"
+    )
     base = view.dropna(subset=["trade_date", "sentiment_score"]).copy()
     if base.empty:
         return pd.DataFrame()
@@ -499,22 +503,27 @@ def _platform_contributions(sentiment_df: pd.DataFrame, lookback_days: int = 30)
     lookback_days = max(1, int(lookback_days))
     # compute per-(symbol,platform) last seen date, then compute observations within that pair-specific window
     last_seen = (
-        base.groupby(["symbol", "platform"], as_index=False)["trade_date"].max().rename(columns={"trade_date": "last_seen"})
+        base.groupby(["symbol", "platform"], as_index=False)["trade_date"]
+        .max()
+        .rename(columns={"trade_date": "last_seen"})
     )
     merged = base.merge(last_seen, on=["symbol", "platform"], how="left")
-    merged["window_start"] = merged["last_seen"] - pd.to_timedelta(lookback_days - 1, unit="D")
-    in_window = merged[(merged["trade_date"] >= merged["window_start"]) & (merged["trade_date"] <= merged["last_seen"])].copy()
+    merged["window_start"] = merged["last_seen"] - pd.to_timedelta(
+        lookback_days - 1, unit="D"
+    )
+    in_window = merged[
+        (merged["trade_date"] >= merged["window_start"])
+        & (merged["trade_date"] <= merged["last_seen"])
+    ].copy()
 
-    rate_df = (
-        in_window.groupby(["symbol", "platform"], as_index=False)
-        .agg(
-            observations=("sentiment_score", "size"),
-            non_zero_observations=("sentiment_score", lambda s: (s != 0).sum()),
-        )
+    rate_df = in_window.groupby(["symbol", "platform"], as_index=False).agg(
+        observations=("sentiment_score", "size"),
+        non_zero_observations=("sentiment_score", lambda s: (s != 0).sum()),
     )
     rate_df = rate_df.merge(last_seen, on=["symbol", "platform"], how="left")
     rate_df["non_zero_rate"] = (
-        rate_df["non_zero_observations"] / rate_df["observations"].where(rate_df["observations"] != 0, pd.NA)
+        rate_df["non_zero_observations"]
+        / rate_df["observations"].where(rate_df["observations"] != 0, pd.NA)
     ).fillna(0.0)
     rate_df["non_zero_rate_pct"] = (rate_df["non_zero_rate"] * 100).round(2)
 
@@ -544,12 +553,25 @@ def _platform_contributions(sentiment_df: pd.DataFrame, lookback_days: int = 30)
     )
     grouped["weight_pct"] = (grouped["weight"] * 100).round(2)
     grouped = grouped.merge(
-        rate_df[["symbol", "platform", "observations", "non_zero_rate", "non_zero_rate_pct", "last_seen"]],
+        rate_df[
+            [
+                "symbol",
+                "platform",
+                "observations",
+                "non_zero_rate",
+                "non_zero_rate_pct",
+                "last_seen",
+            ]
+        ],
         on=["symbol", "platform"],
         how="left",
     )
-    grouped["observations"] = pd.to_numeric(grouped["observations"], errors="coerce").fillna(0).astype(int)
-    grouped["non_zero_rate"] = pd.to_numeric(grouped["non_zero_rate"], errors="coerce").fillna(0.0)
+    grouped["observations"] = (
+        pd.to_numeric(grouped["observations"], errors="coerce").fillna(0).astype(int)
+    )
+    grouped["non_zero_rate"] = pd.to_numeric(
+        grouped["non_zero_rate"], errors="coerce"
+    ).fillna(0.0)
     grouped["non_zero_rate_pct"] = (grouped["non_zero_rate"] * 100).round(2)
     return grouped.sort_values(["symbol", "weight_pct"], ascending=[True, False])
 
@@ -564,7 +586,9 @@ def _platform_scores_radar(sentiment_df: pd.DataFrame, symbol: str) -> pd.DataFr
     if view.empty:
         return pd.DataFrame()
     # ensure numeric; treat 0 as missing by default (0 often indicates no signal)
-    view["sentiment_score"] = pd.to_numeric(view.get("sentiment_score", None), errors="coerce")
+    view["sentiment_score"] = pd.to_numeric(
+        view.get("sentiment_score", None), errors="coerce"
+    )
     include_zero = False
     try:
         include_zero = bool(st.session_state.get("include_zero_scores", False))
@@ -574,10 +598,17 @@ def _platform_scores_radar(sentiment_df: pd.DataFrame, symbol: str) -> pd.DataFr
         view.loc[view["sentiment_score"] == 0.0, "sentiment_score"] = pd.NA
     # use post_count as weight if available
     if "post_count" in view.columns:
-        view["post_count"] = pd.to_numeric(view.get("post_count", 1), errors="coerce").fillna(1)
+        view["post_count"] = pd.to_numeric(
+            view.get("post_count", 1), errors="coerce"
+        ).fillna(1)
+
         def _wmean(g):
             denom = g["post_count"].sum()
-            return (g["sentiment_score"] * g["post_count"]).sum() / denom if denom else g["sentiment_score"].mean()
+            return (
+                (g["sentiment_score"] * g["post_count"]).sum() / denom
+                if denom
+                else g["sentiment_score"].mean()
+            )
 
         tmp = view.dropna(subset=["sentiment_score"]).copy()
         if tmp.empty:
@@ -588,14 +619,19 @@ def _platform_scores_radar(sentiment_df: pd.DataFrame, symbol: str) -> pd.DataFr
             sums = tmp.groupby("platform")["post_count"].sum()
             numer = tmp.groupby("platform")["_weighted"].sum()
             series = numer / sums
-            grouped = pd.DataFrame({"platform": list(series.index), "sentiment_score": list(series.values)})
+            grouped = pd.DataFrame(
+                {"platform": list(series.index), "sentiment_score": list(series.values)}
+            )
         else:
             series = tmp.groupby("platform")["sentiment_score"].mean()
-            grouped = pd.DataFrame({"platform": list(series.index), "sentiment_score": list(series.values)})
+            grouped = pd.DataFrame(
+                {"platform": list(series.index), "sentiment_score": list(series.values)}
+            )
     else:
         grouped = (
-            view.dropna(subset=["sentiment_score"]) 
-            .groupby("platform", as_index=False)["sentiment_score"].mean()
+            view.dropna(subset=["sentiment_score"])
+            .groupby("platform", as_index=False)["sentiment_score"]
+            .mean()
         )
     grouped["abs_score"] = grouped["sentiment_score"].abs()
     return grouped
@@ -653,11 +689,21 @@ def _render_status_strip(
     _, report_time = _latest_report_meta(report_dir)
     pills = []
     if report_time:
-        pills.append(f"<span class='status-pill live'>{t('status_last_report')}: {report_time}</span>")
-    pills.append(f"<span class='status-pill'>{t('realtime_picks')}: {picks_count}</span>")
-    pills.append(f"<span class='status-pill'>{t('score_alerts')}: {alerts_count}</span>")
-    pills.append(f"<span class='status-pill'>{t('platform_label')}: {platform_count}</span>")
-    st.markdown(f"<div class='status-strip'>{''.join(pills)}</div>", unsafe_allow_html=True)
+        pills.append(
+            f"<span class='status-pill live'>{t('status_last_report')}: {report_time}</span>"
+        )
+    pills.append(
+        f"<span class='status-pill'>{t('realtime_picks')}: {picks_count}</span>"
+    )
+    pills.append(
+        f"<span class='status-pill'>{t('score_alerts')}: {alerts_count}</span>"
+    )
+    pills.append(
+        f"<span class='status-pill'>{t('platform_label')}: {platform_count}</span>"
+    )
+    st.markdown(
+        f"<div class='status-strip'>{''.join(pills)}</div>", unsafe_allow_html=True
+    )
 
 
 def _render_pick_leaderboard(picks_df: pd.DataFrame) -> None:
@@ -685,7 +731,9 @@ def _render_pick_leaderboard(picks_df: pd.DataFrame) -> None:
             for platform, pscore in sorted(
                 platform_scores.items(), key=lambda x: abs(x[1]), reverse=True
             )[:4]:
-                color = "#059669" if pscore > 0 else "#DC2626" if pscore < 0 else "#64748B"
+                color = (
+                    "#059669" if pscore > 0 else "#DC2626" if pscore < 0 else "#64748B"
+                )
                 chips.append(
                     f"<span style='display:inline-block;margin:0.15rem 0.25rem 0 0;padding:0.15rem 0.45rem;"
                     f"border-radius:999px;background:rgba(148,163,184,0.14);color:{color};font-size:0.78rem;'>"
@@ -839,9 +887,7 @@ def main() -> None:
         str(Path(memory_dir) / "sentiment_history.jsonl")
     )
     raw_df = _load_latest_raw_posts(raw_dir)
-    platform_count = (
-        0 if sentiment_df.empty else sentiment_df["platform"].nunique()
-    )
+    platform_count = 0 if sentiment_df.empty else sentiment_df["platform"].nunique()
 
     st.markdown(
         f"""
@@ -881,10 +927,14 @@ def main() -> None:
             if not sentiment_df.empty:
                 df = sentiment_df.copy()
                 df["trade_date"] = pd.to_datetime(df["trade_date"], errors="coerce")
-                df["sentiment_score"] = pd.to_numeric(df.get("sentiment_score", None), errors="coerce")
+                df["sentiment_score"] = pd.to_numeric(
+                    df.get("sentiment_score", None), errors="coerce"
+                )
                 include_zero = False
                 try:
-                    include_zero = bool(st.session_state.get("include_zero_scores", False))
+                    include_zero = bool(
+                        st.session_state.get("include_zero_scores", False)
+                    )
                 except Exception:
                     include_zero = False
                 if not include_zero:
@@ -893,25 +943,36 @@ def main() -> None:
                 df["month"] = df["trade_date"].dt.to_period("M").astype(str)
 
                 if "post_count" in df.columns:
-                    df["post_count"] = pd.to_numeric(df.get("post_count", 1), errors="coerce").fillna(1)
+                    df["post_count"] = pd.to_numeric(
+                        df.get("post_count", 1), errors="coerce"
+                    ).fillna(1)
                     tmp2 = df.dropna(subset=["sentiment_score"]).copy()
                     if tmp2.empty:
-                        grouped = pd.DataFrame(columns=["month", "platform", "sentiment_score"])
+                        grouped = pd.DataFrame(
+                            columns=["month", "platform", "sentiment_score"]
+                        )
                     else:
                         tmp2 = tmp2.copy()
                         tmp2["_weighted"] = tmp2["sentiment_score"] * tmp2["post_count"]
                         sums = tmp2.groupby(["month", "platform"])["post_count"].sum()
                         numer = tmp2.groupby(["month", "platform"])["_weighted"].sum()
                         series = numer / sums
-                        idx = pd.DataFrame(list(series.index), columns=["month", "platform"])
+                        idx = pd.DataFrame(
+                            list(series.index), columns=["month", "platform"]
+                        )
                         grouped = pd.concat(
-                            [idx.reset_index(drop=True), pd.DataFrame({"sentiment_score": list(series.values)})],
+                            [
+                                idx.reset_index(drop=True),
+                                pd.DataFrame({"sentiment_score": list(series.values)}),
+                            ],
                             axis=1,
                         )
                 else:
                     grouped = (
                         df.dropna(subset=["sentiment_score"])
-                        .groupby(["month", "platform"], as_index=False)["sentiment_score"]
+                        .groupby(["month", "platform"], as_index=False)[
+                            "sentiment_score"
+                        ]
                         .mean()
                     )
 
@@ -931,14 +992,20 @@ def main() -> None:
                         value=1,
                         step=1,
                     )
-                    show_counts = cols[1].checkbox("Show platform sample counts", value=True)
-                    include_zero = cols[2].checkbox("Include zero scores (treat 0 as valid)", value=True)
+                    show_counts = cols[1].checkbox(
+                        "Show platform sample counts", value=True
+                    )
+                    include_zero = cols[2].checkbox(
+                        "Include zero scores (treat 0 as valid)", value=True
+                    )
                     try:
                         st.session_state["include_zero_scores"] = bool(include_zero)
                     except Exception:
                         pass
 
-                    valid_platforms = counts[counts["samples"] >= int(min_samples)]["platform"].tolist()
+                    valid_platforms = counts[counts["samples"] >= int(min_samples)][
+                        "platform"
+                    ].tolist()
                     filtered = grouped[grouped["platform"].isin(valid_platforms)].copy()
                     csv_bytes = filtered.to_csv(index=False).encode("utf-8")
                     cols[2].download_button(
@@ -951,18 +1018,28 @@ def main() -> None:
                     if show_counts:
                         st.markdown(
                             "**Platform sample counts**: "
-                            + ", ".join([f"{r['platform']}={r['samples']}" for _, r in counts.iterrows()])
+                            + ", ".join(
+                                [
+                                    f"{r['platform']}={r['samples']}"
+                                    for _, r in counts.iterrows()
+                                ]
+                            )
                         )
 
                     if filtered.empty:
-                        st.warning("No platforms remain after filtering; lower Min samples.")
+                        st.warning(
+                            "No platforms remain after filtering; lower Min samples."
+                        )
                     else:
                         chart = (
                             alt.Chart(filtered)
                             .mark_line(point=True, strokeWidth=2.4)
                             .encode(
                                 x=alt.X("month:N", title=t("month")),
-                                y=alt.Y("sentiment_score:Q", title=t("sentiment_score_label")),
+                                y=alt.Y(
+                                    "sentiment_score:Q",
+                                    title=t("sentiment_score_label"),
+                                ),
                                 color=alt.Color(
                                     "platform:N",
                                     scale=alt.Scale(scheme="category10"),
@@ -984,7 +1061,9 @@ def main() -> None:
                 value=30,
                 step=1,
             )
-            contrib_df = _platform_contributions(sentiment_df, lookback_days=int(lookback_days))
+            contrib_df = _platform_contributions(
+                sentiment_df, lookback_days=int(lookback_days)
+            )
             if contrib_df.empty:
                 st.info(t("no_contribution_data"))
             else:
@@ -993,11 +1072,25 @@ def main() -> None:
                     sorted(contrib_df["symbol"].unique()),
                 )
                 view = contrib_df[contrib_df["symbol"] == symbol]
-                for _col in ["platform", "platform_score", "non_zero_rate_pct", "observations", "last_seen", "weight_pct"]:
+                for _col in [
+                    "platform",
+                    "platform_score",
+                    "non_zero_rate_pct",
+                    "observations",
+                    "last_seen",
+                    "weight_pct",
+                ]:
                     if _col not in view.columns:
                         view[_col] = pd.NA
                 display_df = view[
-                    ["platform", "platform_score", "non_zero_rate_pct", "observations", "last_seen", "weight_pct"]
+                    [
+                        "platform",
+                        "platform_score",
+                        "non_zero_rate_pct",
+                        "observations",
+                        "last_seen",
+                        "weight_pct",
+                    ]
                 ].rename(
                     columns={
                         "platform": t("col_platform"),
@@ -1017,8 +1110,19 @@ def main() -> None:
                     .encode(
                         x=alt.X("weight_pct:Q", title=t("contribution_pct")),
                         y=alt.Y("platform:N", sort="-x", title=None),
-                        color=alt.Color("platform:N", scale=alt.Scale(scheme="tableau10"), title=t("platform_label")),
-                        tooltip=["platform", "weight_pct", "platform_score", "non_zero_rate_pct", "observations", "last_seen"],
+                        color=alt.Color(
+                            "platform:N",
+                            scale=alt.Scale(scheme="tableau10"),
+                            title=t("platform_label"),
+                        ),
+                        tooltip=[
+                            "platform",
+                            "weight_pct",
+                            "platform_score",
+                            "non_zero_rate_pct",
+                            "observations",
+                            "last_seen",
+                        ],
                     )
                     .properties(title=t("platform_contribution"), height=240)
                 )
@@ -1027,8 +1131,18 @@ def main() -> None:
                     .mark_arc(innerRadius=68, outerRadius=120)
                     .encode(
                         theta=alt.Theta("weight_pct:Q"),
-                        color=alt.Color("platform:N", scale=alt.Scale(scheme="tableau10"), title=t("platform_label")),
-                        tooltip=["platform", "weight_pct", "platform_score", "non_zero_rate_pct", "observations"],
+                        color=alt.Color(
+                            "platform:N",
+                            scale=alt.Scale(scheme="tableau10"),
+                            title=t("platform_label"),
+                        ),
+                        tooltip=[
+                            "platform",
+                            "weight_pct",
+                            "platform_score",
+                            "non_zero_rate_pct",
+                            "observations",
+                        ],
                     )
                     .properties(title=t("platform_contribution"), height=280)
                 )
@@ -1055,22 +1169,34 @@ def main() -> None:
                     .mark_area(opacity=0.18)
                     .encode(
                         theta=alt.Theta("platform:N", title=None),
-                        radius=alt.Radius("abs_score:Q", scale=alt.Scale(domain=[0, max_val])),
-                        color=alt.Color("platform:N", scale=alt.Scale(scheme="tableau10"), title=t("platform_label")),
+                        radius=alt.Radius(
+                            "abs_score:Q", scale=alt.Scale(domain=[0, max_val])
+                        ),
+                        color=alt.Color(
+                            "platform:N",
+                            scale=alt.Scale(scheme="tableau10"),
+                            title=t("platform_label"),
+                        ),
                         tooltip=["platform", "sentiment_score"],
                     )
                 )
                 radar_line = (
                     alt.Chart(radar_df)
-                    .mark_line(point=alt.OverlayMarkDef(filled=True, size=85), strokeWidth=2.6)
+                    .mark_line(
+                        point=alt.OverlayMarkDef(filled=True, size=85), strokeWidth=2.6
+                    )
                     .encode(
                         theta=alt.Theta("platform:N", title=None),
-                        radius=alt.Radius("abs_score:Q", scale=alt.Scale(domain=[0, max_val])),
+                        radius=alt.Radius(
+                            "abs_score:Q", scale=alt.Scale(domain=[0, max_val])
+                        ),
                         color=alt.value("#0F172A"),
                         tooltip=["platform", "sentiment_score"],
                     )
                 )
-                radar = (radar_area + radar_line).properties(title=t("platform_radar"), height=360)
+                radar = (radar_area + radar_line).properties(
+                    title=t("platform_radar"), height=360
+                )
                 st.altair_chart(radar, use_container_width=True)
 
     with tab_comments:
@@ -1078,12 +1204,16 @@ def main() -> None:
         if raw_df.empty:
             st.info(t("no_raw_posts"))
         else:
-            sel_symbol = st.selectbox(t("select_symbol"), sorted(raw_df["symbol"].unique()))
+            sel_symbol = st.selectbox(
+                t("select_symbol"), sorted(raw_df["symbol"].unique())
+            )
             top_rows = _top_comment_rows(raw_df, sel_symbol)
             comment_cols = st.columns(2)
             with comment_cols[0]:
                 st.markdown(f"**{t('positive_highlight')}**")
-                pos_df = top_rows["positive"][["title", "summary", "ai_score", "url"]].rename(
+                pos_df = top_rows["positive"][
+                    ["title", "summary", "ai_score", "url"]
+                ].rename(
                     columns={
                         "title": t("col_title"),
                         "summary": t("col_summary"),
@@ -1094,7 +1224,9 @@ def main() -> None:
                 st.dataframe(pos_df, use_container_width=True, hide_index=True)
             with comment_cols[1]:
                 st.markdown(f"**{t('negative_highlight')}**")
-                neg_df = top_rows["negative"][["title", "summary", "ai_score", "url"]].rename(
+                neg_df = top_rows["negative"][
+                    ["title", "summary", "ai_score", "url"]
+                ].rename(
                     columns={
                         "title": t("col_title"),
                         "summary": t("col_summary"),
@@ -1186,7 +1318,9 @@ def main() -> None:
                 st.error(t("evaluation_failed").format(error=e))
 
         st.markdown(f"#### {t('monthly_training')}")
-        train_months = st.slider(t("training_lookback"), min_value=1, max_value=24, value=6)
+        train_months = st.slider(
+            t("training_lookback"), min_value=1, max_value=24, value=6
+        )
         run_monthly_train = st.button(t("refresh_monthly"))
 
         signal_history_df = load_training_history(memory_dir)
@@ -1225,7 +1359,9 @@ def main() -> None:
                     symbols = sorted(signal_history_df["symbol"].dropna().unique())
                     try:
                         if price_source_mode == "Upload CSV":
-                            train_price_df = _load_uploaded_price_frame(uploaded_price_file)
+                            train_price_df = _load_uploaded_price_frame(
+                                uploaded_price_file
+                            )
                             if train_price_df.empty:
                                 raise ValueError("upload CSV is empty or invalid")
                         elif price_source_mode == "Local CSV path":
@@ -1290,7 +1426,9 @@ def main() -> None:
                             str(summary_data.get("forecast_direction", "NEUTRAL")),
                         )
 
-                    if summary_data.get("start_month") and summary_data.get("end_month"):
+                    if summary_data.get("start_month") and summary_data.get(
+                        "end_month"
+                    ):
                         st.caption(
                             f"{t('coverage')}: {summary_data.get('start_month')} -> {summary_data.get('end_month')} | "
                             f"{t('signal_count')}: {summary_data.get('total_signals', 0)}"
@@ -1311,13 +1449,16 @@ def main() -> None:
                         monthly_df.get("win_rate", 0), errors="coerce"
                     ).fillna(0.0)
 
-                    monthly_melted = (
-                        monthly_df[["month", "accuracy", "win_rate"]]
-                        .melt(id_vars=["month"], value_vars=["accuracy", "win_rate"],
-                              var_name="metric", value_name="value")
+                    monthly_melted = monthly_df[["month", "accuracy", "win_rate"]].melt(
+                        id_vars=["month"],
+                        value_vars=["accuracy", "win_rate"],
+                        var_name="metric",
+                        value_name="value",
                     )
                     monthly_melted["metric"] = monthly_melted["metric"].astype(str)
-                    monthly_melted["value"] = pd.to_numeric(monthly_melted["value"], errors="coerce").fillna(0.0)
+                    monthly_melted["value"] = pd.to_numeric(
+                        monthly_melted["value"], errors="coerce"
+                    ).fillna(0.0)
 
                     monthly_line = (
                         alt.Chart(monthly_melted)
@@ -1347,7 +1488,13 @@ def main() -> None:
                                 scale=alt.Scale(scheme="tealblues"),
                                 title=t("eval_accuracy"),
                             ),
-                            tooltip=["month", "signals", "accuracy", "avg_return", "win_rate"],
+                            tooltip=[
+                                "month",
+                                "signals",
+                                "accuracy",
+                                "avg_return",
+                                "win_rate",
+                            ],
                         )
                         .properties(title=t("monthly_metrics_title"), height=250)
                     )

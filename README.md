@@ -76,14 +76,27 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
+### 一键打开分析网页（推荐）
+
+自动检测是否有选股数据；若无则先跑 Stub 演示，再启动 Streamlit 并打开浏览器：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\run_ui.ps1
+```
+
+已有数据、仅启动 UI：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\run_ui.ps1 -NoBrowser
+```
+
+浏览器访问 http://localhost:8501 ，四个 Tab：**实时选股 · 舆情分析 · 评论依据 · 回测评估**。
+
 ### 方式 A：Stub 演示（~2 分钟，无需 API）
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\run_demo.ps1
-streamlit run src/opinion_trading/ui_dashboard.py --server.port 8501
 ```
-
-浏览器打开 http://localhost:8501
 
 ### 方式 B：真实 OpenClaw + DeepSeek（~10 分钟）
 
@@ -160,6 +173,7 @@ pytest -q
 ├── openclaw_stub.py             # 本地 Stub（无 API 可演示）
 ├── config/settings.yaml         # 平台权重、股票池、阈值
 ├── scripts/
+│   ├── run_ui.ps1               # 一键打开 Streamlit 分析页
 │   ├── run_demo.ps1             # Stub 一键演示
 │   ├── run_demo_openclaw.ps1    # OpenClaw 一键演示
 │   └── text_quality.py          # 噪声/ boilerplate 过滤

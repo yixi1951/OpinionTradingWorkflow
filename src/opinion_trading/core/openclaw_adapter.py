@@ -5,6 +5,8 @@ from typing import Iterable, List, Optional
 
 import requests
 
+_MISSING = object()
+
 
 class OpenClawClient:
     """Simple adapter to call an OpenClaw sentiment endpoint.
@@ -14,10 +16,19 @@ class OpenClawClient:
     """
 
     def __init__(
-        self, base_url: str | None = None, token: str | None = None, timeout: int | None = None
+        self,
+        base_url: str | None = _MISSING,
+        token: str | None = _MISSING,
+        timeout: int | None = None,
     ) -> None:
-        self.base_url = base_url or os.environ.get("OPENCLAW_URL")
-        self.token = token or os.environ.get("OPENCLAW_TOKEN")
+        if base_url is _MISSING:
+            self.base_url = os.environ.get("OPENCLAW_URL")
+        else:
+            self.base_url = base_url
+        if token is _MISSING:
+            self.token = os.environ.get("OPENCLAW_TOKEN")
+        else:
+            self.token = token
         if timeout is None:
             timeout = int(os.environ.get("OPENCLAW_TIMEOUT", "180"))
         self.timeout = timeout

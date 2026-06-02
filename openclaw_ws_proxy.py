@@ -400,7 +400,9 @@ async def score_texts(req: SentimentRequest):
                             asyncio.get_running_loop().time() + response_timeout
                         )
                         while True:
-                            remaining = handshake_deadline - asyncio.get_running_loop().time()
+                            remaining = (
+                                handshake_deadline - asyncio.get_running_loop().time()
+                            )
                             if remaining <= 0:
                                 raise HTTPException(
                                     status_code=502,

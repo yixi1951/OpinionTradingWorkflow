@@ -23,6 +23,7 @@ if _scripts_dir.exists() and str(_scripts_dir) not in sys.path:
 try:
     from text_quality import is_boilerplate, strip_boilerplate
 except ImportError:
+
     def is_boilerplate(text: str) -> bool:  # type: ignore[misc]
         return False
 
@@ -297,7 +298,6 @@ class RealPlatformSentimentProvider:
 
         return rows
 
-
     def _collect_douyin_rows(
         self,
         list_url: str,
@@ -337,7 +337,9 @@ class RealPlatformSentimentProvider:
                                 symbol=symbol,
                                 title=title or desc[:120],
                                 summary=(desc[:300] if desc else title[:300]),
-                                post_time=self._extract_time(desc or title, trade_date=trade_date),
+                                post_time=self._extract_time(
+                                    desc or title, trade_date=trade_date
+                                ),
                                 content=desc or title,
                                 url=list_url,
                                 source_page=list_url,
@@ -352,8 +354,16 @@ class RealPlatformSentimentProvider:
                 continue
 
         # fallback to og/meta tags
-        og_title = (soup.select_one('meta[property="og:title"]') or {}).get("content") if soup.select_one('meta[property="og:title"]') else None
-        og_desc = (soup.select_one('meta[property="og:description"]') or {}).get("content") if soup.select_one('meta[property="og:description"]') else None
+        og_title = (
+            (soup.select_one('meta[property="og:title"]') or {}).get("content")
+            if soup.select_one('meta[property="og:title"]')
+            else None
+        )
+        og_desc = (
+            (soup.select_one('meta[property="og:description"]') or {}).get("content")
+            if soup.select_one('meta[property="og:description"]')
+            else None
+        )
         if og_title or og_desc:
             rows.append(
                 self._build_raw_row(
@@ -362,7 +372,9 @@ class RealPlatformSentimentProvider:
                     symbol=symbol,
                     title=self._short_title(og_title or og_desc or ""),
                     summary=(og_desc or og_title or "")[:300],
-                    post_time=self._extract_time(og_desc or og_title or "", trade_date=trade_date),
+                    post_time=self._extract_time(
+                        og_desc or og_title or "", trade_date=trade_date
+                    ),
                     content=(og_desc or og_title or ""),
                     url=list_url,
                     source_page=list_url,
