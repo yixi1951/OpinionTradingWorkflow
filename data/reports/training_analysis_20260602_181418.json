@@ -1,0 +1,209 @@
+{
+  "timestamp": "20260602_181418",
+  "n_train_rows": 29,
+  "label_distribution": {
+    "positive": 12,
+    "negative": 11,
+    "neutral": 6
+  },
+  "source_distribution": {
+    "bulk": 29
+  },
+  "holdout_test_linear_svc": {
+    "meta": {
+      "labels": [
+        "negative",
+        "neutral",
+        "positive"
+      ],
+      "timestamp": 1780395257,
+      "test_size": 0.2,
+      "n_samples": 29
+    },
+    "results": {
+      "linear_svc": {
+        "report": {
+          "negative": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1-score": 0.0,
+            "support": 2.0
+          },
+          "neutral": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1-score": 0.0,
+            "support": 1.0
+          },
+          "positive": {
+            "precision": 0.5,
+            "recall": 1.0,
+            "f1-score": 0.6666666666666666,
+            "support": 3.0
+          },
+          "accuracy": 0.5,
+          "macro avg": {
+            "precision": 0.16666666666666666,
+            "recall": 0.3333333333333333,
+            "f1-score": 0.2222222222222222,
+            "support": 6.0
+          },
+          "weighted avg": {
+            "precision": 0.25,
+            "recall": 0.5,
+            "f1-score": 0.3333333333333333,
+            "support": 6.0
+          }
+        },
+        "confusion_matrix": [
+          [
+            0,
+            0,
+            2
+          ],
+          [
+            0,
+            0,
+            1
+          ],
+          [
+            0,
+            0,
+            3
+          ]
+        ]
+      },
+      "rf": {
+        "report": {
+          "negative": {
+            "precision": 0.3333333333333333,
+            "recall": 1.0,
+            "f1-score": 0.5,
+            "support": 2.0
+          },
+          "neutral": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1-score": 0.0,
+            "support": 1.0
+          },
+          "positive": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1-score": 0.0,
+            "support": 3.0
+          },
+          "accuracy": 0.3333333333333333,
+          "macro avg": {
+            "precision": 0.1111111111111111,
+            "recall": 0.3333333333333333,
+            "f1-score": 0.16666666666666666,
+            "support": 6.0
+          },
+          "weighted avg": {
+            "precision": 0.1111111111111111,
+            "recall": 0.3333333333333333,
+            "f1-score": 0.16666666666666666,
+            "support": 6.0
+          }
+        },
+        "confusion_matrix": [
+          [
+            2,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            0
+          ],
+          [
+            3,
+            0,
+            0
+          ]
+        ]
+      }
+    }
+  },
+  "cv_linear_svc": {
+    "labels": [
+      "negative",
+      "neutral",
+      "positive"
+    ],
+    "report": {
+      "negative": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1-score": 0.0,
+        "support": 11.0
+      },
+      "neutral": {
+        "precision": 1.0,
+        "recall": 0.3333333333333333,
+        "f1-score": 0.5,
+        "support": 6.0
+      },
+      "positive": {
+        "precision": 0.4230769230769231,
+        "recall": 0.9166666666666666,
+        "f1-score": 0.5789473684210527,
+        "support": 12.0
+      },
+      "accuracy": 0.4482758620689655,
+      "macro avg": {
+        "precision": 0.4743589743589744,
+        "recall": 0.4166666666666667,
+        "f1-score": 0.35964912280701755,
+        "support": 29.0
+      },
+      "weighted avg": {
+        "precision": 0.3819628647214854,
+        "recall": 0.4482758620689655,
+        "f1-score": 0.3430127041742287,
+        "support": 29.0
+      }
+    },
+    "confusion_matrix": [
+      [
+        0,
+        0,
+        11
+      ],
+      [
+        0,
+        2,
+        4
+      ],
+      [
+        1,
+        0,
+        11
+      ]
+    ],
+    "n_splits": 5
+  },
+  "openclaw_vs_human_bulk": {
+    "n": 113,
+    "agreement_rate": 0.5752,
+    "human": {
+      "neutral": 61,
+      "positive": 34,
+      "negative": 18
+    },
+    "openclaw_mapped": {
+      "neutral": 95,
+      "positive": 11,
+      "negative": 7
+    },
+    "openclaw_raw": {
+      "neutral": 95,
+      "bull": 11,
+      "bear": 7
+    }
+  },
+  "sample_review_labeled_n": 57,
+  "sample_merged_into_training": 0
+}
