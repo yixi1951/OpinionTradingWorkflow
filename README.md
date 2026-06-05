@@ -52,13 +52,13 @@ flowchart LR
 
 ## 示例产出
 
-**实时选股**（`data/reports/realtime_picks_20260602_225443.md`）：
+**实时选股**（`data/reports/realtime_picks_20260603_115706.md`，DeepSeek V4 Flash）：
 
 | 排名 | 代码 | 综合得分 | 平台分项 |
 |------|------|---------|---------|
-| #1 | 601318.SH | +0.036 | sina +0.30, weibo −0.10 |
-| #2 | 600519.SH | +0.030 | sina +0.50, eastmoney −0.20 |
-| #3 | 000001.SZ | −0.131 | sina −0.70 |
+| #1 | 601318.SH | +0.072 | sina +0.60, weibo −0.20 |
+| #2 | 600519.SH | +0.001 | sina +0.20, weibo −0.10, eastmoney −0.10 |
+| #3 | 000001.SZ | −0.033 | sina −0.20 |
 
 **数据质量**（`data/reports/quality_2026-06-02.md`）：38 条原始帖，Overall **PASS**（标题/时间/正文覆盖率 100%）。
 
@@ -91,6 +91,20 @@ powershell -ExecutionPolicy Bypass -File .\scripts\run_ui.ps1 -NoBrowser
 ```
 
 浏览器访问 http://localhost:8501 ，四个 Tab：**实时选股 · 舆情分析 · 评论依据 · 回测评估**。
+
+### 仪表盘截图（四 Tab）
+
+| 实时选股 | 舆情分析 |
+|:---:|:---:|
+| ![实时选股](docs/screenshots/ui_tab_picks.png) | ![舆情分析](docs/screenshots/ui_tab_sentiment.png) |
+| **评论依据** | **回测评估** |
+| ![评论依据](docs/screenshots/ui_tab_comments.png) | ![回测评估](docs/screenshots/ui_tab_eval.png) |
+
+刷新截图（需 Streamlit 已启动，或脚本会自动拉起 UI）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\capture_ui_screenshots.ps1
+```
 
 ### 方式 A：Stub 演示（~2 分钟，无需 API）
 
@@ -139,9 +153,9 @@ python run_pipeline.py --mode realtime --iterations 1 --top-n 3
 
 | Tab | 内容 |
 |-----|------|
-| 实时选股 | Top 3 卡片、分级告警、选股原因 |
-| 舆情分析 | 情感趋势、平台贡献、雷达图 |
-| 评论依据 | 正/负评论摘录（证据链） |
+| 实时选股 | Top 3 卡片、分级告警、选股原因卡（叙事摘要 + 平台驱动 + 正/负评论摘录） |
+| 舆情分析 | 情感趋势、平台贡献条形图、平台情感快照 |
+| 评论依据 | 正/负评论原文（3 日合并、标题帖保留、去重） |
 | 回测评估 | 信号准确率、Sharpe、月度训练 |
 
 ---
@@ -176,6 +190,7 @@ pytest -q
 │   ├── run_ui.ps1               # 一键打开 Streamlit 分析页
 │   ├── run_demo.ps1             # Stub 一键演示
 │   ├── run_demo_openclaw.ps1    # OpenClaw 一键演示
+│   ├── capture_ui_screenshots.ps1  # README 四 Tab 截图
 │   └── text_quality.py          # 噪声/ boilerplate 过滤
 ├── src/opinion_trading/
 │   ├── agents/workflow.py       # 多智能体编排
