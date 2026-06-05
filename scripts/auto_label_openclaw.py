@@ -55,6 +55,12 @@ def _apply_openclaw_config() -> None:
         if isinstance(token, str) and token:
             os.environ.setdefault("WS_GATEWAY_TOKEN", token)
 
+    defaults = config.get("agents", {}).get("defaults", {}) if isinstance(config, dict) else {}
+    model_cfg = defaults.get("model", {}) if isinstance(defaults, dict) else {}
+    primary = model_cfg.get("primary") if isinstance(model_cfg, dict) else None
+    if isinstance(primary, str) and primary:
+        os.environ.setdefault("WS_GATEWAY_MODEL", primary)
+
     # If the HTTP bridge is already configured externally, keep it.
     # Otherwise the caller can still point OPENCLAW_URL at the proxy manually.
 

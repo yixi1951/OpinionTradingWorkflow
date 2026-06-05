@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional
 
 import requests
 
@@ -62,3 +62,40 @@ class OpenClawClient:
             return None
 
         return None
+
+    def probe(self) -> Dict[str, object]:
+        """Lightweight connectivity check (single short text)."""
+        if not self.is_configured():
+            return {
+                "connected": False,
+                "url": None,
+                "message": "OPENCLAW_URL not configured",
+            }
+        url = self.base_url.rstrip("/") + "/api/v1/sentiment"
+        headers = {"Content-Type": "application/json"}
+        if self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+        try:
+            probe_timeout = int(os.environ.get("OPENCLAW_PROBE_TIMEOUT", "120"))
+            resp = requests.post(
+                url,
+                json={"texts": ["连接测试：今天市场偏多。"]},
+                headers=headers,
+                timeout=min(probe_timeout, self.timeout),
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            scores = data.get("scores")
+            ok = isinstance(scores, list) and len(scores) == 1
+            return {
+                "connected": ok,
+                "url": self.base_url,
+                "message": "OpenClaw gateway reachable",
+                "sample_score": float(scores[0]) if ok else None,
+            }
+        except Exception as exc:
+            return {
+                "connected": False,
+                "url": self.base_url,
+                "message": str(exc)[:160],
+            }

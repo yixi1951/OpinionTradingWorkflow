@@ -49,15 +49,31 @@ class AISentimentAnalyzer:
         self._neg = ["下跌", "利空", "风险", "暴跌", "看空", "回撤", "亏损", "弱势", "卖出", "悲观"]
 
     def score_texts(self, texts: Iterable[str]) -> List[float]:
-        texts_list = list(texts)
-        # 1) Try OpenClaw if configured
-        try:
-            if getattr(self, "openclaw", None) and self.openclaw.is_configured():
-                oc_scores = self.openclaw.score_texts(texts_list)
-                if oc_scores:
-                    return oc_scores
-        except Exception:
-            pass
+        texts_list = [str(t or "") for t in texts]
+        if not texts_list:
+            return []
+
+        batch_size = max(1, int(os.environ.get("OPENCLAW_BATCH_SIZE", "4")))
+        if getattr(self, "openclaw", None) and self.openclaw.is_configured():
+            try:
+                if len(texts_list) <= batch_size:
+                    oc_scores = self.openclaw.score_texts(texts_list)
+                    if oc_scores and len(oc_scores) == len(texts_list):
+                        return oc_scores
+                else:
+                    merged: List[float] = []
+                    for start in range(0, len(texts_list), batch_size):
+                        chunk = texts_list[start : start + batch_size]
+                        oc_scores = self.openclaw.score_texts(chunk)
+                        if not oc_scores or len(oc_scores) != len(chunk):
+                            merged.extend(self._fallback_scores(chunk))
+                        else:
+                            merged.extend(float(s) for s in oc_scores)
+                    if merged:
+                        return merged
+            except Exception:
+                pass
+
         if self._pipeline:
             try:
                 results = self._pipeline(texts_list)
@@ -70,19 +86,19 @@ class AISentimentAnalyzer:
                         or label.upper().startswith("1")
                         or label.upper().startswith("2")
                     ):
-                        # POSITIVE -> map to (0,1]
                         mapped = min(1.0, max(-1.0, (score)))
                     else:
-                        # NEGATIVE -> map to [-1,0)
                         mapped = -min(1.0, max(0.0, score))
                     scores.append(mapped)
                 return scores
             except Exception:
                 pass
 
-        # fallback heuristic
+        return self._fallback_scores(texts_list)
+
+    def _fallback_scores(self, texts: Iterable[str]) -> List[float]:
         out: List[float] = []
-        for txt in texts_list:
+        for txt in texts:
             t = str(txt or "")
             pos = sum(t.count(w) for w in self._pos)
             neg = sum(t.count(w) for w in self._neg)
