@@ -6,7 +6,6 @@ from opinion_trading.ui_helpers import (
     build_pick_contribution,
     build_pick_narrative,
     filter_usable_raw,
-    is_fallback_row,
     parse_platform_scores,
 )
 

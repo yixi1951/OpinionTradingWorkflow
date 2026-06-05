@@ -25,7 +25,6 @@ from opinion_trading.ui_helpers import (
     build_pick_contribution,
     build_pick_narrative,
     evidence_stats,
-    filter_usable_raw,
     monthly_methodology_text,
     parse_platform_scores,
     top_comment_rows,
@@ -700,10 +699,9 @@ def _score_badge(score: float) -> str:
 def _render_info_box(title: str, body: str) -> None:
     st.markdown(
         f"""
-        <div style="border-left:4px solid #2563EB;padding:0.65rem 0.9rem;margin:0.35rem 0 0.85rem 0;
-        background:rgba(239,246,255,0.85);border-radius:0 12px 12px 0;color:#334155;font-size:0.88rem;line-height:1.55;">
-        <div style="font-weight:800;color:#1E40AF;margin-bottom:0.25rem;">{title}</div>
-        <div>{body}</div>
+        <div class="info-callout">
+            <div class="info-callout-title">{title}</div>
+            <div>{body}</div>
         </div>
         """,
         unsafe_allow_html=True,
