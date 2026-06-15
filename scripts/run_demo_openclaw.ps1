@@ -113,7 +113,9 @@ $env:OPENCLAW_TIMEOUT = "90"
 $env:OPENCLAW_SKIP_ROW_SCORE = "1"
 Remove-Item Env:OPENCLAW_TOKEN -ErrorAction SilentlyContinue
 
-Write-Host "`n=== OpenClaw smoke test (2 sample texts, DeepSeek ~10-30s) ==="
+Write-Host "`nTip: For row-level OpenClaw scores use scripts/run_daily_openclaw.ps1 (two-phase crawl + rescore)"
+
+Write-Host "`n=== OpenClaw smoke test (2 sample texts) ==="
 & $Python -c @"
 import requests, time
 texts = ['茅台业绩超预期，强烈看好买入', '股价暴跌，风险很大建议卖出']
