@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 import pandas as pd
 import yaml
@@ -12,13 +12,14 @@ _SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 if _SCRIPTS.exists() and str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
-from text_quality import (
+from text_quality import (  # noqa: E402
     is_boilerplate,
     is_news_article,
     is_news_headline,
+    is_page_chrome,
     is_user_comment,
     pick_comment_text,
-)  # noqa: E402
+)
 
 DEFAULT_PLATFORM_WEIGHTS: Dict[str, float] = {
     "guba": 1.40,
@@ -52,6 +53,8 @@ STOCK_NAMES: Dict[str, str] = {
     "600519": "贵州茅台",
     "000001": "平安银行",
     "601318": "中国平安",
+    "600036": "招商银行",
+    "000858": "五粮液",
 }
 
 
@@ -183,6 +186,26 @@ def filter_comment_evidence(raw_df: pd.DataFrame) -> pd.DataFrame:
     return view[keep].copy()
 
 
+def _dedupe_key(row: pd.Series) -> str:
+    title = str(row.get("title") or "").strip()
+    text = str(row.get("full_text") or row.get("_display") or "")
+    base = title if len(title) >= 6 else text
+    key = re.sub(r"[\s#·.0-9SZ:()（）￥¥+-]", "", base)[:72].lower()
+    return key
+
+
+def _is_low_value_reference(row: pd.Series) -> bool:
+    text = str(row.get("full_text") or row.get("_display") or "")
+    platform = str(row.get("platform", "") or "")
+    if is_page_chrome(text, platform=platform):
+        return True
+    score = float(pd.to_numeric(row.get("ai_score"), errors="coerce") or 0.0)
+    ctype = str(row.get("content_type", "") or "")
+    if ctype == "reference" and abs(score) < 0.06:
+        return True
+    return False
+
+
 def _dedupe_comment_rows(view: pd.DataFrame) -> pd.DataFrame:
     if view.empty:
         return view
@@ -202,28 +225,125 @@ def _dedupe_comment_rows(view: pd.DataFrame) -> pd.DataFrame:
     )
     ordered = ordered.sort_values(["_plat_rank", "ai_score"], ascending=[True, False])
     for _, row in ordered.iterrows():
-        key = re.sub(r"\s+", "", str(row.get("full_text") or row.get("_display") or ""))[
-            :80
-        ]
+        key = _dedupe_key(row)
         if not key or key in seen:
             continue
         seen.add(key)
         rows.append(row)
     if not rows:
-        return pd.DataFrame()
+        return view.iloc[0:0].copy()
     out = pd.DataFrame(rows)
     return out.drop(columns=["_plat_rank"], errors="ignore")
 
 
 def infer_score_source(row: pd.Series) -> str:
     explicit = str(row.get("score_source", "") or "").strip().lower()
-    if explicit in {"openclaw", "keyword"}:
-        return explicit
+    if explicit in {"openclaw", "keyword", "transformers"}:
+        return "openclaw" if explicit == "transformers" else explicit
     kw = pd.to_numeric(row.get("keyword_score"), errors="coerce")
     ai = pd.to_numeric(row.get("ai_score"), errors="coerce")
     if pd.notna(kw) and pd.notna(ai) and abs(float(ai) - float(kw)) > 0.0001:
         return "openclaw"
     return "keyword"
+
+
+def build_sentiment_engine_stats(raw_df: pd.DataFrame) -> Dict[str, object]:
+    """Aggregate AI vs keyword coverage for dashboard KPIs."""
+    if raw_df.empty:
+        return {
+            "total_rows": 0,
+            "usable_rows": 0,
+            "openclaw_rows": 0,
+            "keyword_rows": 0,
+            "openclaw_pct": 0.0,
+            "avg_ai_score": 0.0,
+            "bullish_pct": 0.0,
+            "bearish_pct": 0.0,
+        }
+    usable = filter_usable_raw(raw_df)
+    if usable.empty:
+        return {
+            "total_rows": len(raw_df),
+            "usable_rows": 0,
+            "openclaw_rows": 0,
+            "keyword_rows": 0,
+            "openclaw_pct": 0.0,
+            "avg_ai_score": 0.0,
+            "bullish_pct": 0.0,
+            "bearish_pct": 0.0,
+        }
+    view = usable.copy()
+    view["ai_score"] = pd.to_numeric(view.get("ai_score", 0), errors="coerce").fillna(
+        0.0
+    )
+    view["score_source"] = view.apply(infer_score_source, axis=1)
+    oc = int((view["score_source"] == "openclaw").sum())
+    kw = int((view["score_source"] == "keyword").sum())
+    n = len(view)
+    bull = int((view["ai_score"] > 0.05).sum())
+    bear = int((view["ai_score"] < -0.05).sum())
+    return {
+        "total_rows": len(raw_df),
+        "usable_rows": n,
+        "openclaw_rows": oc,
+        "keyword_rows": kw,
+        "openclaw_pct": round(100.0 * oc / n, 1) if n else 0.0,
+        "avg_ai_score": round(float(view["ai_score"].mean()), 4),
+        "bullish_pct": round(100.0 * bull / n, 1) if n else 0.0,
+        "bearish_pct": round(100.0 * bear / n, 1) if n else 0.0,
+    }
+
+
+def build_symbol_sentiment_summary(
+    raw_df: pd.DataFrame, symbol: str, lang: str = "zh"
+) -> Dict[str, object]:
+    """Per-symbol sentiment breakdown for UI cards."""
+    comments = filter_comment_evidence(raw_df)
+    sym = comments[comments["symbol"] == symbol] if not comments.empty else pd.DataFrame()
+    if sym.empty:
+        return {
+            "symbol": symbol,
+            "comment_count": 0,
+            "avg_score": 0.0,
+            "platforms": [],
+            "top_positive": "",
+            "top_negative": "",
+        }
+    sym = sym.copy()
+    sym["ai_score"] = pd.to_numeric(sym.get("ai_score", 0), errors="coerce").fillna(0.0)
+    by_plat = (
+        sym.groupby("platform")["ai_score"]
+        .mean()
+        .sort_values(ascending=False)
+        .head(6)
+    )
+    platforms = [
+        {
+            "platform": platform_label(str(p), lang),
+            "score": round(float(s), 4),
+        }
+        for p, s in by_plat.items()
+    ]
+    pos = sym[sym["ai_score"] > 0].sort_values("ai_score", ascending=False)
+    neg = sym[sym["ai_score"] < 0].sort_values("ai_score", ascending=True)
+    top_pos = ""
+    top_neg = ""
+    if not pos.empty:
+        top_pos = str(pos.iloc[0].get("full_text") or pos.iloc[0].get("_display") or "")[
+            :80
+        ]
+    if not neg.empty:
+        top_neg = str(neg.iloc[0].get("full_text") or neg.iloc[0].get("_display") or "")[
+            :80
+        ]
+    return {
+        "symbol": symbol,
+        "comment_count": len(sym),
+        "avg_score": round(float(sym["ai_score"].mean()), 4),
+        "platforms": platforms,
+        "top_positive": top_pos,
+        "top_negative": top_neg,
+    }
 
 
 def classify_content_type(row: pd.Series) -> str:
@@ -262,7 +382,7 @@ def top_comment_rows(
     top_n: int = 12,
     *,
     include_reference: bool = True,
-    ref_n: int = 8,
+    ref_n: int = 4,
 ) -> Dict[str, pd.DataFrame]:
     all_view = _prepare_comment_view(raw_df, symbol)
     if all_view.empty:
@@ -294,19 +414,24 @@ def top_comment_rows(
 
     reference = pd.DataFrame()
     if include_reference:
-        used_keys = {
-            re.sub(r"\s+", "", str(r.get("full_text") or ""))[:80]
-            for _, r in pd.concat([positive, negative], ignore_index=True).iterrows()
-        }
-        extras = all_view.copy()
-        extras["_key"] = extras["full_text"].map(
-            lambda t: re.sub(r"\s+", "", str(t))[:80]
-        )
+        used_keys = {_dedupe_key(r) for _, r in pd.concat([positive, negative], ignore_index=True).iterrows()}
+        extras = all_view[all_view["content_type"].isin(["news", "reference"])].copy()
+        extras = extras[~extras.apply(_is_low_value_reference, axis=1)]
+        extras["_key"] = extras.apply(_dedupe_key, axis=1)
         extras = extras[~extras["_key"].isin(used_keys)].drop(columns=["_key"])
         extras = _dedupe_comment_rows(extras)
-        reference = extras.sort_values("ai_score", key=abs, ascending=False).head(
-            ref_n
-        )
+        if extras.empty or "content_type" not in extras.columns:
+            reference = pd.DataFrame()
+        else:
+            news_first = extras[extras["content_type"] == "news"]
+            if not news_first.empty:
+                reference = news_first.sort_values("ai_score", key=abs, ascending=False).head(
+                    ref_n
+                )
+            else:
+                reference = extras.sort_values("ai_score", key=abs, ascending=False).head(
+                    ref_n
+                )
 
     return {"positive": positive, "negative": negative, "reference": reference}
 

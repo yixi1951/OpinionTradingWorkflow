@@ -1,0 +1,19 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Python
+*.py text diff=python
+
+# Binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.joblib binary
+
+# Generated / cached
+coverage_html/** linguist-generated=true
+__pycache__/** linguist-generated=true
+*.pyc binary
+*.egg-info/** linguist-generated=true

@@ -1,0 +1,16 @@
+[Unit]
+Description=OpenClaw AI Picks Streamlit dashboard
+After=network.target
+
+[Service]
+Type=simple
+User=openclaw
+Group=openclaw
+EnvironmentFile=/etc/openclaw-picks.env
+WorkingDirectory=/opt/openclaw-picks
+ExecStart=/opt/openclaw-picks/.venv/bin/streamlit run src/opinion_trading/ui_dashboard.py --server.address 127.0.0.1 --server.port 8501
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

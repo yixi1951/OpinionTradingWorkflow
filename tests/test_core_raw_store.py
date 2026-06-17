@@ -1,6 +1,40 @@
 from __future__ import annotations
 
-from opinion_trading.core.raw_store import RawPostCsvStore
+from opinion_trading.core.raw_store import RawPostCsvStore, validate_row_schema
+
+
+def test_validate_row_schema_valid():
+    row = {
+        "trade_date": "2026-06-17",
+        "platform": "guba",
+        "symbol": "000001.SZ",
+        "title": "Test",
+        "content": "Some content",
+        "keyword_score": 0.5,
+        "ai_score": 0.3,
+        "capture_status": "success",
+    }
+    violations = validate_row_schema(row, 0)
+    assert violations == []
+
+
+def test_validate_row_schema_missing_required():
+    row = {"trade_date": "", "platform": "guba", "symbol": ""}
+    violations = validate_row_schema(row, 5)
+    assert any("required field 'trade_date'" in v for v in violations)
+    assert any("required field 'symbol'" in v for v in violations)
+
+
+def test_validate_row_schema_wrong_type():
+    row = {
+        "trade_date": "2026-06-17",
+        "platform": "guba",
+        "symbol": "000001.SZ",
+        "keyword_score": "not_a_number",
+        "capture_status": "success",
+    }
+    violations = validate_row_schema(row, 1)
+    assert any("keyword_score" in v for v in violations)
 
 
 def test_save_partitioned_rows_and_failures(tmp_path):

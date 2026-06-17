@@ -29,8 +29,23 @@ universe:
     - 600519.SH
     - 000001.SZ
     - 601318.SH
+    - 600036.SH
+    - 000858.SZ
 
 storage:
   memory_dir: data/memory
   report_dir: data/reports
   raw_dir: data/raw
+
+scoring:
+  # 评分模式: keyword | openclaw | hybrid
+  #   keyword: 仅关键词匹配（快速，离线可用）
+  #   openclaw: 仅 OpenClaw LLM 评分（需网关连接）
+  #   hybrid:   OpenClaw 优先，兜底关键词（默认推荐）
+  mode: hybrid
+  # 逐条 LLM 评分（默认关闭）:
+  #   false: 仅在 collect_raw_posts 层面使用 AI 聚合评分，每帖仅关键词
+  #   true:  每篇帖子都调用 LLM 评分（耗时约 20帖 × 2min/帖 ≈ 40min）
+  row_level_llm: false
+  # 单平台每次采集最大帖子数
+  max_posts: 20

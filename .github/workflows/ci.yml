@@ -26,8 +26,18 @@ jobs:
       - name: Run linters and type checks
         run: |
           ruff check src tests openclaw_ws_proxy.py openclaw_stub.py run_pipeline.py
-          black --check src tests openclaw_ws_proxy.py openclaw_stub.py run_pipeline.py
+          black --check --diff src tests openclaw_ws_proxy.py openclaw_stub.py run_pipeline.py
           mypy src/opinion_trading || true
-      - name: Run tests
+      - name: Run tests with coverage
         run: |
-          pytest --cov=src/opinion_trading --cov-report=term-missing --cov-report=xml -q
+          pytest --cov=src/opinion_trading --cov-report=term-missing --cov-report=xml -v
+      - name: Check coverage threshold
+        if: always()
+        run: |
+          python -m coverage report --fail-under=44
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-${{ matrix.python-version }}
+          path: coverage.xml

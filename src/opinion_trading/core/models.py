@@ -121,3 +121,6 @@ class RuntimeConfig:
     memory_dir: str
     report_dir: str
     raw_dir: str
+    scoring_mode: str = "hybrid"
+    row_level_llm: bool = False
+    max_posts: int = 20

@@ -1,0 +1,11 @@
+[Unit]
+Description=Weekday EOD daily crawl + OpenClaw rescore (18:30 Asia/Shanghai)
+
+[Timer]
+Unit=openclaw-daily-eod.service
+OnCalendar=Mon..Fri *-*-* 18:30:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

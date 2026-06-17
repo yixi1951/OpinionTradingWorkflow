@@ -1,0 +1,18 @@
+[Unit]
+Description=OpenClaw gateway (DeepSeek via openclaw CLI)
+After=network.target
+
+[Service]
+Type=simple
+User=openclaw
+Group=openclaw
+Environment=HOME=/home/openclaw
+Environment=PATH=/usr/bin:/usr/local/bin
+EnvironmentFile=/etc/openclaw-picks.env
+WorkingDirectory=/home/openclaw
+ExecStart=/usr/bin/openclaw gateway run --port 18789 --force
+Restart=on-failure
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target

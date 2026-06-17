@@ -6,8 +6,11 @@ from opinion_trading.ui_helpers import (
     build_pick_contribution,
     build_pick_narrative,
     build_picks_detail_table,
+    build_sentiment_engine_stats,
+    build_symbol_sentiment_summary,
     filter_comment_evidence,
     filter_usable_raw,
+    infer_score_source,
     parse_platform_scores,
     platform_label,
     symbol_display,
@@ -66,7 +69,7 @@ def test_filter_comment_evidence_drops_news():
             {
                 "symbol": "601318.SH",
                 "platform": "weibo",
-                "title": "纳斯达克100指数期货转跌，标普500指数期货下跌0.3%",
+                "title": "摩根大通发布研报：中国平安一季度营收超预期",
                 "summary": "",
                 "content": "",
                 "capture_status": "success",
@@ -202,3 +205,63 @@ def test_full_comment_text_keeps_long_body():
     assert len(full) > 220
     assert preview.endswith("…")
     assert full.startswith(preview[:217])
+
+
+def test_infer_score_source_explicit():
+    row = pd.Series({"score_source": "openclaw", "ai_score": 0.1, "keyword_score": 0.1})
+    assert infer_score_source(row) == "openclaw"
+
+
+def test_build_sentiment_engine_stats():
+    df = pd.DataFrame(
+        [
+            {
+                "symbol": "600519.SH",
+                "platform": "guba",
+                "title": "今天继续加仓茅台，长期看好消费龙头",
+                "summary": "今天继续加仓茅台，长期看好消费龙头",
+                "content": "今天继续加仓茅台，长期看好消费龙头",
+                "capture_status": "success",
+                "is_noise": False,
+                "ai_score": 0.35,
+                "keyword_score": 0.1,
+                "score_source": "openclaw",
+            },
+            {
+                "symbol": "600519.SH",
+                "platform": "weibo",
+                "title": "市场短期中性观望为主，等待方向选择",
+                "summary": "市场短期中性观望为主，等待方向选择",
+                "content": "市场短期中性观望为主，等待方向选择",
+                "capture_status": "success",
+                "is_noise": False,
+                "ai_score": 0.0,
+                "keyword_score": 0.0,
+                "score_source": "keyword",
+            },
+        ]
+    )
+    stats = build_sentiment_engine_stats(df)
+    assert stats["usable_rows"] == 2
+    assert stats["openclaw_rows"] == 1
+    assert stats["keyword_rows"] == 1
+
+
+def test_build_symbol_sentiment_summary():
+    df = pd.DataFrame(
+        [
+            {
+                "symbol": "600519.SH",
+                "platform": "guba",
+                "title": "长期看好茅台",
+                "summary": "",
+                "content": "长期看好茅台，继续加仓",
+                "capture_status": "success",
+                "is_noise": False,
+                "ai_score": 0.4,
+            },
+        ]
+    )
+    summary = build_symbol_sentiment_summary(df, "600519.SH", lang="zh")
+    assert summary["comment_count"] == 1
+    assert summary["avg_score"] > 0

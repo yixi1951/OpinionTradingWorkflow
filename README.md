@@ -1,5 +1,11 @@
 # OpinionTradingWorkflow
 
+[![CI](https://github.com/yixi1951/OpinionTradingWorkflow/actions/workflows/ci.yml/badge.svg)](https://github.com/yixi1951/OpinionTradingWorkflow/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/badge/coverage-44%25-yellow?logo=pytest)](https://github.com/yixi1951/OpinionTradingWorkflow/actions)
+[![Python](https://img.shields.io/badge/python-3.10%20|%203.11%20|%203.12-blue?logo=python)](https://www.python.org/)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![GitHub last commit](https://img.shields.io/github/last-commit/yixi1951/OpinionTradingWorkflow?logo=git)](https://github.com/yixi1951/OpinionTradingWorkflow/commits/main)
+
 **多平台舆情采集 · LLM 情感分析 · 实时选股 · 可解释投研仪表盘**
 
 Python 个人项目：从股吧、新浪财经、微博、东方财富、雪球、抖音等渠道抓取舆情，经 OpenClaw + DeepSeek 打分后聚合为选股信号，并通过 Streamlit 展示 Top 排名、评论证据链与回测结果。
@@ -8,7 +14,17 @@ Python 个人项目：从股吧、新浪财经、微博、东方财富、雪球�
 
 ---
 
-## 项目亮点（简历可写）
+## 项目质量
+
+| 指标 | 数值 |
+|------|------|
+| 测试用例 | **113 个**（单元 + 集成） |
+| 代码覆盖 | **44%**（核心模块 60-97%，排除 Streamlit UI 的静态代码） |
+| CI pipeline | ruff lint → black 格式 → mypy 类型 → pytest + 覆盖率门槛 → 报告上传 |
+| 支持 Python | 3.10 / 3.11 / 3.12 |
+| 预提交钩子 | ruff (fix+fmt)、black、mypy、trailing-whitespace、end-of-file-fixer 等 |
+
+
 
 - **端到端流水线**：采集 → 清洗/质检 → LLM 情感打分 → 多平台加权聚合 → 实时 Top-N 选股 → 日报 & 告警
 - **真实 LLM 集成**：OpenClaw Gateway + WebSocket→HTTP 代理，对接 **DeepSeek V4 Flash**（云端 API，单轮 realtime ~9 分钟）
@@ -195,6 +211,8 @@ pytest -q
 - **universe.symbols**：股票池（默认 600519.SH、000001.SZ、601318.SH）
 - **strategy.platform_weights**：各平台权重（股吧 1.40、东财 1.30 …）
 - **strategy.bullish_threshold / bearish_threshold**：多空信号阈值
+- **scoring.mode**：评分模式 `hybrid`（推荐）｜ `keyword` ｜ `openclaw`
+- **scoring.row_level_llm**：是否开启逐帖 LLM 评分（默认关闭）
 
 环境变量：
 
@@ -220,6 +238,17 @@ pytest -q
 - [新手教程](docs/beginner_tutorial_zh.md)
 - [项目简介](docs/brief_intro_zh.md)
 - [标注说明](docs/annotation_instructions_zh.md)（可选 ML 验证线）
+- [贡献指南](CONTRIBUTING.md)
+- [安全策略](SECURITY.md)
+- [更新日志](CHANGELOG.md)
+
+---
+
+## 项目状态
+
+该项目为个人学习与作品展示，持续活跃开发中。
+- **最近更新**：健壮性改进（HTTP 缓存、速率限制、日志轮转、优雅关闭、健康检查端点）
+- **下一步**：更多的平台适配、ML 基线提升、覆盖率持续增长
 
 ---
 

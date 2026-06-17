@@ -3,13 +3,39 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "openclaw"
-version = "0.0.0"
-description = "Opinion trading helper and realtime signals pipeline"
+name = "openclaw-opinion-trading"
+version = "0.1.0"
+description = "多平台舆情采集 · LLM 情感分析 · 实时选股 · 可解释投研仪表盘"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [ { name = "Project Authors" } ]
+authors = [
+    { name = "yixi1951", email = "yixi1951@users.noreply.github.com" },
+]
+keywords = [
+    "sentiment-analysis",
+    "quantitative-trading",
+    "chinese-stock",
+    "deepseek",
+    "openclaw",
+    "streamlit",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Financial and Insurance Industry",
+    "License :: OSI Approved :: MIT License",
+    "Natural Language :: Chinese (Simplified)",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Financial :: Investment",
+]
+urls = {
+    "Homepage" = "https://github.com/yixi1951/OpinionTradingWorkflow",
+    "Source" = "https://github.com/yixi1951/OpinionTradingWorkflow",
+    "Bug Tracker" = "https://github.com/yixi1951/OpinionTradingWorkflow/issues",
+    "Changelog" = "https://github.com/yixi1951/OpinionTradingWorkflow/blob/main/CHANGELOG.md",
+}
 dependencies = [
     "pydantic==2.11.3",
     "PyYAML==6.0.2",
@@ -38,3 +64,25 @@ extend-ignore = ["E203"]
 [tool.mypy]
 python_version = "3.10"
 ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+addopts = "-v --tb=short -q"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "network: marks tests that make network calls",
+]
+
+[tool.coverage.run]
+source = ["src/opinion_trading"]
+omit = ["*/tests/*", "*/__pycache__/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+fail_under = 44
+sort = "Miss"
+
+[tool.coverage.html]
+directory = "coverage_html"

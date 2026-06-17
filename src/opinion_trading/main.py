@@ -7,6 +7,7 @@ from typing import List
 
 import pandas as pd
 
+from opinion_trading.core.log_utils import configure_logging, get_logger
 from opinion_trading.agents.workflow import OpinionTradingWorkflow
 from opinion_trading.core.backtest import StrategyBacktester
 from opinion_trading.core.evaluation import load_prices, load_signals
@@ -21,6 +22,8 @@ from opinion_trading.core.visualization import (
     plot_sharpe_vs_threshold,
     top_n_table,
 )
+
+logger = get_logger(__name__)
 
 
 def parse_args() -> argparse.Namespace:
@@ -126,27 +129,31 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+
+    # Configure structured logging
+    configure_logging()
+
     if args.mode == "daily":
         run_date = datetime.strptime(args.date, "%Y-%m-%d").date()
+        logger.info("Starting daily workflow for %s", run_date)
         workflow = OpinionTradingWorkflow(config_path=args.config)
         result = workflow.run_daily(run_date)
 
-        print("=== Daily Workflow Completed ===")
-        print(f"Run date: {result['run_date']}")
-        print(f"Signals: {result['signals']}")
-        print(f"Trades: {result['trades']}")
-        print(f"Best platform combo: {','.join(result['best_combo'])}")
-        print(f"Report: {result['report']}")
-        print(f"Raw CSV: {result['raw_csv']}")
-        for key, value in result.get("raw_sources", {}).items():
-            print(f"Raw source CSV [{key}]: {value}")
-        for key, value in result.get("failure_logs", {}).items():
-            print(f"Failure log [{key}]: {value}")
-        print(f"Quality report: {result['quality_report']}")
-        print(f"Cash: {result['state']['cash']}")
+        logger.info(
+            "Daily workflow completed | date=%s signals=%d trades=%d "
+            "best_combo=%s report=%s raw_csv=%s cash=%.2f",
+            result["run_date"],
+            result["signals"],
+            result["trades"],
+            ",".join(result["best_combo"]),
+            result["report"],
+            result["raw_csv"],
+            result["state"]["cash"],
+        )
         return
 
     if args.mode == "realtime":
+        logger.info("Starting realtime workflow")
         workflow = OpinionTradingWorkflow(config_path=args.config)
         result = workflow.run_realtime(
             iterations=args.iterations,
@@ -157,25 +164,13 @@ def main() -> None:
             orange_threshold=args.orange_threshold,
             red_threshold=args.red_threshold,
         )
-        print("=== Realtime Workflow Completed ===")
-        print(f"Run time: {result['run_time']}")
-        print(f"Iterations: {result['iterations']}")
-        print(f"Interval seconds: {result['interval_seconds']}")
-        print(f"Best platform combo: {','.join(result.get('best_combo', []))}")
-        print(f"Realtime picks CSV: {result['report_csv']}")
-        print(f"Realtime picks MD: {result['report_md']}")
-        print(f"Alert file: {result['alert_file']}")
-        print(f"Alert count: {len(result.get('alerts', []))}")
-        print(
-            "Alert thresholds: "
-            f"yellow={result.get('yellow_threshold')} "
-            f"orange={result.get('orange_threshold')} "
-            f"red={result.get('red_threshold')}"
+        logger.info(
+            "Realtime completed | iterations=%d alerts=%d picks=%d csv=%s",
+            result["iterations"],
+            len(result.get("alerts", [])),
+            len(result.get("picks", [])),
+            result.get("report_csv", ""),
         )
-        for idx, row in enumerate(result.get("picks", []), start=1):
-            print(
-                f"Top {idx}: {row.get('symbol', '')} | avg_score={float(row.get('avg_score', 0.0)):.4f}"
-            )
         return
 
     if args.mode == "evaluate":

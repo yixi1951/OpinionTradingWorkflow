@@ -7,6 +7,7 @@ from pathlib import Path
 from time import sleep
 from typing import Dict
 
+from opinion_trading.core.log_utils import get_logger
 from opinion_trading.agents.roles import AnalystAgent, CollectorAgent, TraderAgent
 from opinion_trading.core.config_loader import load_runtime_config
 from opinion_trading.core.alert_notifier import AlertNotifier
@@ -21,6 +22,8 @@ from opinion_trading.integrations.platform_sentiment_real import (
 from opinion_trading.skills.sentiment_analysis import SentimentAnalysisSkill
 from opinion_trading.skills.sentiment_collection import SentimentCollectionSkill
 from opinion_trading.skills.trade_simulation import PaperTradingSkill
+
+logger = get_logger(__name__)
 
 
 class OpinionTradingWorkflow:
@@ -51,9 +54,16 @@ class OpinionTradingWorkflow:
         self.trader = TraderAgent(trader_skill)
 
     def run_daily(self, run_date: date) -> Dict:
+        logger.info("run_daily started — %d symbols, %d platforms",
+                     len(self.config.symbols), len(self.config.strategy.platforms))
         raw_rows = []
-        for symbol in self.config.symbols:
+        total_combos = len(self.config.symbols) * len(self.config.strategy.platforms)
+        for idx, symbol in enumerate(self.config.symbols):
             for platform in self.config.strategy.platforms:
+                logger.debug("Collecting [%d/%d] %s/%s",
+                             idx * len(self.config.strategy.platforms) +
+                             self.config.strategy.platforms.index(platform) + 1,
+                             total_combos, platform, symbol)
                 raw_rows.extend(
                     self.provider.collect_raw_posts(
                         platform=platform,
@@ -62,6 +72,7 @@ class OpinionTradingWorkflow:
                     )
                 )
 
+        logger.info("Collected %d raw rows total", len(raw_rows))
         raw_outputs = self.raw_store.save_partitioned_rows(
             run_date.isoformat(), raw_rows
         )
@@ -146,6 +157,10 @@ class OpinionTradingWorkflow:
     ) -> Dict:
         """Run real-time polling cycles and produce AI stock picks from live sentiment."""
         run_date = datetime.now().date()
+        logger.info(
+            "run_realtime started — %d iterations, %ds interval, %d symbols",
+            iterations, interval_seconds, len(self.config.symbols),
+        )
         cycle_results = []
         latest_picks = []
         latest_combo = []
@@ -153,6 +168,7 @@ class OpinionTradingWorkflow:
         alerts: list[Dict] = []
 
         for i in range(iterations):
+            logger.info("Realtime cycle %d/%d", i + 1, iterations)
             snapshots = self.collector.run(
                 symbols=self.config.symbols,
                 platforms=self.config.strategy.platforms,

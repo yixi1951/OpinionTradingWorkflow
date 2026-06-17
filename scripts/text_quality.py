@@ -29,6 +29,23 @@ GUBA_NAV_TOKENS = (
     '分享到：',
 )
 
+PAGE_CHROME_MARKERS = (
+    '公司概况',
+    '公司简介',
+    '公司高管',
+    '股权信息',
+    '股本结构',
+    '十大股东',
+    '十大流通股东',
+    '基金持股',
+    '深股通',
+    '可融资',
+    '可卖空',
+    '首页 公司概况',
+    '扫码下载雪球',
+    '点击展开查看完整评论',
+)
+
 MOJIBAKE_RE = re.compile(r'[ÃÂæåèéêëìíîïðñòóôõöùúûüýÿ]{4,}')
 
 
@@ -101,6 +118,7 @@ def is_log_metadata(text: str) -> bool:
 NEWS_TITLE_CUES = (
     '公告', '发布', '券商', '涨超', '概念涨', '涨1.', '涨0.', 'ETF', '基金', '医院', '品牌',
     '持股比例', '一季度', '营业收入', '回购股份', '摩根大通', '主力资金净流入',
+    '期货', '指数', '美股', '道指', '纳指', '标普',
 )
 
 
@@ -165,6 +183,39 @@ def pick_comment_text(text: str, title: str = '', content: str = '', summary: st
         return str(title or text or '').strip()
     clean.sort(key=len)
     return clean[0]
+
+
+def is_page_chrome(text: str, platform: str = "") -> bool:
+    """Stock profile / nav pages scraped as text, not real opinions."""
+    if not text or not str(text).strip():
+        return True
+    s = re.sub(r'\s+', ' ', str(text)).strip()
+    hits = sum(1 for m in PAGE_CHROME_MARKERS if m in s)
+    if hits >= 2:
+        return True
+    if platform == 'xueqiu' and hits >= 1 and len(s) > 80:
+        return True
+    if re.search(r'¥\d+\.\d+\s*[+-]\d', s) and '深股通' in s:
+        return True
+    return False
+
+
+def is_user_comment(
+    text: str, platform: str = "", url: str = "", title: str = ""
+) -> bool:
+    """True when text looks like a user opinion rather than news or page chrome."""
+    body = pick_comment_text(text, title=title)
+    if not body or len(body.strip()) < 4:
+        return False
+    if is_boilerplate(body):
+        return False
+    if is_stock_or_search_url(url):
+        return False
+    if is_news_article(body, platform=platform, url=url):
+        return False
+    if is_news_headline(body, platform=platform):
+        return False
+    return True
 
 
 def quality_issues(text: str, title: str = '', platform: str = '', url: str = '') -> list[str]:

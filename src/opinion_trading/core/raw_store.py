@@ -4,7 +4,47 @@ import csv
 import json
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, Iterable, List
+from typing import Any, Dict, Iterable, List
+
+from opinion_trading.core.log_utils import get_logger
+
+logger = get_logger(__name__)
+
+# Expected field types for schema validation
+_SCHEMA_RULES: Dict[str, type] = {
+    "trade_date": str,
+    "platform": str,
+    "symbol": str,
+    "title": str,
+    "content": (str, type(None)),
+    "keyword_score": (float, int),
+    "ai_score": (float, int),
+    "capture_status": str,
+}
+
+_REQUIRED_FIELDS = {"trade_date", "platform", "symbol"}
+
+
+def validate_row_schema(row: Dict[str, Any], row_index: int) -> List[str]:
+    """Validate a single row against schema rules. Returns list of violations."""
+    violations: List[str] = []
+    for field in _REQUIRED_FIELDS:
+        val = row.get(field)
+        if not val or (isinstance(val, str) and not val.strip()):
+            violations.append(f"Row {row_index}: missing required field '{field}'")
+    for field, expected_type in _SCHEMA_RULES.items():
+        val = row.get(field)
+        if val is not None and not isinstance(val, expected_type):
+            type_name = (
+                expected_type.__name__
+                if not isinstance(expected_type, tuple)
+                else " | ".join(t.__name__ for t in expected_type)
+            )
+            violations.append(
+                f"Row {row_index}: '{field}' expected {type_name}, "
+                f"got {type(val).__name__}"
+            )
+    return violations
 
 
 class RawPostCsvStore:
@@ -16,6 +56,19 @@ class RawPostCsvStore:
         self, trade_date: str, rows: Iterable[Dict]
     ) -> Dict[str, Path]:
         rows_list = [self._normalize_row(row) for row in rows]
+        # Schema validation with warnings
+        violations_found = 0
+        for i, row in enumerate(rows_list):
+            violations = validate_row_schema(row, i)
+            for v in violations:
+                logger.warning("Schema violation: %s", v)
+                violations_found += 1
+        if violations_found:
+            logger.warning(
+                "Schema validation: %d violations in %d rows",
+                violations_found,
+                len(rows_list),
+            )
         combined_path = self.raw_dir / f"raw_posts_{trade_date}.csv"
         self._write_csv(combined_path, rows_list)
 

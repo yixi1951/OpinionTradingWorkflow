@@ -1,0 +1,17 @@
+[Unit]
+Description=OpenClaw AI realtime picks (single run)
+After=network.target openclaw-ws-proxy.service
+Wants=openclaw-ws-proxy.service
+
+[Service]
+Type=oneshot
+User=openclaw
+Group=openclaw
+EnvironmentFile=/etc/openclaw-picks.env
+WorkingDirectory=/opt/openclaw-picks
+ExecStart=/opt/openclaw-picks/.venv/bin/python -m opinion_trading.main --mode realtime --iterations 3 --interval-seconds 90 --top-n 3
+StandardOutput=append:/var/log/openclaw-picks/realtime.log
+StandardError=append:/var/log/openclaw-picks/realtime.err.log
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,18 @@
+[Unit]
+Description=OpenClaw daily crawl + OpenClaw rescore (EOD)
+After=network.target openclaw-ws-proxy.service
+Wants=openclaw-ws-proxy.service
+
+[Service]
+Type=oneshot
+User=openclaw
+Group=openclaw
+EnvironmentFile=-/etc/openclaw-picks.env
+Environment=HOME=/home/openclaw
+WorkingDirectory=/opt/openclaw-picks
+ExecStart=/bin/bash /opt/openclaw-picks/scripts/daily_eod_openclaw.sh
+StandardOutput=append:/var/log/openclaw-picks/daily_eod.log
+StandardError=append:/var/log/openclaw-picks/daily_eod.err.log
+
+[Install]
+WantedBy=multi-user.target

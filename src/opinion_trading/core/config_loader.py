@@ -39,10 +39,15 @@ def load_runtime_config(config_path: str = "config/settings.yaml") -> RuntimeCon
         position_size_ratio=float(strategy["position_size_ratio"]),
     )
 
+    scoring = raw.get("scoring", {})
+
     return RuntimeConfig(
         strategy=strategy_config,
         symbols=list(raw["universe"]["symbols"]),
         memory_dir=storage["memory_dir"],
         report_dir=storage["report_dir"],
         raw_dir=storage.get("raw_dir", "data/raw"),
+        scoring_mode=str(scoring.get("mode", "hybrid")),
+        row_level_llm=bool(scoring.get("row_level_llm", False)),
+        max_posts=int(scoring.get("max_posts", 20)),
     )

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import datetime
 import json
 import os
 import re
@@ -21,6 +22,25 @@ class SentimentRequest(BaseModel):
 
 
 app = FastAPI(title="OpenClaw WS -> REST Proxy")
+
+_started_at: str | None = None
+
+
+@app.on_event("startup")
+async def _startup() -> None:
+    global _started_at
+    _started_at = datetime.datetime.utcnow().isoformat() + "Z"
+
+
+@app.get("/health")
+async def health() -> dict:
+    """Health check endpoint for watchdog and load balancers."""
+    return {
+        "status": "ok",
+        "service": "openclaw-ws-proxy",
+        "started_at": _started_at,
+        "now": datetime.datetime.utcnow().isoformat() + "Z",
+    }
 
 
 def _env_int(name: str, default: int) -> int:
@@ -280,6 +300,14 @@ async def score_texts(req: SentimentRequest):
             detail="websockets package not installed; run `pip install -r requirements.txt`",
         )
 
+    # CI / outage: keyword heuristic only (no Gateway WebSocket).
+    if str(os.getenv("OPENCLAW_PROXY_KEYWORD_ONLY", "0")).lower() in (
+        "1",
+        "true",
+        "yes",
+    ):
+        return {"scores": _fallback_scores(req.texts)}
+
     ws_url = os.getenv("WS_GATEWAY_URL", "ws://localhost:18789")
     ws_token = os.getenv("WS_GATEWAY_TOKEN")
     if not ws_token:
@@ -290,8 +318,9 @@ async def score_texts(req: SentimentRequest):
     request_id = str(uuid.uuid4())
     auth_template = os.getenv("WS_GATEWAY_AUTH_TEMPLATE")
     request_template = os.getenv("WS_GATEWAY_REQUEST_TEMPLATE")
-    auth_timeout = _env_int("WS_GATEWAY_AUTH_TIMEOUT", 1)
-    response_timeout = _env_int("WS_GATEWAY_RESPONSE_TIMEOUT", 30)
+    auth_timeout = _env_int("WS_GATEWAY_AUTH_TIMEOUT", 30)
+    response_timeout = _env_int("WS_GATEWAY_RESPONSE_TIMEOUT", 180)
+    open_timeout = _env_int("WS_GATEWAY_OPEN_TIMEOUT", 60)
     model_name = os.getenv("WS_GATEWAY_MODEL", "qwen2.5:0.5b")
     connect_scopes = [
         scope.strip()
@@ -321,7 +350,9 @@ async def score_texts(req: SentimentRequest):
         except Exception:
             origin = None
 
-        async with websockets.connect(ws_url, origin=origin) as ws:
+        async with websockets.connect(
+            ws_url, origin=origin, open_timeout=open_timeout, close_timeout=10
+        ) as ws:
             # If user provided an explicit auth template, send it first
             if auth_template:
                 await ws.send(auth_msg)
