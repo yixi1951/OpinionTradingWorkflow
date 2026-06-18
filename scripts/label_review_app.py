@@ -4,25 +4,29 @@ from pathlib import Path
 
 DATA_DIR = Path('data/labels')
 DEFAULT_FILES = [
-    'annotation_bulk_enriched_openclaw.csv',
+    'annotation_bulk.csv',
     'annotation_bulk_openclaw.csv',
+    'annotation_bulk_enriched_openclaw.csv',
+    'annotation_sample.csv',
     'annotation_sample_openclaw.csv',
     'annotation_sample_auto.csv',
-    'annotation_sample.csv',
 ]
 
 REVIEW_BY_SOURCE = {
+    'annotation_bulk.csv': 'annotation_bulk_review.csv',
     'annotation_bulk_enriched_openclaw.csv': 'annotation_bulk_review.csv',
     'annotation_bulk_openclaw.csv': 'annotation_bulk_review.csv',
+    'annotation_sample.csv': 'annotation_sample_review.csv',
     'annotation_sample_openclaw.csv': 'annotation_sample_review.csv',
     'annotation_sample_auto.csv': 'annotation_sample_review.csv',
-    'annotation_sample.csv': 'annotation_sample_review.csv',
 }
 
 MERGED_BY_SOURCE = {
+    'annotation_bulk.csv': 'annotation_bulk_review_merged.csv',
     'annotation_bulk_enriched_openclaw.csv': 'annotation_bulk_review_merged.csv',
     'annotation_bulk_openclaw.csv': 'annotation_bulk_review_merged.csv',
     'annotation_sample_openclaw.csv': 'annotation_sample_review_merged.csv',
+    'annotation_sample.csv': 'annotation_sample_review_merged.csv',
     'annotation_sample_auto.csv': 'annotation_sample_review_merged.csv',
     'annotation_sample.csv': 'annotation_sample_review_merged.csv',
 }
@@ -100,43 +104,61 @@ if pd.isna(text_val) or not str(text_val).strip():
     st.warning('本条 text 为空，可跳过或结合 title/summary 复核。')
 st.write(text_val)
 
-st.markdown('**当前标签（数据文件）**')
-st.write(row.get('label', ''))
-
 existing = review_df[review_df['id'] == rid]
-prev_label = existing['label'].iloc[0] if not existing.empty else str(row.get('label', '') or '')
+source_label = str(row.get('openclaw_label', row.get('label', '')) or '')
+saved_label = existing['label'].iloc[0] if not existing.empty else None
 prev_notes = existing['notes'].iloc[0] if not existing.empty else ''
+if not isinstance(prev_notes, str):
+    prev_notes = ''
+
+label_state_key = f'review_label_{rid}'
+if label_state_key not in st.session_state:
+    if saved_label in ('positive', 'neutral', 'negative'):
+        st.session_state[label_state_key] = saved_label
+    elif source_label in ('positive', 'neutral', 'negative'):
+        st.session_state[label_state_key] = source_label
+    else:
+        st.session_state[label_state_key] = 'neutral'
+
+st.markdown('**原始标签 (OpenClaw / 数据文件)**')
+st.write(source_label or '—')
+
+st.markdown('**已保存复核标签**')
+st.write(saved_label if saved_label else '（尚未保存）')
 
 st.markdown('**复核操作**')
 col1, col2, col3 = st.columns(3)
 with col1:
-    if st.button('Positive'):
-        prev_label = 'positive'
+    if st.button('Positive', key=f'btn_pos_{rid}'):
+        st.session_state[label_state_key] = 'positive'
+        st.rerun()
 with col2:
-    if st.button('Neutral'):
-        prev_label = 'neutral'
+    if st.button('Neutral', key=f'btn_neu_{rid}'):
+        st.session_state[label_state_key] = 'neutral'
+        st.rerun()
 with col3:
-    if st.button('Negative'):
-        prev_label = 'negative'
+    if st.button('Negative', key=f'btn_neg_{rid}'):
+        st.session_state[label_state_key] = 'negative'
+        st.rerun()
 
-label_choice = st.selectbox(
+st.selectbox(
     '确认标签',
     ['positive', 'neutral', 'negative'],
-    index=['positive', 'neutral', 'negative'].index(prev_label) if prev_label in ('positive', 'neutral', 'negative') else 1,
-    key=f'label_{rid}_{idx}',
+    key=label_state_key,
 )
-prev_label = label_choice
-notes = st.text_area('备注 (可选)', value=prev_notes if isinstance(prev_notes, str) else '')
-annotator = st.text_input('标注者 ID', value='annotator1')
+selected_label = st.session_state[label_state_key]
+notes = st.text_area('备注 (可选)', value=prev_notes, key=f'notes_{rid}')
+annotator = st.text_input('标注者 ID', value='annotator1', key=f'annotator_{rid}')
 
-if st.button('保存标注'):
+if st.button('保存标注', key=f'save_{rid}'):
     review_df = review_df[review_df['id'] != rid]
     review_df = pd.concat(
-        [review_df, pd.DataFrame([{'id': rid, 'label': prev_label, 'notes': notes, 'annotator': annotator}])],
+        [review_df, pd.DataFrame([{'id': rid, 'label': selected_label, 'notes': notes, 'annotator': annotator}])],
         ignore_index=True,
     )
     review_df.to_csv(review_path, index=False)
-    st.success(f'已保存到 {review_path.name}')
+    st.success(f'已保存: id={rid} → {selected_label}（写入 {review_path.name}）')
+    st.rerun()
 
 st.markdown('**导出 / 状态**')
 st.write(f'数据源: {choice} | 样本数: {n} | 已复核: {len(review_df)} | 输出: {review_path.name}')

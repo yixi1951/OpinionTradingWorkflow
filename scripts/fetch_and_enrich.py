@@ -7,6 +7,10 @@ import pandas as pd
 from bs4 import BeautifulSoup
 import sys
 try:
+    from text_quality import is_boilerplate, pick_comment_text
+except ImportError:
+    from scripts.text_quality import is_boilerplate, pick_comment_text
+try:
     # optional better extractor
     from readability import Document
 except Exception:
@@ -22,8 +26,16 @@ def collapse_whitespace(s: str) -> str:
     return re.sub(r"\s+", ' ', s).strip()
 
 
-def extract_text_from_html(html: str) -> str:
+def extract_text_from_html(html: str, url: str = '') -> str:
     soup = BeautifulSoup(html, 'lxml')
+
+    if 'guba.eastmoney.com' in str(url):
+        for sel in ('div.newstext', 'div#newscontent', 'div.article-body', 'div.stockcodec'):
+            node = soup.select_one(sel)
+            if node:
+                txt = collapse_whitespace(node.get_text(separator=' ', strip=True))
+                if len(txt) > 8 and not is_boilerplate(txt):
+                    return txt
 
     # Try common article tags
     article = soup.find('article')
@@ -112,12 +124,19 @@ def main(limit: int | None = None, delay: float = 0.5):
         if not html:
             print(f'[{idx}] fetch failed: {url}')
             continue
-        text = extract_text_from_html(html)
-        if text and len(text) > 30:
+        text = extract_text_from_html(html, url=url)
+        if text and len(text) > 30 and not is_boilerplate(text):
             df.at[idx, 'text'] = text
             print(f'[{idx}] extracted text ({len(text)} chars)')
         else:
-            print(f'[{idx}] no good text extracted')
+            title = df.at[idx, 'title'] if 'title' in df.columns else ''
+            content = df.at[idx, 'content'] if 'content' in df.columns else ''
+            fallback = pick_comment_text(text or '', title=str(title or ''), content=str(content or ''))
+            if fallback and not is_boilerplate(fallback):
+                df.at[idx, 'text'] = fallback
+                print(f'[{idx}] fallback to title/content ({len(fallback)} chars)')
+            else:
+                print(f'[{idx}] no good text extracted')
         time.sleep(delay)
 
     df.to_csv(OUT, index=False, encoding='utf-8-sig')

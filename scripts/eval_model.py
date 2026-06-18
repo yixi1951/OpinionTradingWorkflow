@@ -37,17 +37,20 @@ def main():
         raise RuntimeError('Vectorizer not found at models/tfidf_vectorizer.joblib')
 
     preds = model.predict(X_t)
-    labels = sorted(list(pd.Series(df['label'].astype(str)).unique()))
-    # if labels are strings, we need mapping; this script assumes model trained on encoded ints in same order
+    y_true = df['label'].astype(str).tolist()
+    label_names = sorted(set(y_true))
+    if len(preds) and not isinstance(preds[0], str):
+        preds = [label_names[int(p)] for p in preds]
     print('Classification Report:')
-    print(classification_report(df['label'].astype(str).map({l: i for i, l in enumerate(labels)}), preds, target_names=labels))
+    print(classification_report(y_true, preds, labels=label_names, zero_division=0))
 
-    cm = confusion_matrix(df['label'].astype(str).map({l: i for i, l in enumerate(labels)}), preds)
+    cm = confusion_matrix(y_true, preds, labels=label_names)
     plt.figure(figsize=(6,5))
-    sns.heatmap(cm, annot=True, fmt='d', xticklabels=labels, yticklabels=labels, cmap='Blues')
+    sns.heatmap(cm, annot=True, fmt='d', xticklabels=label_names, yticklabels=label_names, cmap='Blues')
     plt.xlabel('pred')
     plt.ylabel('true')
-    out_png = Path(f'confusion_matrix_{Path(args.model).stem}.png')
+    out_png = Path('reports') / f'confusion_matrix_{Path(args.model).stem}.png'
+    out_png.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(out_png, bbox_inches='tight')
     print('Saved', out_png)
 

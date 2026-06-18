@@ -25,6 +25,8 @@ def load_sentiment(path: Path, symbol: str = None) -> pd.DataFrame:
 
 def load_prices(path: Path, symbol: str = None) -> pd.DataFrame:
     df = pd.read_csv(path)
+    if 'trade_date' not in df.columns and 'date' in df.columns:
+        df = df.rename(columns={'date': 'trade_date'})
     if 'trade_date' in df.columns:
         df['trade_date'] = pd.to_datetime(df['trade_date'], errors='coerce')
     if symbol:
