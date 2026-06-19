@@ -1,0 +1,38 @@
+name: Bug 报告
+description: 报告缺陷或异常行为
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请尽量提供可复现信息，便于定位问题。
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 发生了什么？期望行为是什么？
+      placeholder: 例如：运行 run_daily_openclaw.ps1 后情感分数全为 0
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: 环境
+      placeholder: "Windows 11 / Python 3.12 / OpenClaw 版本"
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志或报错
+      render: shell
