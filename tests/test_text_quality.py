@@ -30,3 +30,17 @@ def test_strip_boilerplate_removes_guba_breadcrumb() -> None:
 def test_strip_boilerplate_empty_for_pure_chrome() -> None:
     raw = "东方财富 扫一扫下载APP 东方财富产品 天天基金 扫一扫下载APP"
     assert strip_boilerplate(raw) == ""
+
+
+def test_is_user_comment_rejects_news_headline() -> None:
+    from text_quality import is_user_comment
+
+    assert not is_user_comment("纳斯达克100指数期货转跌，标普500指数期货下跌0.3%")
+    assert not is_user_comment("中软国际：正式进军算力业务")
+    assert is_user_comment("保险板块分析：看资金明后天会形成金叉，但是主要看的是与科技之间的跷跷板效应")
+
+
+def test_is_user_comment_rejects_sina_finance() -> None:
+    from text_quality import is_user_comment
+
+    assert not is_user_comment("18只白酒股下跌 贵州茅台1307.22元/股收盘", platform="sina_finance")

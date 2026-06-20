@@ -29,16 +29,21 @@ class MultiSourceSentimentTests(unittest.TestCase):
         provider = RealPlatformSentimentProvider(fallback_to_stub=False)
         provider.ai_analyzer = None
 
-        def fake_download_html(url: str) -> str:
+        def fake_download_html(url: str, referer: str = "") -> str:
             if "list,sh600519.html" in url or "list,600519.html" in url:
                 return mapping["eastmoney_list"]
             if "xueqiu.com" in url:
                 return mapping["xueqiu_page"]
+            if "baidu.com" in url and "weibo" in mapping:
+                return mapping["weibo"]
             if url.endswith("123456789.html") or url.endswith("987654321.html"):
                 return mapping["eastmoney_article"]
             raise AssertionError(f"Unexpected url: {url}")
 
         provider._download_html = fake_download_html  # type: ignore[attr-defined]
+        provider._collect_jin10_weibo_snapshot = lambda *args, **kwargs: []  # type: ignore[method-assign]
+        provider._collect_web_search_rows = lambda **kwargs: []  # type: ignore[method-assign]
+        provider._collect_ths_news_rows = lambda **kwargs: []  # type: ignore[method-assign]
         return provider
 
     def test_build_url_supports_additional_sources(self) -> None:
@@ -47,6 +52,7 @@ class MultiSourceSentimentTests(unittest.TestCase):
             "guba.eastmoney.com", provider._build_url("eastmoney", "600519.SH")
         )
         self.assertIn("xueqiu.com", provider._build_url("xueqiu", "600519.SH"))
+        self.assertIn("SH600519", provider._build_url("xueqiu", "600519.SH"))
 
     def test_collect_eastmoney_and_xueqiu_samples(self) -> None:
         mapping = {
@@ -99,6 +105,51 @@ class MultiSourceSentimentTests(unittest.TestCase):
             str(eastmoney_result["source"]).startswith("https://guba.eastmoney.com")
         )
         self.assertTrue(str(xueqiu_result["source"]).startswith("https://xueqiu.com"))
+
+    def test_collect_weibo_via_baidu_search(self) -> None:
+        provider = RealPlatformSentimentProvider(fallback_to_stub=False)
+        provider.ai_analyzer = None
+        provider._collect_jin10_weibo_snapshot = lambda *args, **kwargs: []  # type: ignore[method-assign]
+        baidu_html = (FIXTURES / "baidu_weibo.html").read_text(encoding="utf-8")
+
+        def fake_download_html(url: str, referer: str = "") -> str:
+            if "baidu.com" in url:
+                return baidu_html
+            if "weibo.com" in url:
+                return "<html><title>weibo</title></html>"
+            raise AssertionError(f"Unexpected url: {url}")
+
+        provider._download_html = fake_download_html  # type: ignore[attr-defined]
+        rows = provider.collect_raw_posts(
+            "weibo", "600519.SH", self.trade_date, max_posts=2
+        )
+        self.assertGreaterEqual(len(rows), 1)
+        self.assertEqual(rows[0]["platform"], "weibo")
+        self.assertEqual(rows[0]["capture_status"], "success")
+        self.assertIn("贵州茅台", rows[0]["title"])
+
+    def test_collect_guba_title_only_from_list_page(self) -> None:
+        provider = RealPlatformSentimentProvider(fallback_to_stub=False)
+        provider.ai_analyzer = None
+        guba_list = (FIXTURES / "guba_list.html").read_text(encoding="utf-8")
+        guba_article = (FIXTURES / "eastmoney_article.html").read_text(encoding="utf-8")
+
+        def fake_download_html(url: str, referer: str = "") -> str:
+            if "list,sh600519.html" in url:
+                return guba_list
+            if url.endswith("123456789.html"):
+                return guba_article
+            raise AssertionError(f"Unexpected url: {url}")
+
+        provider._download_html = fake_download_html  # type: ignore[attr-defined]
+        rows = provider.collect_raw_posts(
+            "guba", "600519.SH", self.trade_date, max_posts=3
+        )
+        self.assertEqual(len(rows), 3)
+        self.assertTrue(all(row["capture_status"] == "success" for row in rows))
+        self.assertIn("咬死不动", rows[0]["title"])
+        self.assertIn("贵州茅台", rows[2]["title"])
+        self.assertGreaterEqual(len(rows[2]["content"]), 120)
 
     def test_weighted_aggregation_uses_configured_weights(self) -> None:
         agg = AggregatedSentiment(

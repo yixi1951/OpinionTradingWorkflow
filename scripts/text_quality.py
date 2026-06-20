@@ -101,7 +101,35 @@ def is_log_metadata(text: str) -> bool:
 NEWS_TITLE_CUES = (
     '公告', '发布', '券商', '涨超', '概念涨', '涨1.', '涨0.', 'ETF', '基金', '医院', '品牌',
     '持股比例', '一季度', '营业收入', '回购股份', '摩根大通', '主力资金净流入',
+    '指数期货', '标普', '纳斯达克', '道指', '恒生', '转跌', '转涨', '收涨', '收跌',
+    '元/股', '收盘', '涨停', '跌停', '签约', '获批', '据悉', '报道', '财联社',
 )
+
+
+def is_user_comment(text: str, platform: str = '', url: str = '') -> bool:
+    """True when text looks like discussable opinion, not syndicated news."""
+    if not text or len(str(text).strip()) < 8:
+        return False
+    if is_log_metadata(text):
+        return False
+    if is_news_article(text, platform=platform, url=url):
+        return False
+    if is_news_headline(text, platform=platform):
+        return False
+    s = str(text).strip()
+    macro_cues = (
+        '指数期货', '标普500', '纳斯达克', '道指', '恒生指数', '主力净流入', '北向资金',
+    )
+    if len(s) < 100 and any(c in s for c in macro_cues):
+        return False
+    if re.match(r'^[^：:]{2,24}[：:][^。！？]{4,60}$', s):
+        opinion_markers = (
+            '认为', '看好', '看空', '建议', '我觉得', '分析', '预测', '担心',
+            '期待', '加仓', '减仓', '持有', '买入', '卖出', '金叉', '死叉',
+        )
+        if not any(m in s for m in opinion_markers):
+            return False
+    return True
 
 
 def is_news_headline(text: str, platform: str = '') -> bool:
@@ -111,6 +139,11 @@ def is_news_headline(text: str, platform: str = '') -> bool:
     if platform == 'sina_finance':
         return True
     if len(s) > 120:
+        return True
+    short_news = (
+        '指数期货', '标普', '纳斯达克', '道指', '收涨', '收跌', '收盘', '元/股', '涨停', '跌停',
+    )
+    if any(c in s for c in short_news):
         return True
     return sum(1 for c in NEWS_TITLE_CUES if c in s) >= 1
 

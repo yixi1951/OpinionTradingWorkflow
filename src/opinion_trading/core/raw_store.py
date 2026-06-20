@@ -84,6 +84,7 @@ class RawPostCsvStore:
             "failure_reason",
             "keyword_score",
             "ai_score",
+            "score_source",
         ]
 
         with target.open("w", encoding="utf-8-sig", newline="") as f:
