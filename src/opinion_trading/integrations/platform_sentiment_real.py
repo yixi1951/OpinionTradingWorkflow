@@ -45,9 +45,10 @@ _LAST_REQUEST_TIME: Dict[str, float] = {}
 
 def _get_cache_dir() -> Path:
     global _HTML_CACHE_DIR
-    if _HTML_CACHE_DIR is None:
-        cache_path = os.environ.get("HTML_CACHE_DIR", "data/html_cache")
-        _HTML_CACHE_DIR = Path(cache_path)
+    cache_path = os.environ.get("HTML_CACHE_DIR", "data/html_cache")
+    path = Path(cache_path)
+    if _HTML_CACHE_DIR is None or _HTML_CACHE_DIR.resolve() != path.resolve():
+        _HTML_CACHE_DIR = path
         _HTML_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     return _HTML_CACHE_DIR
 
@@ -59,6 +60,8 @@ def _cache_key(url: str) -> str:
 def _read_html_cache(url: str) -> str | None:
     """Return cached HTML if fresh (within TTL), else None."""
     ttl = int(os.environ.get("HTML_CACHE_TTL_SECONDS", "3600"))
+    if ttl <= 0:
+        return None
     cache_dir = _get_cache_dir()
     key = _cache_key(url)
     cache_file = cache_dir / key

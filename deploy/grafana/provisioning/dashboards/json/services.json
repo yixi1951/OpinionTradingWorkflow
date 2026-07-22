@@ -1,0 +1,36 @@
+{
+  "title": "OpinionTrading Services",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Inference requests",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "inference_requests_total",
+          "legendFormat": "requests"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Collect success / failure",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "targets": [
+        {"expr": "collect_success_total", "legendFormat": "success"},
+        {"expr": "collect_failure_total", "legendFormat": "failure"}
+      ]
+    },
+    {
+      "type": "gauge",
+      "title": "LLM cache hit rate",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "targets": [
+        {"expr": "inference_cache_hit_rate", "legendFormat": "hit_rate"}
+      ]
+    }
+  ]
+}

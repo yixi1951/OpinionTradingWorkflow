@@ -79,6 +79,11 @@ class TradeSignal:
     confidence: float
     reason: str
     platforms: List[str]
+    consensus_score: float | None = None
+    kelly_fraction: float | None = None
+    analyst_scores: Dict[str, float] = field(default_factory=dict)
+    analyst_confidences: Dict[str, float] = field(default_factory=dict)
+    explanation: str = ""
 
     def to_dict(self) -> Dict:
         payload = asdict(self)
@@ -115,6 +120,69 @@ class StrategyConfig:
 
 
 @dataclass
+class AnalysisConfig:
+    """Configuration for the multi-agent analysis pipeline."""
+
+    enabled: bool = False
+    min_analysts: int = 2
+    bullish_threshold: float = 0.20
+    bearish_threshold: float = -0.20
+    sentiment_weight: float = 0.40
+    technical_weight: float = 0.35
+    fundamental_weight: float = 0.25
+    max_kelly_fraction: float = 0.25
+    min_confidence: float = 0.30
+    technical_lookback_days: int = 365
+
+
+@dataclass
+class QualityConfig:
+    """Raw data quality gates for sentiment confidence."""
+
+    enabled: bool = True
+    max_fallback_rate: float = 0.35
+    max_noise_rate: float = 0.10
+    fail_confidence_multiplier: float = 0.55
+    block_signals_on_severe_failure: bool = True
+    entity_match_rate_min: float = 0.70
+
+
+@dataclass
+class RiskConfig:
+    """Unified risk limits (paper / future live)."""
+
+    max_daily_loss_pct: float = 0.05
+    max_single_symbol_notional_pct: float = 0.25
+    max_open_positions: int = 10
+
+
+@dataclass
+class ExecutionConfig:
+    """Signal export / paper broker (no live trading by default)."""
+
+    mode: str = "paper"  # paper | export | simulation
+    export_intents: bool = True
+    dry_run: bool = True
+    simulation_slippage_bps: float = 5.0
+
+
+@dataclass
+class SentimentRecencyConfig:
+    """Time-decay weighting for posts (newer = higher weight)."""
+
+    enabled: bool = True
+    half_life_hours: float = 24.0
+
+
+@dataclass
+class WalkForwardConfig:
+    enabled_in_evaluate: bool = True
+    n_folds: int = 3
+    train_days: int = 60
+    test_days: int = 20
+
+
+@dataclass
 class RuntimeConfig:
     strategy: StrategyConfig
     symbols: List[str]
@@ -124,3 +192,10 @@ class RuntimeConfig:
     scoring_mode: str = "hybrid"
     row_level_llm: bool = False
     max_posts: int = 20
+    analysis: AnalysisConfig | None = None
+    quality: QualityConfig | None = None
+    execution: ExecutionConfig | None = None
+    walk_forward: WalkForwardConfig | None = None
+    risk: RiskConfig | None = None
+    sentiment_recency: SentimentRecencyConfig | None = None
+    explanation_lang: str = "zh"

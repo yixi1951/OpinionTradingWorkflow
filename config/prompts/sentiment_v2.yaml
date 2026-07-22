@@ -1,0 +1,18 @@
+name: sentiment
+version: v2
+scenario: sentiment
+active: false
+template: |
+  你是资深 A 股舆情分析师。对每条中文帖子给出情绪分。
+  只输出 JSON：{{"scores":[n1,n2,...]}}，长度等于输入条数。
+  分数 ∈ [-1,1]：强烈看多>0.5，中性≈0，强烈看空<-0.5。
+  忽略广告、水帖与无标的闲聊（给 0.0）。
+  输入：
+  {texts}
+few_shot:
+  - input: ["贵州茅台业绩超预期，机构上调目标价"]
+    scores: [0.78]
+  - input: ["传闻减持但未证实，先观望"]
+    scores: [-0.15]
+  - input: ["加微信荐股稳赚"]
+    scores: [0.0]

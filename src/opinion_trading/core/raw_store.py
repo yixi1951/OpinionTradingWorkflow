@@ -25,6 +25,30 @@ _SCHEMA_RULES: Dict[str, type] = {
 _REQUIRED_FIELDS = {"trade_date", "platform", "symbol"}
 
 
+def _coerce_bool(value: Any, *, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None or value == "":
+        return default
+    s = str(value).strip().lower()
+    if s in ("true", "1", "yes", "y"):
+        return True
+    if s in ("false", "0", "no", "n"):
+        return False
+    return default
+
+
+def _coerce_float(value: Any, *, default: float = 0.0) -> float:
+    if value is None or value == "":
+        return default
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        return float(str(value).strip())
+    except (TypeError, ValueError):
+        return default
+
+
 def validate_row_schema(row: Dict[str, Any], row_index: int) -> List[str]:
     """Validate a single row against schema rules. Returns list of violations."""
     violations: List[str] = []
@@ -51,6 +75,18 @@ class RawPostCsvStore:
     def __init__(self, raw_dir: str) -> None:
         self.raw_dir = Path(raw_dir)
         self.raw_dir.mkdir(parents=True, exist_ok=True)
+
+    def load_rows_for_date(self, trade_date: str) -> List[Dict]:
+        """Load combined raw CSV for a date (for --fast-daily replay)."""
+        path = self.raw_dir / f"raw_posts_{trade_date}.csv"
+        if not path.exists():
+            return []
+        rows: List[Dict] = []
+        with path.open("r", encoding="utf-8-sig", newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                rows.append(dict(row))
+        return rows
 
     def save_partitioned_rows(
         self, trade_date: str, rows: Iterable[Dict]
@@ -137,6 +173,15 @@ class RawPostCsvStore:
             "failure_reason",
             "keyword_score",
             "ai_score",
+            "score_source",
+            "platform_type",
+            "platform_label_zh",
+            "entity_matched",
+            "matched_tokens",
+            "authority_grade",
+            "authority_weight",
+            "event_type",
+            "content_kind",
         ]
 
         with target.open("w", encoding="utf-8-sig", newline="") as f:
@@ -160,7 +205,28 @@ class RawPostCsvStore:
         )
         normalized.setdefault("capture_status", "success")
         normalized.setdefault("failure_reason", "")
-        normalized.setdefault("is_noise", False)
+        normalized["is_noise"] = _coerce_bool(normalized.get("is_noise"), default=False)
+        for key in ("keyword_score", "ai_score"):
+            normalized[key] = _coerce_float(normalized.get(key), default=0.0)
+        if "authority_weight" not in normalized or normalized.get("authority_weight") in (
+            None,
+            "",
+        ):
+            normalized["authority_weight"] = 1.0
+        else:
+            normalized["authority_weight"] = _coerce_float(
+                normalized.get("authority_weight"), default=1.0
+            )
+        normalized["entity_matched"] = _coerce_bool(
+            normalized.get("entity_matched"), default=True
+        )
+        normalized.setdefault("score_source", "")
+        normalized.setdefault("platform_type", "")
+        normalized.setdefault("platform_label_zh", "")
+        normalized.setdefault("matched_tokens", "")
+        normalized.setdefault("authority_grade", "")
+        normalized.setdefault("event_type", "")
+        normalized.setdefault("content_kind", "")
         return normalized
 
     def _build_summary(self, title: object, content: object) -> str:

@@ -88,7 +88,11 @@ class SentimentAnalysisSkill:
                         symbol=symbol,
                         action="SELL",
                         confidence=confidence,
-                        reason="Multi-platform extreme euphoria",
+                        reason=(
+                            f"Multi-platform extreme euphoria "
+                            f"(platforms={len(now_bullish)}, "
+                            f"threshold={self.bullish_threshold})"
+                        ),
                         platforms=now_bullish,
                     )
                 )
@@ -120,7 +124,11 @@ class SentimentAnalysisSkill:
                         symbol=symbol,
                         action="BUY",
                         confidence=confidence,
-                        reason="Pessimism resonance reversal",
+                        reason=(
+                            f"Pessimism resonance reversal "
+                            f"(delta={avg_delta:.3f}, "
+                            f"platforms={len(shared_bearish)})"
+                        ),
                         platforms=shared_bearish,
                     )
                 )

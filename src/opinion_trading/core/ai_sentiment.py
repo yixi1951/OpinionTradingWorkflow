@@ -10,7 +10,7 @@ from opinion_trading.core.openclaw_adapter import OpenClawClient
 
 logger = get_logger(__name__)
 
-SentimentSource = Literal["openclaw", "transformers", "keyword"]
+SentimentSource = Literal["openclaw", "transformers", "keyword", "hybrid"]
 
 
 @dataclass(frozen=True)
@@ -35,6 +35,22 @@ class SentimentResult:
 
 def clamp_score(value: float) -> float:
     return max(-1.0, min(1.0, float(value)))
+
+
+def fuse_scores(
+    primary: float,
+    secondary: float,
+    *,
+    primary_weight: float = 0.72,
+    secondary_weight: float = 0.28,
+) -> float:
+    """Dual-track fusion: LLM/transformers primary + keyword auxiliary."""
+    w1 = max(0.0, float(primary_weight))
+    w2 = max(0.0, float(secondary_weight))
+    total = w1 + w2
+    if total <= 0:
+        return clamp_score(primary)
+    return clamp_score((primary * w1 + secondary * w2) / total)
 
 
 def sentiment_intensity_label(score: float, lang: str = "zh") -> str:
@@ -64,12 +80,38 @@ def sentiment_intensity_label(score: float, lang: str = "zh") -> str:
 class AISentimentAnalyzer:
     """Pluggable AI sentiment analyzer for A-share social text.
 
-    Priority: OpenClaw (DeepSeek gateway) → local transformers → keyword heuristic.
+    Dual-track fusion (default hybrid):
+      1) OpenClaw / DeepSeek (or local transformers) as primary scorer
+      2) Keyword lexicon as auxiliary / fallback
+      blend = w_llm * llm + w_kw * keyword  when LLM succeeds;
+      otherwise pure keyword with source=keyword.
     """
 
-    def __init__(self, model_name: str | None = None):
+    def __init__(
+        self,
+        model_name: str | None = None,
+        *,
+        hybrid_llm_weight: float | None = None,
+        hybrid_keyword_weight: float | None = None,
+        enable_fusion: bool | None = None,
+    ):
         self.model_name = model_name
         self._pipeline = None
+        self.hybrid_llm_weight = float(
+            hybrid_llm_weight
+            if hybrid_llm_weight is not None
+            else os.environ.get("HYBRID_LLM_WEIGHT", "0.72")
+        )
+        self.hybrid_keyword_weight = float(
+            hybrid_keyword_weight
+            if hybrid_keyword_weight is not None
+            else os.environ.get("HYBRID_KEYWORD_WEIGHT", "0.28")
+        )
+        if enable_fusion is None:
+            mode = os.environ.get("SCORING_MODE", "hybrid").lower()
+            self.enable_fusion = mode in {"hybrid", "fuse", "fusion"}
+        else:
+            self.enable_fusion = bool(enable_fusion)
         try:
             self.openclaw: Optional[OpenClawClient] = OpenClawClient()
         except Exception:
@@ -152,16 +194,129 @@ class AISentimentAnalyzer:
         if not texts_list:
             return []
 
+        keyword_results = [self._keyword_result(t) for t in texts_list]
+
+        # Prefer multi-model inference gateway when available
+        gw = self._try_gateway(texts_list)
+        if gw is not None:
+            if self.enable_fusion:
+                return [
+                    self._blend(primary, kw) for primary, kw in zip(gw, keyword_results)
+                ]
+            return gw
+
         oc = self._try_openclaw(texts_list)
         if oc is not None:
+            if self.enable_fusion:
+                return [
+                    self._blend(primary, kw)
+                    for primary, kw in zip(oc, keyword_results)
+                ]
             return oc
 
         if self._pipeline:
             tf = self._try_transformers(texts_list)
             if tf is not None:
+                if self.enable_fusion:
+                    return [
+                        self._blend(primary, kw)
+                        for primary, kw in zip(tf, keyword_results)
+                    ]
                 return tf
 
-        return [self._keyword_result(t) for t in texts_list]
+        return keyword_results
+
+    def _try_gateway(
+        self, texts_list: Sequence[str]
+    ) -> Optional[List[SentimentResult]]:
+        """Call dedicated inference service / MultiModelGateway if configured."""
+        if str(os.environ.get("USE_LLM_GATEWAY", "1")).lower() in ("0", "false", "no"):
+            return None
+        try:
+            from opinion_trading.services.llm_gateway import MultiModelGateway
+
+            # Only use in-process gateway when API keys exist OR INFERENCE is remote
+            has_keys = bool(
+                os.environ.get("DEEPSEEK_API_KEY")
+                or os.environ.get("QWEN_API_KEY")
+                or os.environ.get("DASHSCOPE_API_KEY")
+            )
+            inference_url = os.environ.get("INFERENCE_URL", "").strip()
+            if inference_url and not has_keys:
+                # Remote inference microservice
+                import requests
+
+                resp = requests.post(
+                    inference_url.rstrip("/") + "/v1/score",
+                    json={"texts": list(texts_list), "scenario": "sentiment"},
+                    timeout=int(os.environ.get("OPENCLAW_TIMEOUT", "180")),
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                scores = data.get("scores")
+                if not isinstance(scores, list) or len(scores) != len(texts_list):
+                    return None
+                src = "openclaw" if data.get("provider") not in {
+                    "keyword_fallback",
+                    "cache",
+                } else "keyword"
+                if data.get("provider") == "cache":
+                    src = "openclaw"
+                out: List[SentimentResult] = []
+                for raw in scores:
+                    score = clamp_score(float(raw))
+                    out.append(
+                        SentimentResult(
+                            score=score,
+                            source=src if src != "keyword" else "keyword",
+                            confidence=min(0.99, 0.55 + abs(score) * 0.4),
+                        )
+                    )
+                return out
+            if not has_keys:
+                return None
+            result = MultiModelGateway().score(list(texts_list), scenario="sentiment")
+            scores = result.get("scores") or []
+            if len(scores) != len(texts_list):
+                return None
+            provider = str(result.get("provider", "openclaw"))
+            source: SentimentSource = (
+                "keyword" if provider == "keyword_fallback" else "openclaw"
+            )
+            if provider == "cache":
+                source = "openclaw"
+            return [
+                SentimentResult(
+                    score=clamp_score(float(s)),
+                    source=source,
+                    confidence=min(0.99, 0.55 + abs(float(s)) * 0.4),
+                )
+                for s in scores
+            ]
+        except Exception as exc:
+            logger.debug("LLM gateway path skipped: %s", exc)
+            return None
+
+    def _blend(
+        self, primary: SentimentResult, keyword: SentimentResult
+    ) -> SentimentResult:
+        score = fuse_scores(
+            primary.score,
+            keyword.score,
+            primary_weight=self.hybrid_llm_weight,
+            secondary_weight=self.hybrid_keyword_weight,
+        )
+        conf = min(
+            0.99,
+            0.55 * float(primary.confidence) + 0.35 * float(keyword.confidence),
+        )
+        return SentimentResult(
+            score=score,
+            source="hybrid",
+            confidence=conf,
+            pos_hits=keyword.pos_hits,
+            neg_hits=keyword.neg_hits,
+        )
 
     def _try_openclaw(self, texts_list: Sequence[str]) -> Optional[List[SentimentResult]]:
         try:

@@ -20,6 +20,18 @@ def client(monkeypatch):
     return TestClient(proxy.app)
 
 
+def test_health_and_ready_endpoints(client):
+    health = client.get("/health")
+    assert health.status_code == 200
+    body = health.json()
+    assert body["status"] == "ok"
+    assert "requests" in body
+
+    ready = client.get("/ready")
+    assert ready.status_code == 200
+    assert ready.json()["status"] == "ready"
+
+
 def test_sentiment_keyword_only_returns_scores(client):
     response = client.post(
         "/api/v1/sentiment",
@@ -31,6 +43,7 @@ def test_sentiment_keyword_only_returns_scores(client):
     assert len(body["scores"]) == 2
     assert all(isinstance(x, (int, float)) for x in body["scores"])
     assert body["scores"][0] > body["scores"][1]
+    assert body.get("source") == "keyword_fallback"
 
 
 def test_fallback_scores_bullish_vs_bearish():

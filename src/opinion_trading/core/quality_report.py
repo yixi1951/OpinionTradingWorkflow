@@ -10,7 +10,7 @@ class QualityReportBuilder:
     TITLE_THRESHOLD = 0.95
     TIME_THRESHOLD = 0.90
     CONTENT_THRESHOLD = 0.85
-    NOISE_THRESHOLD = 0.20
+    NOISE_THRESHOLD = 0.10
 
     def __init__(self, report_dir: str) -> None:
         self.report_dir = Path(report_dir)
@@ -44,6 +44,16 @@ class QualityReportBuilder:
         lines.append(f"- Time coverage >= {self.TIME_THRESHOLD:.2f}")
         lines.append(f"- Content coverage >= {self.CONTENT_THRESHOLD:.2f}")
         lines.append(f"- Noise rate <= {self.NOISE_THRESHOLD:.2f}")
+        lines.append("")
+
+        from opinion_trading.core.semantic_enrichment import semantic_quality_stats
+
+        sem = semantic_quality_stats(rows)
+        lines.append("## Semantic Enrichment")
+        lines.append(f"- Entity match rate: {sem['entity_match_rate']:.2%}")
+        lines.append(f"- High authority rate: {sem['high_authority_rate']:.2%}")
+        lines.append(f"- News share: {sem['news_share']:.2%}")
+        lines.append(f"- Comment share: {sem['comment_share']:.2%}")
         lines.append("")
         lines.append(f"- Raw CSV: {raw_csv_path.as_posix()}")
 

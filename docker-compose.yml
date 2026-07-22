@@ -1,0 +1,133 @@
+# OpinionTrading microservices stack
+# Usage: docker compose up -d --build
+# API: http://localhost:8000/v1/status
+# Dashboard: http://localhost:8501
+
+services:
+  inference:
+    build: .
+    command: python -m opinion_trading.services.inference_app
+    environment:
+      PYTHONPATH: /app/src
+      PORT: "8002"
+      STORAGE_BACKEND: file
+      LLM_CACHE_TTL_SECONDS: "86400"
+      OPENCLAW_PROXY_KEYWORD_ONLY: "1"
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      QWEN_API_KEY: ${QWEN_API_KEY:-}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health')"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+
+  collector:
+    build: .
+    command: python -m opinion_trading.services.collector_app
+    environment:
+      PYTHONPATH: /app/src
+      PORT: "8001"
+      INFERENCE_URL: http://inference:8002
+      OPENCLAW_URL: http://inference:8002
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+    depends_on:
+      inference:
+        condition: service_healthy
+
+  compute:
+    build: .
+    command: python -m opinion_trading.services.compute_app
+    environment:
+      PYTHONPATH: /app/src
+      PORT: "8003"
+      INFERENCE_URL: http://inference:8002
+      OPENCLAW_URL: http://inference:8002
+    ports:
+      - "8003:8003"
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+    depends_on:
+      - inference
+
+  api:
+    build: .
+    command: python -m opinion_trading.services.api_app
+    environment:
+      PYTHONPATH: /app/src
+      PORT: "8000"
+      COLLECTOR_URL: http://collector:8001
+      INFERENCE_URL: http://inference:8002
+      COMPUTE_URL: http://compute:8003
+    ports:
+      - "8000:8000"
+    depends_on:
+      - collector
+      - compute
+      - inference
+
+  scheduler:
+    build: .
+    command: python -m opinion_trading.services.scheduler
+    environment:
+      PYTHONPATH: /app/src
+      TZ: Asia/Shanghai
+      COLLECTOR_URL: http://collector:8001
+      COMPUTE_URL: http://compute:8003
+      PRICE_FILE: data/reports/price_history_template.csv
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+    depends_on:
+      - api
+
+  dashboard:
+    build: .
+    command: streamlit run src/opinion_trading/ui_dashboard.py --server.address=0.0.0.0 --server.port=8501
+    environment:
+      PYTHONPATH: /app/src
+      INFERENCE_URL: http://inference:8002
+      OPENCLAW_URL: http://inference:8002
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config:ro
+    depends_on:
+      - api
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - api
+      - inference
+      - collector
+      - compute
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/provisioning/dashboards/json:/etc/grafana/provisioning/dashboards/json:ro
+    depends_on:
+      - prometheus

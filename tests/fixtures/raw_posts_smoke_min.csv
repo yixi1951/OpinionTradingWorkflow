@@ -1,0 +1,9 @@
+trade_date,platform,symbol,title,summary,post_time,content,url,source_page,fetch_time,is_noise,capture_status,failure_reason,keyword_score,ai_score
+2026-06-17,guba,600519.SH,贵州茅台业绩讨论 smoke bullish a,test,2026-06-17 10:00:00,贵州茅台业绩向好看好，白酒龙头估值修复预期增强，机构维持增持评级。,https://example.com/a,https://example.com/list,2026-06-17T10:00:00,False,success,,0.35,0.35
+2026-06-17,guba,600519.SH,茅台渠道调研 smoke bullish b,test,2026-06-17 10:05:00,渠道反馈动销平稳，继续看好龙头配置价值，中长期逻辑未变。,https://example.com/a2,https://example.com/list,2026-06-17T10:05:00,False,success,,0.40,0.40
+2026-06-17,sina_finance,600519.SH,新浪财经茅台舆情 smoke,test,2026-06-17 10:10:00,市场情绪中性偏乐观，关注分红与业绩兑现节奏。,https://example.com/s1,https://example.com/list,2026-06-17T10:10:00,False,success,,0.15,0.15
+2026-06-17,eastmoney,000001.SZ,平安银行舆情 smoke bearish,test,2026-06-17 11:00:00,短期利空消息扰动，股价承压但基本面仍待观察。,https://example.com/b,https://example.com/list,2026-06-17T11:00:00,False,success,,-0.25,-0.25
+2026-06-17,xueqiu,601318.SH,中国平安板块观察 smoke,test,2026-06-17 11:30:00,保险板块估值低位，资金关注度一般，等待政策催化。,https://example.com/x,https://example.com/list,2026-06-17T11:30:00,False,success,,0.05,0.05
+2026-06-17,weibo,600036.SH,招商银行舆情 smoke,test,2026-06-17 12:00:00,银行板块舆情参考，零售业务转型讨论较多。,https://example.com/w,https://example.com/list,2026-06-17T12:00:00,False,success,,0.10,0.10
+2026-06-17,douyin,000858.SZ,五粮液消费讨论 smoke,test,2026-06-17 12:30:00,白酒消费场景恢复，五粮液批价与库存为市场焦点。,https://example.com/d,https://example.com/list,2026-06-17T12:30:00,False,success,,0.08,0.08
+2026-06-17,guba,000001.SZ,平安银行跟踪 smoke guba2,test,2026-06-17 13:00:00,平安银行资产质量与息差为投资者主要关切点。,https://example.com/g2,https://example.com/list,2026-06-17T13:00:00,False,success,,0.12,0.12

@@ -247,6 +247,41 @@ def infer_score_source(row: pd.Series) -> str:
     return "keyword"
 
 
+def compute_raw_capture_rates(raw_df: pd.DataFrame) -> Dict[str, float]:
+    """Fallback / noise rates from latest raw CSV (for dashboard KPI)."""
+    if raw_df.empty:
+        return {
+            "total_rows": 0.0,
+            "fallback_rate": 0.0,
+            "noise_rate": 0.0,
+            "success_rate": 0.0,
+        }
+    n = len(raw_df)
+    status = (
+        raw_df["capture_status"].astype(str).str.lower()
+        if "capture_status" in raw_df.columns
+        else pd.Series(["success"] * n)
+    )
+    fallback = int(status.isin(("fallback", "stub")).sum())
+    noise = 0
+    if "is_noise" in raw_df.columns:
+        noise = int(
+            raw_df["is_noise"]
+            .astype(str)
+            .str.lower()
+            .isin(("true", "1", "yes"))
+            .sum()
+        )
+    fb_rate = fallback / n if n else 0.0
+    noise_rate = noise / n if n else 0.0
+    return {
+        "total_rows": float(n),
+        "fallback_rate": round(fb_rate, 4),
+        "noise_rate": round(noise_rate, 4),
+        "success_rate": round(max(0.0, 1.0 - fb_rate), 4),
+    }
+
+
 def build_sentiment_engine_stats(raw_df: pd.DataFrame) -> Dict[str, object]:
     """Aggregate AI vs keyword coverage for dashboard KPIs."""
     if raw_df.empty:

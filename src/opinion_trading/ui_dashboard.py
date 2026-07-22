@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import glob
+import html
+import json
 import os
 from pathlib import Path
-from typing import Dict
+from typing import Dict, List
 
 import altair as alt
 import pandas as pd
 import streamlit as st
+
+from opinion_trading.core.env_bootstrap import load_dotenv_if_present
+
+load_dotenv_if_present(Path(__file__).resolve().parents[2])
 
 from opinion_trading.core.evaluation import (
     evaluate_signals,
@@ -31,6 +37,7 @@ from opinion_trading.ui_helpers import (
     build_pick_narrative,
     build_picks_detail_table,
     build_sentiment_engine_stats,
+    compute_raw_capture_rates,
     build_symbol_sentiment_summary,
     evidence_stats,
     infer_score_source,
@@ -40,6 +47,14 @@ from opinion_trading.ui_helpers import (
     platform_label,
     symbol_display,
     top_comment_rows,
+)
+from opinion_trading.core.user_workspace import UserWorkspace
+from opinion_trading.ui.mvp_pages import (
+    render_alerts_tab,
+    render_disclaimer_banner,
+    render_review_tab,
+    render_user_login_sidebar,
+    render_watchlist_tab,
 )
 
 
@@ -172,7 +187,9 @@ LANG = {
         "hero_kpi_alerts": "Score alerts",
         "hero_kpi_platforms": "Platforms",
         "hero_kpi_report": "Last report",
+        "hero_kpi_fallback": "Fallback rate",
         "hero_kpi_none": "—",
+        "wf_export_csv": "Download walk-forward folds (CSV)",
         "user_guide_title": "What you can do here",
         "user_guide_body": """
 1. **Realtime Picks** — OpenClaw aggregates multi-platform sentiment into Top 3 rankings and reason cards.  
@@ -263,6 +280,89 @@ Connect OpenClaw via `OPENCLAW_URL` (see `scripts/run_demo_openclaw.ps1`). Sideb
         "quote_negative": "Top bearish quote",
         "deploy_aliyun_title": "Alibaba Cloud realtime scoring",
         "deploy_aliyun_hint": "Set OPENCLAW_URL on the server to your sentiment proxy; run realtime via systemd or cron.",
+        "tab_analyst": "Analyst Scores",
+        "analyst_compare_title": "Multi-Agent Score Comparison",
+        "analyst_compare_body": "Compare scores from Sentiment, Technical, and Fundamental analysts per symbol. The consensus score fuses all three with configurable weights.",
+        "analyst_select_symbol": "Select symbol for analyst breakdown",
+        "analyst_no_data": "No multi-agent signal data available. Run the pipeline with `analysis.enabled: true` in settings.yaml first.",
+        "analyst_score_chart_title": "Analyst Score Breakdown per Symbol",
+        "analyst_consensus_title": "Consensus Signal Detail",
+        "analyst_col_analyst": "Analyst",
+        "analyst_col_score": "Score",
+        "analyst_col_confidence": "Confidence",
+        "analyst_col_reasoning": "Reasoning",
+        "analyst_kelly": "Kelly Fraction",
+        "analyst_direction": "Direction",
+        "analyst_n_analysts": "Analysts",
+        "analyst_n_agreeing": "Agreeing",
+        "analyst_backtest_hint": "Run `python main.py --mode backtest --multi-agent` to generate comparison data.",
+        "analyst_sentiment": "Sentiment",
+        "analyst_technical": "Technical",
+        "analyst_fundamental": "Fundamental",
+        "analyst_backtest_title": "Sentiment vs Multi-Agent: Backtest Comparison",
+        "analyst_backtest_load": "Load comparison data",
+        "analyst_backtest_no_data": "No comparison CSV found. Run `--mode backtest --multi-agent` first.",
+        "analyst_backtest_csv": "Comparison CSV path",
+        "analyst_backtest_default_path": "data/reports/backtest_comparison.csv",
+        "quality_gate_title": "Raw data quality gate",
+        "quality_gate_pass": "PASS — signals allowed",
+        "quality_gate_fail": "FAIL / blocked — confidence reduced",
+        "quality_gate_no_data": "No quality gate record. Run daily mode first.",
+        "quality_gate_multiplier": "Conf. multiplier",
+        "quality_gate_noise": "Noise rate",
+        "quality_gate_fallback": "Fallback rate",
+        "quality_gate_history_title": "Quality gate history",
+        "quality_gate_history_hint": "Dashed line = quality.max_fallback_rate ({threshold}).",
+        "quality_metric_fallback": "Fallback %",
+        "quality_metric_noise": "Noise %",
+        "quality_chart_date": "Trade date",
+        "signal_explanation_title": "Decision explanation",
+        "paper_price_hint": "Paper trades use market close (yfinance/akshare) when available.",
+        "walk_forward_title": "Walk-forward (out-of-sample)",
+        "walk_forward_run": "Run walk-forward in UI",
+        "walk_forward_load_report": "Load saved report",
+        "walk_forward_no_report": "No walk_forward_report.md — run below or `python main.py --mode walk_forward`.",
+        "walk_forward_avg_test_acc": "Avg test accuracy",
+        "walk_forward_avg_degradation": "Train→test accuracy gap",
+        "walk_forward_avg_deg": "Train→test acc gap",
+        "walk_forward_folds_table": "Walk-forward folds (out-of-sample)",
+        "wf_col_train": "Train window",
+        "wf_col_test": "Test window",
+        "wf_col_train_acc": "Train acc",
+        "wf_col_test_acc": "Test acc",
+        "wf_col_train_sharpe": "Train Sharpe",
+        "wf_col_test_sharpe": "Test Sharpe",
+        "wf_col_deg": "Acc gap",
+        "wf_col_test_n": "Test signals",
+        "walk_forward_recommendation": "Recommendation",
+        "paper_account_title": "Paper account",
+        "paper_equity_title": "Paper equity curve",
+        "paper_equity_hint": "From trade_history.jsonl; marks-to-market via latest close when available.",
+        "paper_cash": "Cash",
+        "paper_positions": "Positions",
+        "paper_total_value": "Total value",
+        "paper_last_trades": "Recent paper fills",
+        "paper_no_state": "No state.json — run daily mode first.",
+        "event_log_title": "Audit trail (signals vs fills)",
+        "event_log_empty": "No events yet — run daily after upgrade.",
+        "event_log_filter": "Filter by event type",
+        "event_log_all_types": "All types",
+        "export_zip": "Download reports bundle (ZIP)",
+        "export_zip_hint": "Includes recent picks, summaries, signals, paper state, event log.",
+        "collect_progress_title": "Latest parallel crawl log",
+        "collect_progress_file": "File",
+        "collect_progress_empty": "No progress lines yet.",
+        "auth_title": "Dashboard access",
+        "auth_prompt": "Enter access password",
+        "auth_wrong": "Incorrect password.",
+        "auth_env_hint": "Set STREAMLIT_DASHBOARD_PASSWORD to enable.",
+        "settings_preview_title": "Strategy settings (read-only)",
+        "settings_preview_hint": "From config/settings.yaml — edit file and restart pipeline to apply.",
+        "universe_edit_title": "Stock universe (write settings.yaml)",
+        "universe_edit_label": "One symbol per line (e.g. 600519.SH)",
+        "universe_save": "Save universe to settings.yaml",
+        "universe_saved": "Saved. Re-run daily/realtime to use new symbols.",
+        "explanation_lang_hint": "Pipeline explanations: set project.explanation_lang to en in settings.yaml",
     },
     "zh": {
         "page_title": "OpenClaw AI 选股",
@@ -391,7 +491,9 @@ Connect OpenClaw via `OPENCLAW_URL` (see `scripts/run_demo_openclaw.ps1`). Sideb
         "hero_kpi_alerts": "评分告警",
         "hero_kpi_platforms": "监测平台",
         "hero_kpi_report": "最新报告",
+        "hero_kpi_fallback": "采集 fallback 率",
         "hero_kpi_none": "—",
+        "wf_export_csv": "下载 walk-forward 折表 (CSV)",
         "user_guide_title": "你可以这样使用本页",
         "user_guide_body": """
 1. **实时选股** — OpenClaw 汇总多平台情感分，输出 Top 3 排名与选股原因卡。  
@@ -482,6 +584,89 @@ Connect OpenClaw via `OPENCLAW_URL` (see `scripts/run_demo_openclaw.ps1`). Sideb
         "quote_negative": "最强看空摘录",
         "deploy_aliyun_title": "阿里云实时打分",
         "deploy_aliyun_hint": "在服务器配置 OPENCLAW_URL 指向情感代理，并用 systemd/cron 跑 realtime 任务。",
+        "tab_analyst": "分析师评分",
+        "analyst_compare_title": "多 Agent 评分对比",
+        "analyst_compare_body": "对比情绪、技术、基本面三位分析师对每只股票的评分。共识分按配置权重融合三者得出。",
+        "analyst_select_symbol": "选择股票代码查看分析师评分明细",
+        "analyst_no_data": "暂无多 Agent 信号数据。请先在 settings.yaml 中启用 `analysis.enabled: true` 并运行 pipeline。",
+        "analyst_score_chart_title": "各股票分析师评分拆解",
+        "analyst_consensus_title": "共识信号详情",
+        "analyst_col_analyst": "分析师",
+        "analyst_col_score": "评分",
+        "analyst_col_confidence": "置信度",
+        "analyst_col_reasoning": "分析依据",
+        "analyst_kelly": "凯利仓位",
+        "analyst_direction": "方向",
+        "analyst_n_analysts": "分析师数",
+        "analyst_n_agreeing": "一致数",
+        "analyst_backtest_hint": "运行 `python main.py --mode backtest --multi-agent` 生成对比数据。",
+        "analyst_sentiment": "情绪",
+        "analyst_technical": "技术",
+        "analyst_fundamental": "基本面",
+        "analyst_backtest_title": "纯情绪 vs 多 Agent：回测对比",
+        "analyst_backtest_load": "加载对比数据",
+        "analyst_backtest_no_data": "未找到对比 CSV。请先运行 `--mode backtest --multi-agent`。",
+        "analyst_backtest_csv": "对比 CSV 路径",
+        "analyst_backtest_default_path": "data/reports/backtest_comparison.csv",
+        "quality_gate_title": "原始数据质量门控",
+        "quality_gate_pass": "通过 — 可发信号",
+        "quality_gate_fail": "未通过 / 已阻断 — 置信度已下调",
+        "quality_gate_no_data": "暂无质量门控记录，请先运行 daily 模式。",
+        "quality_gate_multiplier": "置信度系数",
+        "quality_gate_noise": "噪声率",
+        "quality_gate_fallback": "Fallback 率",
+        "quality_gate_history_title": "质量门控历史",
+        "quality_gate_history_hint": "虚线 = quality.max_fallback_rate（{threshold}）。",
+        "quality_metric_fallback": "Fallback %",
+        "quality_metric_noise": "噪声 %",
+        "quality_chart_date": "交易日",
+        "signal_explanation_title": "决策说明",
+        "paper_price_hint": "纸面成交优先使用当日收盘价（yfinance / akshare），缺失时回退合成价。",
+        "walk_forward_title": "Walk-forward 样本外评估",
+        "walk_forward_run": "在界面运行 walk-forward",
+        "walk_forward_load_report": "加载已保存报告",
+        "walk_forward_no_report": "尚无 walk_forward_report.md — 点击下方运行或执行 `python main.py --mode walk_forward`。",
+        "walk_forward_avg_test_acc": "平均测试准确率",
+        "walk_forward_avg_degradation": "训练→测试准确率落差",
+        "walk_forward_avg_deg": "训练→测试准确率落差",
+        "walk_forward_folds_table": "Walk-forward 各折明细",
+        "wf_col_train": "训练窗口",
+        "wf_col_test": "测试窗口",
+        "wf_col_train_acc": "训练准确率",
+        "wf_col_test_acc": "测试准确率",
+        "wf_col_train_sharpe": "训练 Sharpe",
+        "wf_col_test_sharpe": "测试 Sharpe",
+        "wf_col_deg": "准确率落差",
+        "wf_col_test_n": "测试信号数",
+        "walk_forward_recommendation": "结论建议",
+        "paper_account_title": "纸面账户",
+        "paper_equity_title": "纸面净值曲线",
+        "paper_equity_hint": "由 trade_history.jsonl 重建；持仓按最近收盘价市值（若可获取）。",
+        "paper_cash": "现金",
+        "paper_positions": "持仓",
+        "paper_total_value": "总市值",
+        "paper_last_trades": "最近纸面成交",
+        "paper_no_state": "尚无 state.json — 请先运行 daily 模式。",
+        "event_log_title": "审计流水（信号 vs 成交）",
+        "event_log_empty": "暂无事件 — 升级后运行 daily 会写入 event_log.jsonl。",
+        "event_log_filter": "按事件类型筛选",
+        "event_log_all_types": "全部类型",
+        "export_zip": "下载报告打包 (ZIP)",
+        "export_zip_hint": "含近期选股、日报、信号、纸面状态与审计流水。",
+        "collect_progress_title": "最近并行采集日志",
+        "collect_progress_file": "文件",
+        "collect_progress_empty": "暂无进度记录。",
+        "auth_title": "仪表盘访问",
+        "auth_prompt": "请输入访问密码",
+        "auth_wrong": "密码错误。",
+        "auth_env_hint": "设置环境变量 STREAMLIT_DASHBOARD_PASSWORD 后启用。",
+        "settings_preview_title": "策略配置（只读）",
+        "settings_preview_hint": "来自 config/settings.yaml — 修改后需重跑 daily/realtime。",
+        "universe_edit_title": "股票池（写入 settings.yaml）",
+        "universe_edit_label": "每行一个代码（如 600519.SH）",
+        "universe_save": "保存股票池到 settings.yaml",
+        "universe_saved": "已保存，请重跑 daily/realtime。",
+        "explanation_lang_hint": "流水线说明语言：在 settings.yaml 设置 project.explanation_lang: en",
     },
 }
 
@@ -1278,13 +1463,26 @@ def _inject_dashboard_styles(theme: str = "light") -> None:
             );
             opacity: 0.5;
         }}
-        .hero-kpi-grid--6 {{
-            grid-template-columns: repeat(3, minmax(100px, 1fr));
+        .hero-kpi-grid--6,
+        .hero-kpi-grid--7 {{
+            grid-template-columns: repeat(2, minmax(96px, 1fr));
         }}
-        @media (min-width: 900px) {{
+        @media (min-width: 720px) {{
+            .hero-kpi-grid--7 {{
+                grid-template-columns: repeat(4, minmax(88px, 1fr));
+            }}
+        }}
+        @media (min-width: 1100px) {{
             .hero-kpi-grid--6 {{
                 grid-template-columns: repeat(6, minmax(88px, 1fr));
             }}
+            .hero-kpi-grid--7 {{
+                grid-template-columns: repeat(7, minmax(80px, 1fr));
+            }}
+        }}
+        .hero-kpi-value--warn {{
+            color: var(--dash-negative) !important;
+            font-weight: 800;
         }}
         .hero-kpi-value.mono {{
             font-family: var(--font-mono);
@@ -2258,14 +2456,31 @@ def _render_dashboard_hero(
     report_dir: str,
     *,
     engine_stats: Dict[str, object] | None = None,
+    capture_rates: Dict[str, float] | None = None,
 ) -> None:
     _, report_time = _latest_report_meta(report_dir)
     report_display = report_time or t("hero_kpi_none")
     stats = engine_stats or {}
+    cap = capture_rates or {}
     ai_pct = stats.get("openclaw_pct", 0.0)
     bull = stats.get("bullish_pct", 0.0)
     bear = stats.get("bearish_pct", 0.0)
     bias_label = f"+{bull:.0f}% / -{bear:.0f}%"
+    fb_rate = float(cap.get("fallback_rate", 0.0) or 0.0)
+    fb_pct = fb_rate * 100.0
+    fb_display = f"{fb_pct:.1f}%" if cap.get("total_rows", 0) else "—"
+    fb_warn_thr = 0.35
+    try:
+        from opinion_trading.core.config_loader import load_runtime_config
+
+        q = load_runtime_config("config/settings.yaml").quality
+        if q:
+            fb_warn_thr = float(q.max_fallback_rate)
+    except Exception:
+        pass
+    fb_value_cls = "hero-kpi-value mono hero-kpi-value--warn" if (
+        cap.get("total_rows", 0) and fb_rate > fb_warn_thr
+    ) else "hero-kpi-value mono"
     st.markdown(
         f"""
         <div class="dashboard-hero dashboard-hero--terminal">
@@ -2276,7 +2491,7 @@ def _render_dashboard_hero(
                     <div class="dashboard-title">{t('header_title')}</div>
                     <div class="dashboard-subtitle">{t('hero_tagline')}</div>
                 </div>
-                <div class="hero-kpi-grid hero-kpi-grid--6">
+                <div class="hero-kpi-grid hero-kpi-grid--7">
                     <div class="hero-kpi">
                         <div class="hero-kpi-label">{t('hero_kpi_picks')}</div>
                         <div class="hero-kpi-value mono">{picks_count}</div>
@@ -2288,6 +2503,10 @@ def _render_dashboard_hero(
                     <div class="hero-kpi">
                         <div class="hero-kpi-label">{t('hero_kpi_platforms')}</div>
                         <div class="hero-kpi-value mono">{platform_count}</div>
+                    </div>
+                    <div class="hero-kpi">
+                        <div class="hero-kpi-label">{t('hero_kpi_fallback')}</div>
+                        <div class="{fb_value_cls}">{fb_display}</div>
                     </div>
                     <div class="hero-kpi">
                         <div class="hero-kpi-label">{t('hero_kpi_ai_coverage')}</div>
@@ -2309,12 +2528,27 @@ def _render_dashboard_hero(
     )
 
 
-def _render_sentiment_engine_strip(engine_stats: Dict[str, object]) -> None:
+def _render_sentiment_engine_strip(
+    engine_stats: Dict[str, object],
+    *,
+    capture_rates: Dict[str, float] | None = None,
+) -> None:
     usable = int(engine_stats.get("usable_rows", 0) or 0)
     oc = int(engine_stats.get("openclaw_rows", 0) or 0)
     kw = int(engine_stats.get("keyword_rows", 0) or 0)
     avg = float(engine_stats.get("avg_ai_score", 0.0) or 0.0)
     tone = sentiment_intensity_label(avg, _ui_lang())
+    cap = capture_rates or {}
+    fb = float(cap.get("fallback_rate", 0.0) or 0.0) * 100.0
+    noise = float(cap.get("noise_rate", 0.0) or 0.0) * 100.0
+    quality_extra = ""
+    if cap.get("total_rows", 0):
+        quality_extra = (
+            f"<span class='engine-metric'><span class='engine-metric-label'>"
+            f"fallback</span>{fb:.1f}%</span>"
+            f"<span class='engine-metric'><span class='engine-metric-label'>"
+            f"noise</span>{noise:.1f}%</span>"
+        )
     st.markdown(
         f"""
         <div class="panel-card panel-card--accent sentiment-engine-strip">
@@ -2327,6 +2561,7 @@ def _render_sentiment_engine_strip(engine_stats: Dict[str, object]) -> None:
                 <span class="engine-metric"><span class="engine-metric-label">KW</span>{kw}</span>
                 <span class="engine-metric"><span class="engine-metric-label">μ</span>{avg:+.3f}</span>
                 <span class="engine-metric"><span class="engine-metric-label">tone</span>{tone}</span>
+                {quality_extra}
             </div>
         </div>
         """,
@@ -2680,6 +2915,676 @@ def _render_reason_cards(
         st.markdown("<div style='height:0.75rem'></div>", unsafe_allow_html=True)
 
 
+def _render_analyst_tab(memory_dir: str, report_dir: str) -> None:
+    """Render the multi-agent analyst score comparison tab."""
+    _render_quality_gate_panel(_load_latest_quality_gate(memory_dir))
+    st.caption(t("paper_price_hint"))
+    _render_info_box(t("analyst_compare_title"), t("analyst_compare_body"))
+    st.caption(t("analyst_backtest_hint"))
+
+    # ── Load signal history and extract multi-agent data ──
+    signal_path = Path(memory_dir) / "signal_history.jsonl"
+    multi_agent_rows: List[Dict] = []
+    all_signals: List[Dict] = []
+
+    if signal_path.exists():
+        for line in signal_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+                all_signals.append(row)
+                # Check for multi-agent fields
+                scores = row.get("analyst_scores")
+                has_scores = bool(scores) and (
+                    isinstance(scores, dict) or (isinstance(scores, str) and scores.strip())
+                )
+                if has_scores or row.get("consensus_score") is not None:
+                    multi_agent_rows.append(row)
+            except json.JSONDecodeError:
+                continue
+
+    has_multi_agent = len(multi_agent_rows) > 0
+
+    # ── Section 1: Per-symbol analyst breakdown ──
+    st.markdown(f"#### {t('analyst_score_chart_title')}")
+    if has_multi_agent:
+        symbols = sorted(set(r.get("symbol", "") for r in multi_agent_rows if r.get("symbol")))
+        selected = st.selectbox(t("analyst_select_symbol"), symbols, key="analyst_symbol")
+
+        # Filter for selected symbol
+        symbol_rows = [r for r in multi_agent_rows if r.get("symbol") == selected]
+        if symbol_rows:
+            latest = symbol_rows[-1]  # most recent
+            _render_analyst_detail_card(latest, selected)
+
+            # Bar chart: analyst scores over time
+            _render_analyst_timeline(symbol_rows, selected)
+    else:
+        # Fallback: try to build a live view from any consensus data in recent signals
+        consensus_inferred = _try_infer_consensus(all_signals, memory_dir)
+        if consensus_inferred:
+            symbols = sorted(set(r.get("symbol", "") for r in consensus_inferred if r.get("symbol")))
+            selected = st.selectbox(t("analyst_select_symbol"), symbols, key="analyst_symbol_infer")
+            latest_rows = [r for r in consensus_inferred if r.get("symbol") == selected]
+            if latest_rows:
+                _render_analyst_detail_card(latest_rows[-1], selected)
+                _render_analyst_timeline(latest_rows, selected)
+        else:
+            st.info(t("analyst_no_data"))
+
+    # ── Section 2: Backtest comparison ──
+    st.markdown("---")
+    st.markdown(f"#### {t('analyst_backtest_title')}")
+    cmp_path = st.text_input(
+        t("analyst_backtest_csv"),
+        value=t("analyst_backtest_default_path"),
+        key="analyst_cmp_path",
+    )
+    if st.button(t("analyst_backtest_load"), key="analyst_load_cmp"):
+        _render_backtest_comparison(cmp_path)
+
+
+def _render_analyst_detail_card(latest_row: Dict, symbol: str) -> None:
+    """Render a detail card for the latest consensus signal."""
+    analyst_scores_raw = latest_row.get("analyst_scores") or "{}"
+    analyst_confidences_raw = latest_row.get("analyst_confidences") or "{}"
+
+    try:
+        analyst_scores = json.loads(analyst_scores_raw) if isinstance(analyst_scores_raw, str) else analyst_scores_raw
+    except (json.JSONDecodeError, TypeError):
+        analyst_scores = {}
+    try:
+        analyst_confidences = json.loads(analyst_confidences_raw) if isinstance(analyst_confidences_raw, str) else analyst_confidences_raw
+    except (json.JSONDecodeError, TypeError):
+        analyst_confidences = {}
+
+    consensus_score = float(latest_row.get("consensus_score", latest_row.get("score", 0.0)))
+    confidence = float(latest_row.get("confidence", 0.0))
+    direction = str(latest_row.get("consensus_direction", latest_row.get("action", "NEUTRAL")))
+    kelly = float(latest_row.get("kelly_fraction", 0.0))
+    n_analysts = int(latest_row.get("n_analysts", 0))
+    n_agreeing = int(latest_row.get("n_agreeing", 0))
+
+    score_class = "pos" if consensus_score > 0.05 else "neg" if consensus_score < -0.05 else "neu"
+
+    st.markdown(
+        f"""
+        <div class="panel-card">
+            <div class="section-kicker">{t('analyst_consensus_title')}</div>
+            <div class="symbol-sentiment-head">
+                <div class="symbol-sentiment-title">{_symbol_label(symbol)}</div>
+                <div class="pick-score {score_class} mono">{consensus_score:+.4f}</div>
+            </div>
+            <div class="symbol-sentiment-meta">
+                <span class="trend-pill {score_class}">{direction}</span>
+                <span class="engine-metric">
+                    <span class="engine-metric-label">{t('analyst_col_confidence')}</span>
+                    {confidence:.2%}
+                </span>
+                <span class="engine-metric">
+                    <span class="engine-metric-label">{t('analyst_kelly')}</span>
+                    {kelly:.2%}
+                </span>
+                <span class="engine-metric">
+                    <span class="engine-metric-label">{t('analyst_n_analysts')}</span>
+                    {n_analysts}
+                </span>
+                <span class="engine-metric">
+                    <span class="engine-metric-label">{t('analyst_n_agreeing')}</span>
+                    {n_agreeing}
+                </span>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # Analyst breakdown table
+    analyst_map = {
+        "sentiment": t("analyst_sentiment"),
+        "technical": t("analyst_technical"),
+        "fundamental": t("analyst_fundamental"),
+    }
+    breakdown_rows = []
+    for aname, alabel in analyst_map.items():
+        ascore = analyst_scores.get(aname)
+        aconf = analyst_confidences.get(aname)
+        if ascore is not None:
+            breakdown_rows.append({
+                t("analyst_col_analyst"): alabel,
+                t("analyst_col_score"): f"{float(ascore):+.4f}",
+                t("analyst_col_confidence"): f"{float(aconf or 0):.2%}",
+            })
+
+    if breakdown_rows:
+        st.dataframe(pd.DataFrame(breakdown_rows), use_container_width=True, hide_index=True)
+
+        # Mini bar chart for analyst scores
+        chart_data = pd.DataFrame(breakdown_rows)
+        chart_data["score_val"] = pd.to_numeric(
+            chart_data[t("analyst_col_score")].str.replace("+", ""), errors="coerce"
+        ).fillna(0.0)
+        bar = (
+            alt.Chart(chart_data)
+            .mark_bar(cornerRadiusEnd=12)
+            .encode(
+                x=alt.X("score_val:Q", title=t("analyst_col_score")),
+                y=alt.Y(t("analyst_col_analyst") + ":N", sort="-x", title=None),
+                color=alt.Color(
+                    "score_val:Q",
+                    scale=alt.Scale(scheme="tealblues"),
+                    title=t("analyst_col_score"),
+                ),
+                tooltip=[t("analyst_col_analyst"), t("analyst_col_score"), t("analyst_col_confidence")],
+            )
+            .properties(height=140)
+        )
+        st.altair_chart(_configure_chart(bar), use_container_width=True)
+
+    explanation = (
+        str(latest_row.get("explanation") or "").strip()
+        or str(latest_row.get("reason") or "").strip()
+    )
+    if explanation:
+        from opinion_trading.core.explainability import translate_signal_explanation_for_ui
+
+        lang = st.session_state.get("lang", "zh")
+        explanation = translate_signal_explanation_for_ui(
+            explanation, lang, row=latest_row
+        )
+        st.markdown(f"**{t('signal_explanation_title')}**")
+        st.markdown(
+            f"<div class='guide-card' style='white-space:pre-wrap;'>{html.escape(explanation)}</div>",
+            unsafe_allow_html=True,
+        )
+
+
+def _render_analyst_timeline(rows: List[Dict], symbol: str) -> None:
+    """Render a timeline of analyst scores over time."""
+    if len(rows) < 2:
+        return
+
+    records = []
+    for r in rows:
+        td = r.get("trade_date", "")
+        try:
+            analyst_scores_raw = r.get("analyst_scores") or "{}"
+            if isinstance(analyst_scores_raw, str):
+                scores = json.loads(analyst_scores_raw)
+            else:
+                scores = analyst_scores_raw
+        except (json.JSONDecodeError, TypeError):
+            scores = {}
+        cs = float(r.get("consensus_score", r.get("score", 0.0)))
+        records.append({
+            "trade_date": str(td)[:10] if td else "",
+            "sentiment": float(scores.get("sentiment", 0)),
+            "technical": float(scores.get("technical", 0)),
+            "fundamental": float(scores.get("fundamental", 0)),
+            "consensus": cs,
+        })
+
+    if not records:
+        return
+
+    df = pd.DataFrame(records)
+    df = df.dropna(subset=["trade_date"])
+    df["trade_date"] = pd.to_datetime(df["trade_date"], errors="coerce")
+    df = df.sort_values("trade_date")
+
+    melted = df.melt(
+        id_vars=["trade_date"],
+        value_vars=["sentiment", "technical", "fundamental", "consensus"],
+        var_name="analyst",
+        value_name="score",
+    )
+    analyst_labels = {
+        "sentiment": t("analyst_sentiment"),
+        "technical": t("analyst_technical"),
+        "fundamental": t("analyst_fundamental"),
+        "consensus": "Consensus",
+    }
+    melted["analyst_label"] = melted["analyst"].map(analyst_labels).fillna(melted["analyst"])
+
+    line = (
+        alt.Chart(melted)
+        .mark_line(point=True, strokeWidth=2)
+        .encode(
+            x=alt.X("trade_date:T", title=t("month")),
+            y=alt.Y("score:Q", title=t("analyst_col_score")),
+            color=alt.Color(
+                "analyst_label:N",
+                scale=alt.Scale(range=_DASH_COLORS),
+                title=t("analyst_col_analyst"),
+            ),
+            tooltip=["trade_date", "analyst_label", "score"],
+        )
+        .properties(title=f"{symbol} — {t('analyst_score_chart_title')}", height=260)
+    )
+    st.altair_chart(_configure_chart(line), use_container_width=True)
+
+
+def _try_infer_consensus(all_signals: List[Dict], memory_dir: str) -> List[Dict]:
+    """Try to build multi-agent-like entries from enriched signal history."""
+    # Check if we have consensus-like fields in signal data
+    enriched = []
+    for row in all_signals:
+        has_extra = any(k in row for k in ("consensus_score", "analyst_scores", "kelly_fraction"))
+        if has_extra:
+            enriched.append(row)
+    return enriched
+
+
+def _render_backtest_comparison(cmp_path: str) -> None:
+    """Load and display the backtest comparison CSV."""
+    path = Path(cmp_path)
+    if not path.exists():
+        st.warning(t("analyst_backtest_no_data"))
+        return
+
+    try:
+        df = pd.read_csv(path)
+        st.dataframe(df, use_container_width=True, hide_index=True)
+
+        # Highlight the better value in each metric
+        for _, row in df.iterrows():
+            metric = str(row.get("Metric", ""))
+            sent_val = str(row.get("Sentiment Only", "0%"))
+            ma_val = str(row.get("Multi-Agent", "0%"))
+            st.markdown(
+                f"- **{metric}**: Sentiment {sent_val} | Multi-Agent {ma_val}"
+            )
+    except Exception as e:
+        st.error(f"Failed to load comparison: {e}")
+
+
+def _load_latest_quality_gate(memory_dir: str) -> Dict:
+    path = Path(memory_dir) / "quality_gate_history.jsonl"
+    if not path.exists():
+        return {}
+    for line in reversed(path.read_text(encoding="utf-8").splitlines()):
+        if not line.strip():
+            continue
+        try:
+            return json.loads(line)
+        except json.JSONDecodeError:
+            continue
+    return {}
+
+
+def _render_quality_gate_panel(gate: Dict) -> None:
+    if not gate:
+        st.caption(t("quality_gate_no_data"))
+        return
+    passed = bool(gate.get("overall_pass", True))
+    mult = float(gate.get("sentiment_confidence_multiplier", 1.0) or 1.0)
+    blocked = bool(gate.get("block_new_signals", False))
+    noise = float(gate.get("noise_rate", 0.0) or 0.0)
+    fb = float(gate.get("fallback_rate", 0.0) or 0.0)
+    pill_cls = "openclaw-on" if passed and not blocked else "openclaw-off"
+    status = t("quality_gate_pass") if passed and not blocked else t("quality_gate_fail")
+    st.markdown(
+        f"""
+        <div class="panel-card panel-card--compact">
+            <div class="section-kicker">{t('quality_gate_title')}</div>
+            <span class="status-pill {pill_cls} status-pill--dashboard">
+                <span class="status-dot" aria-hidden="true"></span>
+                <span>{status}</span>
+            </span>
+            <div class="symbol-sentiment-meta" style="margin-top:0.65rem;">
+                <span class="engine-metric">
+                    <span class="engine-metric-label">{t('quality_gate_multiplier')}</span>
+                    {mult:.2f}
+                </span>
+                <span class="engine-metric">
+                    <span class="engine-metric-label">{t('quality_gate_noise')}</span>
+                    {noise:.1%}
+                </span>
+                <span class="engine-metric">
+                    <span class="engine-metric-label">{t('quality_gate_fallback')}</span>
+                    {fb:.1%}
+                </span>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    msgs = gate.get("messages") or []
+    if msgs:
+        for m in msgs[:6]:
+            st.caption(str(m))
+
+
+def _load_paper_state(memory_dir: str) -> Dict:
+    path = Path(memory_dir) / "state.json"
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _load_recent_trades(memory_dir: str, limit: int = 8) -> pd.DataFrame:
+    path = Path(memory_dir) / "trade_history.jsonl"
+    if not path.exists():
+        return pd.DataFrame()
+    rows: List[Dict] = []
+    for line in path.read_text(encoding="utf-8").splitlines()[-limit * 3 :]:
+        if not line.strip():
+            continue
+        try:
+            rows.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return pd.DataFrame(rows[-limit:] if rows else [])
+
+
+def _render_paper_account_panel(
+    memory_dir: str,
+    today_aggregated: Dict | None = None,
+) -> None:
+    state = _load_paper_state(memory_dir)
+    if not state:
+        st.info(t("paper_no_state"))
+        return
+    cash = float(state.get("cash", 0))
+    positions = state.get("positions") or {}
+    open_pos = {k: int(v) for k, v in positions.items() if int(v) > 0}
+    total_val: float | None = None
+    try:
+        from opinion_trading.skills.trade_simulation import PaperTradingSkill
+
+        skill = PaperTradingSkill(100_000.0, 0.2, use_market_prices=True)
+        total_val = skill.portfolio_value(today_aggregated or {}, state)
+    except Exception:
+        total_val = None
+    st.markdown(f"#### {t('paper_account_title')}")
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.metric(t("paper_cash"), f"{cash:,.2f}")
+    with c2:
+        st.metric(t("paper_positions"), len(open_pos))
+    with c3:
+        tv = f"{total_val:,.2f}" if total_val is not None else "—"
+        st.metric(t("paper_total_value"), tv)
+    st.caption(t("paper_price_hint"))
+    if open_pos:
+        st.markdown(f"**{t('paper_positions')}**")
+        st.json(open_pos)
+    trades_df = _load_recent_trades(memory_dir)
+    if not trades_df.empty:
+        st.markdown(f"**{t('paper_last_trades')}**")
+        st.dataframe(trades_df, use_container_width=True, hide_index=True)
+    _render_paper_equity_chart(memory_dir)
+
+
+def _render_paper_equity_chart(memory_dir: str) -> None:
+    from opinion_trading.core.paper_equity import build_paper_equity_curve
+
+    eq = build_paper_equity_curve(memory_dir)
+    if eq.empty:
+        return
+    st.markdown(f"#### {t('paper_equity_title')}")
+    st.caption(t("paper_equity_hint"))
+    chart = (
+        alt.Chart(eq)
+        .mark_line(color="#0D9488", point=True)
+        .encode(
+            x=alt.X("trade_date:T", title=""),
+            y=alt.Y("total_value:Q", title=""),
+            tooltip=[
+                alt.Tooltip("trade_date:T"),
+                alt.Tooltip("total_value:Q", format=",.2f"),
+                alt.Tooltip("cash:Q", format=",.2f"),
+                alt.Tooltip("drawdown_pct:Q", format=".2%"),
+            ],
+        )
+        .properties(height=220)
+    )
+    st.altair_chart(_configure_chart(chart), use_container_width=True)
+
+
+def _render_quality_gate_history_chart(memory_dir: str) -> None:
+    from opinion_trading.core.quality_gate_history import load_quality_gate_history
+
+    rows = load_quality_gate_history(memory_dir, limit=40)
+    if not rows:
+        return
+    st.markdown(f"#### {t('quality_gate_history_title')}")
+    df = pd.DataFrame(rows)
+    if "trade_date" not in df.columns:
+        return
+    df["trade_date"] = pd.to_datetime(df["trade_date"], errors="coerce")
+    df = df.dropna(subset=["trade_date"]).sort_values("trade_date")
+    if df.empty:
+        return
+    try:
+        from opinion_trading.core.config_loader import load_runtime_config
+
+        thr = 0.35
+        q = load_runtime_config("config/settings.yaml").quality
+        if q:
+            thr = float(q.max_fallback_rate)
+    except Exception:
+        thr = 0.35
+    df["fallback_pct"] = pd.to_numeric(df["fallback_rate"], errors="coerce").fillna(0) * 100
+    df["noise_pct"] = pd.to_numeric(df["noise_rate"], errors="coerce").fillna(0) * 100
+    long = df.melt(
+        id_vars=["trade_date"],
+        value_vars=["fallback_pct", "noise_pct"],
+        var_name="metric",
+        value_name="pct",
+    )
+    long["metric"] = long["metric"].map(
+        {
+            "fallback_pct": t("quality_metric_fallback"),
+            "noise_pct": t("quality_metric_noise"),
+        }
+    )
+    chart = (
+        alt.Chart(long)
+        .mark_line(point=True)
+        .encode(
+            x=alt.X("trade_date:T", title=t("quality_chart_date")),
+            y=alt.Y("pct:Q", title="%"),
+            color=alt.Color("metric:N", title=None),
+            tooltip=["trade_date:T", "metric:N", alt.Tooltip("pct:Q", format=".1f")],
+        )
+        .properties(height=200)
+    )
+    rule = (
+        alt.Chart(pd.DataFrame({"y": [thr * 100]}))
+        .mark_rule(color="#B91C1C", strokeDash=[4, 4])
+        .encode(y="y:Q")
+    )
+    st.altair_chart(_configure_chart(chart + rule), use_container_width=True)
+    st.caption(t("quality_gate_history_hint").format(threshold=f"{thr:.0%}"))
+
+
+def _render_walk_forward_folds_table(report_dir: str) -> None:
+    from opinion_trading.core.walk_forward_cache import load_walk_forward_json
+
+    data = load_walk_forward_json(report_dir)
+    if not data or not data.get("folds"):
+        return
+    st.markdown(f"**{t('walk_forward_folds_table')}**")
+    rows = []
+    for f in data["folds"]:
+        rows.append(
+            {
+                t("wf_col_train"): f"{f['train_start']} ~ {f['train_end']}",
+                t("wf_col_test"): f"{f['test_start']} ~ {f['test_end']}",
+                t("wf_col_train_acc"): f"{float(f['train_accuracy']):.2%}",
+                t("wf_col_test_acc"): f"{float(f['test_accuracy']):.2%}",
+                t("wf_col_train_sharpe"): f"{float(f['train_sharpe']):.4f}",
+                t("wf_col_test_sharpe"): f"{float(f['test_sharpe']):.4f}",
+                t("wf_col_deg"): f"{float(f['degradation_accuracy']):+.2%}",
+                t("wf_col_test_n"): int(f.get("test_signals", 0)),
+            }
+        )
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    st.caption(
+        f"{t('walk_forward_avg_test_acc')}: {float(data.get('avg_test_accuracy', 0)):.2%} | "
+        f"{t('walk_forward_avg_deg')}: {float(data.get('avg_degradation_accuracy', 0)):+.2%}"
+    )
+    from opinion_trading.core.walk_forward_cache import export_walk_forward_folds_csv
+
+    csv_bytes = export_walk_forward_folds_csv(report_dir)
+    if len(csv_bytes) > 80:
+        st.download_button(
+            t("wf_export_csv"),
+            data=csv_bytes,
+            file_name="walk_forward_folds.csv",
+            mime="text/csv",
+            key="wf_export_csv_btn",
+        )
+
+
+def _render_walk_forward_panel(
+    memory_dir: str,
+    report_dir: str,
+    price_df: pd.DataFrame | None,
+    *,
+    auto_run: bool = True,
+) -> None:
+    st.markdown(f"#### {t('walk_forward_title')}")
+    report_path = Path(report_dir) / "walk_forward_report.md"
+    signal_path = str(Path(memory_dir) / "signal_history.jsonl")
+    can_run = (
+        price_df is not None
+        and not price_df.empty
+        and Path(signal_path).exists()
+    )
+    cache_key = f"wf_auto_{report_dir}_{memory_dir}"
+    if auto_run and can_run and not st.session_state.get(cache_key):
+        from opinion_trading.core.walk_forward import (
+            run_walk_forward,
+            save_walk_forward_report,
+        )
+
+        try:
+            report = run_walk_forward(signal_path, price_df, n_folds=3)
+            save_walk_forward_report(report_dir, report)
+            st.session_state[cache_key] = True
+            st.session_state["wf_last_recommendation"] = report.recommendation
+        except Exception as exc:
+            st.caption(f"walk-forward auto: {exc}")
+
+    rec = st.session_state.get("wf_last_recommendation")
+    if not rec and report_path.exists():
+        from opinion_trading.core.walk_forward_cache import load_walk_forward_json
+
+        cached = load_walk_forward_json(report_dir)
+        if cached:
+            rec = cached.get("recommendation")
+
+    _render_walk_forward_folds_table(report_dir)
+
+    if rec:
+        st.info(rec)
+    elif report_path.exists():
+        st.markdown(report_path.read_text(encoding="utf-8")[:2500])
+    else:
+        st.caption(t("walk_forward_no_report"))
+    if not can_run:
+        if price_df is None or price_df.empty:
+            st.caption(t("upload_required"))
+        return
+    if st.button(t("walk_forward_run"), key="wf_run_ui"):
+        from opinion_trading.core.walk_forward import (
+            run_walk_forward,
+            save_walk_forward_report,
+        )
+
+        report = run_walk_forward(signal_path, price_df, n_folds=3)
+        save_walk_forward_report(report_dir, report)
+        st.session_state["wf_last_recommendation"] = report.recommendation
+        st.session_state[cache_key] = True
+        st.success(t("walk_forward_load_report"))
+        st.rerun()
+
+
+def _require_dashboard_auth() -> None:
+    expected = os.environ.get("STREAMLIT_DASHBOARD_PASSWORD", "").strip()
+    if not expected:
+        return
+    if st.session_state.get("dashboard_authenticated"):
+        return
+    st.markdown(f"### {t('auth_title')}")
+    st.caption(t("auth_env_hint"))
+    pwd = st.text_input(t("auth_prompt"), type="password", key="dashboard_pwd")
+    if st.button("OK", key="dashboard_auth_btn"):
+        if pwd == expected:
+            st.session_state["dashboard_authenticated"] = True
+            st.rerun()
+        else:
+            st.error(t("auth_wrong"))
+    st.stop()
+
+
+def _render_collect_progress_expander(report_dir: str) -> None:
+    rep = Path(report_dir)
+    if not rep.is_dir():
+        return
+    logs = sorted(rep.glob("collect_progress_*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not logs:
+        return
+    latest = logs[0]
+    with st.expander(t("collect_progress_title"), expanded=False):
+        st.caption(f"{t('collect_progress_file')}: `{latest.name}`")
+        lines = latest.read_text(encoding="utf-8").strip().splitlines()
+        tail = lines[-12:] if len(lines) > 12 else lines
+        rows = []
+        for ln in tail:
+            try:
+                rows.append(json.loads(ln))
+            except json.JSONDecodeError:
+                continue
+        if rows:
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        else:
+            st.caption(t("collect_progress_empty"))
+
+
+def _render_export_zip_button(report_dir: str, memory_dir: str, raw_dir: str) -> None:
+    from opinion_trading.core.export_bundle import build_dashboard_export_zip
+
+    try:
+        payload = build_dashboard_export_zip(report_dir, memory_dir, raw_dir)
+    except Exception as exc:
+        st.caption(f"ZIP: {exc}")
+        return
+    st.download_button(
+        label=t("export_zip"),
+        data=payload,
+        file_name="openclaw_export.zip",
+        mime="application/zip",
+        use_container_width=True,
+        help=t("export_zip_hint"),
+    )
+
+
+def _render_event_log_panel(memory_dir: str) -> None:
+    from opinion_trading.core.event_log import load_recent_events
+
+    with st.expander(t("event_log_title"), expanded=False):
+        events = load_recent_events(memory_dir, limit=80)
+        if not events:
+            st.caption(t("event_log_empty"))
+            return
+        types = sorted({str(e.get("event_type", "")) for e in events if e.get("event_type")})
+        choice = st.selectbox(
+            t("event_log_filter"),
+            [t("event_log_all_types")] + types,
+            key="event_log_type_filter",
+        )
+        if choice != t("event_log_all_types"):
+            events = [e for e in events if e.get("event_type") == choice]
+        st.dataframe(pd.DataFrame(events), use_container_width=True, hide_index=True)
+
+
 def main() -> None:
     _bootstrap_openclaw_env()
     st.set_page_config(
@@ -2692,6 +3597,10 @@ def main() -> None:
     if "ui_theme" not in st.session_state:
         st.session_state["ui_theme"] = "light"
     _inject_dashboard_styles(st.session_state.get("ui_theme", "light"))
+    _require_dashboard_auth()
+    render_disclaimer_banner()
+    _mvp_ws = UserWorkspace()
+    mvp_user = render_user_login_sidebar(_mvp_ws)
 
     with st.sidebar:
         st.markdown(
@@ -2729,8 +3638,16 @@ def main() -> None:
             key="_lang_display",
             format_func=lambda x: x[1],
         )
-        if isinstance(sel, tuple):
+        if isinstance(sel, tuple) and sel[0] != cur:
             st.session_state["lang"] = sel[0]
+            try:
+                from opinion_trading.core.settings_patch import update_explanation_lang
+
+                cfg_path = str(Path("config/settings.yaml").resolve())
+                if Path(cfg_path).is_file():
+                    update_explanation_lang(cfg_path, sel[0])
+            except Exception:
+                pass
 
         theme_opts = [
             ("light", t("ui_theme_light")),
@@ -2758,6 +3675,68 @@ def main() -> None:
         raw_dir = st.text_input(t("raw_dir"), "data/raw")
         memory_dir = st.text_input(t("memory_dir"), "data/memory")
         st.markdown("</div>", unsafe_allow_html=True)
+        _render_export_zip_button(report_dir, memory_dir, raw_dir)
+        _render_collect_progress_expander(report_dir)
+
+        with st.expander(t("settings_preview_title"), expanded=False):
+            try:
+                from opinion_trading.core.config_loader import load_runtime_config
+
+                cfg = load_runtime_config("config/settings.yaml")
+                rec = cfg.sentiment_recency
+                st.caption(t("settings_preview_hint"))
+                st.json(
+                    {
+                        "universe_symbols": cfg.symbols[:12],
+                        "analysis_enabled": bool(
+                            cfg.analysis and cfg.analysis.enabled
+                        ),
+                        "sentiment_recency": {
+                            "enabled": bool(rec and rec.enabled),
+                            "half_life_hours": rec.half_life_hours if rec else 24,
+                        },
+                        "risk": {
+                            "max_single_symbol_notional_pct": (
+                                cfg.risk.max_single_symbol_notional_pct
+                                if cfg.risk
+                                else 0.25
+                            ),
+                        },
+                        "execution_mode": (
+                            cfg.execution.mode if cfg.execution else "paper"
+                        ),
+                    }
+                )
+            except Exception as exc:
+                st.caption(str(exc))
+
+        with st.expander(t("universe_edit_title"), expanded=False):
+            cfg_path = "config/settings.yaml"
+            try:
+                from opinion_trading.core.config_loader import load_runtime_config
+                from opinion_trading.core.settings_patch import (
+                    parse_symbol_list,
+                    update_universe_symbols,
+                )
+
+                cur = load_runtime_config(cfg_path)
+                default_text = "\n".join(cur.symbols)
+                sym_text = st.text_area(
+                    t("universe_edit_label"),
+                    value=default_text,
+                    height=120,
+                    key="universe_edit_area",
+                )
+                st.caption(t("explanation_lang_hint"))
+                if st.button(t("universe_save"), key="universe_save_btn"):
+                    syms = parse_symbol_list(sym_text)
+                    if not syms:
+                        st.warning("empty symbol list")
+                    else:
+                        update_universe_symbols(cfg_path, syms)
+                        st.success(t("universe_saved"))
+            except Exception as exc:
+                st.caption(str(exc))
 
         with st.expander(t("quick_start"), expanded=False):
             st.markdown(t("tutorial_markdown"))
@@ -2776,6 +3755,7 @@ def main() -> None:
     raw_df = _load_latest_raw_posts(raw_dir)
     platform_count = 0 if sentiment_df.empty else sentiment_df["platform"].nunique()
     engine_stats = build_sentiment_engine_stats(raw_df)
+    capture_rates = compute_raw_capture_rates(raw_df)
 
     _render_dashboard_hero(
         len(picks_df),
@@ -2783,8 +3763,9 @@ def main() -> None:
         platform_count,
         report_dir,
         engine_stats=engine_stats,
+        capture_rates=capture_rates,
     )
-    _render_sentiment_engine_strip(engine_stats)
+    _render_sentiment_engine_strip(engine_stats, capture_rates=capture_rates)
     with st.expander(t("user_guide_title"), expanded=False):
         st.markdown(t("user_guide_body"))
     oc_probe = _openclaw_probe()
@@ -2796,15 +3777,28 @@ def main() -> None:
         openclaw_connected=bool(oc_probe.get("connected")),
     )
 
-    tab_picks, tab_openclaw, tab_sentiment, tab_comments, tab_eval = st.tabs(
+    tab_watch, tab_alert, tab_review, tab_picks, tab_openclaw, tab_sentiment, tab_comments, tab_eval, tab_analyst = st.tabs(
         [
+            "自选股监控",
+            "信号预警",
+            "舆情股价复盘",
             t("tab_picks"),
             t("tab_openclaw"),
             t("tab_sentiment"),
             t("tab_comments"),
             t("tab_eval"),
+            t("tab_analyst"),
         ]
     )
+
+    with tab_watch:
+        render_watchlist_tab(sentiment_df, raw_df, mvp_user, workspace=_mvp_ws)
+
+    with tab_alert:
+        render_alerts_tab(sentiment_df, mvp_user, workspace=_mvp_ws)
+
+    with tab_review:
+        render_review_tab(sentiment_df, raw_df, mvp_user, workspace=_mvp_ws)
 
     with tab_picks:
         _render_pick_leaderboard(picks_df)
@@ -3128,6 +4122,9 @@ def main() -> None:
                     )
 
     with tab_eval:
+        _render_paper_account_panel(memory_dir)
+        _render_quality_gate_history_chart(memory_dir)
+        _render_event_log_panel(memory_dir)
         st.markdown(f"#### {t('evaluation')}")
         price_source_mode = st.radio(
             t("price_source"),
@@ -3197,6 +4194,12 @@ def main() -> None:
                     f"**{t('eval_accuracy')}**: {summary.accuracy:.2%} | **{t('eval_avg_return')}**: {summary.avg_return:.4%} | "
                     f"**{t('eval_win_rate')}**: {summary.win_rate:.2%} | **{t('eval_sharpe_like')}**: {summary.sharpe_like:.4f}"
                 )
+                st.caption(
+                    f"Max DD {summary.max_drawdown:.2%} | "
+                    f"Profit factor {summary.profit_factor:.3f} | "
+                    f"Payoff {summary.payoff_ratio:.3f} | "
+                    f"Calmar-like {summary.calmar_like:.4f}"
+                )
                 if not merged.empty:
                     st.dataframe(
                         merged[
@@ -3205,8 +4208,17 @@ def main() -> None:
                         use_container_width=True,
                         hide_index=True,
                     )
+                st.session_state["eval_price_df"] = price_df
             except Exception as e:
                 st.error(t("evaluation_failed").format(error=e))
+
+        wf_price = st.session_state.get("eval_price_df")
+        if wf_price is None or (isinstance(wf_price, pd.DataFrame) and wf_price.empty):
+            try:
+                wf_price = load_prices(price_csv)
+            except Exception:
+                wf_price = pd.DataFrame()
+        _render_walk_forward_panel(memory_dir, report_dir, wf_price)
 
         st.markdown(f"#### {t('monthly_training')}")
         lang = st.session_state.get("lang", "zh")
@@ -3453,6 +4465,9 @@ def main() -> None:
                         use_container_width=True,
                         hide_index=True,
                     )
+
+    with tab_analyst:
+        _render_analyst_tab(memory_dir, report_dir)
 
 
 if __name__ == "__main__":

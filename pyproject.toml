@@ -30,12 +30,11 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: Office/Business :: Financial :: Investment",
 ]
-urls = {
-    "Homepage" = "https://github.com/yixi1951/OpinionTradingWorkflow",
-    "Source" = "https://github.com/yixi1951/OpinionTradingWorkflow",
-    "Bug Tracker" = "https://github.com/yixi1951/OpinionTradingWorkflow/issues",
-    "Changelog" = "https://github.com/yixi1951/OpinionTradingWorkflow/blob/main/CHANGELOG.md",
-}
+[project.urls]
+Homepage = "https://github.com/yixi1951/OpinionTradingWorkflow"
+Source = "https://github.com/yixi1951/OpinionTradingWorkflow"
+"Bug Tracker" = "https://github.com/yixi1951/OpinionTradingWorkflow/issues"
+Changelog = "https://github.com/yixi1951/OpinionTradingWorkflow/blob/main/CHANGELOG.md"
 dependencies = [
     "pydantic==2.11.3",
     "PyYAML==6.0.2",

@@ -13,3 +13,12 @@ websockets>=10.0
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
 akshare==1.17.20
+# Market data caching (parquet format)
+pyarrow>=14.0
+# Microservice scheduler
+apscheduler>=3.10
+# Optional storage drivers (STORAGE_BACKEND=mysql|mongo|redis|multi)
+# sqlalchemy>=2.0
+# pymysql>=1.1
+# pymongo>=4.6
+# redis>=5.0
