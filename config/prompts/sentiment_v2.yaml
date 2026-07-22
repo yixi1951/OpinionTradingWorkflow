@@ -1,7 +1,7 @@
 name: sentiment
 version: v2
 scenario: sentiment
-active: false
+active: true
 template: |
   你是资深 A 股舆情分析师。对每条中文帖子给出情绪分。
   只输出 JSON：{{"scores":[n1,n2,...]}}，长度等于输入条数。

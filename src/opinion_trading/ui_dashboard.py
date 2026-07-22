@@ -51,6 +51,7 @@ from opinion_trading.ui_helpers import (
 from opinion_trading.core.user_workspace import UserWorkspace
 from opinion_trading.ui.mvp_pages import (
     render_alerts_tab,
+    render_ai_pipeline_tab,
     render_disclaimer_banner,
     render_review_tab,
     render_user_login_sidebar,
@@ -3777,11 +3778,12 @@ def main() -> None:
         openclaw_connected=bool(oc_probe.get("connected")),
     )
 
-    tab_watch, tab_alert, tab_review, tab_picks, tab_openclaw, tab_sentiment, tab_comments, tab_eval, tab_analyst = st.tabs(
+    tab_watch, tab_alert, tab_review, tab_ai, tab_picks, tab_openclaw, tab_sentiment, tab_comments, tab_eval, tab_analyst = st.tabs(
         [
             "自选股监控",
             "信号预警",
             "舆情股价复盘",
+            "AI采集筛选",
             t("tab_picks"),
             t("tab_openclaw"),
             t("tab_sentiment"),
@@ -3799,6 +3801,9 @@ def main() -> None:
 
     with tab_review:
         render_review_tab(sentiment_df, raw_df, mvp_user, workspace=_mvp_ws)
+
+    with tab_ai:
+        render_ai_pipeline_tab(raw_df)
 
     with tab_picks:
         _render_pick_leaderboard(picks_df)

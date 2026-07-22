@@ -44,6 +44,10 @@ def test_universe_focus_offline():
 def test_noise_filter_spam_and_water():
     assert is_spam_or_ad("加微信稳赚不赔")
     assert is_water_post("哈哈哈哈")
+    from opinion_trading.core.noise_filter import classify_noise
+
+    noisy, reason = classify_noise("加微信免费荐股")
+    assert noisy and reason == "spam_ad"
     rows, stats = filter_noisy_rows(
         [
             {"title": "茅台看好", "content": "业绩超预期"},

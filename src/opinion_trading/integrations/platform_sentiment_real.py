@@ -131,18 +131,26 @@ class RealPlatformSentimentProvider:
         self.timeout = timeout
         self.fallback_to_stub = fallback_to_stub
         # Scoring config: instance attributes with env var / default fallback
-        self.scoring_mode = scoring_mode or os.environ.get("SCORING_MODE", "hybrid")
-        self.row_level_llm = (
-            row_level_llm
-            if row_level_llm is not None
-            else os.environ.get("OPENCLAW_SKIP_ROW_SCORE", "1").lower()
-            not in ("1", "true", "yes")
-        )
+        self.scoring_mode = scoring_mode or os.environ.get("SCORING_MODE", "ai")
+        # Row-level LLM during crawl is deferred to ai_content_pipeline by default
+        # (OPENCLAW_SKIP_ROW_SCORE=1 keeps crawl fast; pipeline batch-scores later).
+        if row_level_llm is not None:
+            self.row_level_llm = bool(row_level_llm)
+        else:
+            self.row_level_llm = os.environ.get("OPENCLAW_SKIP_ROW_SCORE", "1").lower() not in (
+                "1",
+                "true",
+                "yes",
+            )
         self.max_posts = max_posts or int(os.environ.get("OPENCLAW_MAX_POSTS", "20"))
+        self.min_content_chars = int(os.environ.get("PARSE_MIN_CONTENT_CHARS", "40"))
         self.stub = StubProvider()
         # AI sentiment analyzer (optional local transformers pipeline)
         try:
-            self.ai_analyzer = AISentimentAnalyzer()
+            self.ai_analyzer = AISentimentAnalyzer(
+                enable_fusion=(self.scoring_mode or "").lower()
+                in {"hybrid", "fuse", "fusion"}
+            )
             logger.info(
                 "AI analyzer initialized (OpenClaw ready=%s)",
                 getattr(self.ai_analyzer, "is_openclaw_ready", lambda: False)(),
@@ -150,6 +158,19 @@ class RealPlatformSentimentProvider:
         except Exception as exc:
             logger.warning("AI analyzer init failed: %s", exc)
             self.ai_analyzer = None
+        self._browser = None
+        try:
+            from opinion_trading.integrations.browser_collect import (
+                BROWSER_PLATFORMS,
+                BrowserCollector,
+            )
+
+            self._browser_platforms = BROWSER_PLATFORMS
+            self._browser = BrowserCollector()
+        except Exception as exc:
+            logger.debug("BrowserCollector unavailable: %s", exc)
+            self._browser_platforms = frozenset({"xueqiu", "weibo", "douyin"})
+            self._browser = None
 
     def fetch(self, platform: str, symbol: str, trade_date: date) -> Dict[str, float]:
         try:
@@ -207,12 +228,31 @@ class RealPlatformSentimentProvider:
         self, platform: str, symbol: str, trade_date: date, max_posts: int | None = None
     ) -> List[Dict[str, str]]:
         if max_posts is None:
-            max_posts = getattr(self, "max_posts", None) or int(os.environ.get("OPENCLAW_MAX_POSTS", "20"))
-        logger.info(
-            "Collecting %s/%s max_posts=%d", platform, symbol, max_posts
+            max_posts = getattr(self, "max_posts", None) or int(
+                os.environ.get("OPENCLAW_MAX_POSTS", "20")
+            )
+        logger.info("Collecting %s/%s max_posts=%d", platform, symbol, max_posts)
+        list_url = self._build_url(platform=platform, symbol=symbol)
+
+        # JS-heavy platforms: Playwright + Cookie first
+        browser_platforms = getattr(
+            self, "_browser_platforms", frozenset({"xueqiu", "weibo", "douyin"})
         )
+        if platform in browser_platforms and self._browser is not None:
+            try:
+                browsed = self._browser.collect(
+                    platform=platform,
+                    symbol=symbol,
+                    list_url=list_url,
+                    trade_date=trade_date,
+                    max_posts=max_posts,
+                )
+                if browsed:
+                    return [self._finalize_collected_row(r) for r in browsed]
+            except Exception as exc:
+                logger.warning("Browser path error %s/%s: %s", platform, symbol, exc)
+
         try:
-            list_url = self._build_url(platform=platform, symbol=symbol)
             html = self._download_html(list_url)
 
             if platform in {_PLATFORM_GUBA, _PLATFORM_EASTMONEY}:
@@ -233,19 +273,18 @@ class RealPlatformSentimentProvider:
                 )
 
             if rows:
-                logger.info(
-                    "Collected %d rows from %s/%s", len(rows), platform, symbol
-                )
+                logger.info("Collected %d rows from %s/%s", len(rows), platform, symbol)
                 return rows
 
-            logger.warning(
-                "Zero rows from %s/%s, trying fallback extraction", platform, symbol
-            )
+            logger.warning("Zero rows from %s/%s", platform, symbol)
+            # Weak platforms: never inject stub/placeholder pollution
+            if platform in browser_platforms:
+                return []
             return self._collect_fallback_rows(list_url, platform, symbol, trade_date)
         except (requests.Timeout, requests.ConnectionError, requests.HTTPError) as exc:
-            logger.warning(
-                "HTTP error collecting %s/%s: %s", platform, symbol, exc
-            )
+            logger.warning("HTTP error collecting %s/%s: %s", platform, symbol, exc)
+            if platform in browser_platforms:
+                return []
             if not self.fallback_to_stub:
                 raise
             return self._collect_stub_rows(platform, symbol, trade_date)
@@ -253,9 +292,42 @@ class RealPlatformSentimentProvider:
             logger.exception(
                 "Unexpected error collecting %s/%s: %s", platform, symbol, exc
             )
+            if platform in browser_platforms:
+                return []
             if not self.fallback_to_stub:
                 raise
             return self._collect_stub_rows(platform, symbol, trade_date)
+
+    def _finalize_collected_row(self, row: Dict[str, str]) -> Dict[str, str]:
+        """Normalize browser rows through _build_raw_row fields when possible."""
+        if "keyword_score" in row and "score_source" in row:
+            # ensure keyword score present without forcing LLM
+            title = str(row.get("title", ""))
+            content = str(row.get("content", ""))
+            pos = sum((title + " " + content).count(w) for w in self._POSITIVE_WORDS)
+            neg = sum((title + " " + content).count(w) for w in self._NEGATIVE_WORDS)
+            kw = (pos - neg) / (pos + neg + 5) if (pos + neg + 5) else 0.0
+            row["keyword_score"] = float(kw)
+            if not row.get("score_source") or row.get("score_source") == "pending_ai":
+                row["ai_score"] = float(kw)
+                row["score_source"] = "pending_ai"
+            return row
+        return self._build_raw_row(
+            trade_date=date.fromisoformat(str(row.get("trade_date"))[:10])
+            if row.get("trade_date")
+            else date.today(),
+            platform=str(row.get("platform", "")),
+            symbol=str(row.get("symbol", "")),
+            title=str(row.get("title", "")),
+            summary=str(row.get("summary", "")),
+            post_time=str(row.get("post_time", "")),
+            content=str(row.get("content", "")),
+            url=str(row.get("url", "")),
+            source_page=str(row.get("source_page", "")),
+            is_noise=bool(row.get("is_noise", False)),
+            capture_status=str(row.get("capture_status", "success")),
+            failure_reason=str(row.get("failure_reason", "")),
+        )
 
     def _collect_guba_rows(
         self,
@@ -302,16 +374,31 @@ class RealPlatformSentimentProvider:
 
         rows: List[Dict[str, str]] = []
         for href in article_urls:
+            # skip non-article / sticky noise links
+            href_l = href.lower()
+            if any(x in href_l for x in ("ad.", "advert", "help,", "about,")):
+                continue
             article_url = urljoin("https://guba.eastmoney.com", href)
-            article_html = self._download_html(article_url)
-            row = self._parse_article_page(
-                platform=platform,
-                symbol=symbol,
-                trade_date=trade_date,
-                page_url=list_url,
-                article_url=article_url,
-                html=article_html,
-            )
+            try:
+                article_html = self._download_html(article_url)
+                row = self._parse_article_page(
+                    platform=platform,
+                    symbol=symbol,
+                    trade_date=trade_date,
+                    page_url=list_url,
+                    article_url=article_url,
+                    html=article_html,
+                )
+            except Exception as exc:
+                logger.debug("article fetch failed %s: %s", article_url[:80], exc)
+                continue
+            # Do not pollute aggregates with empty parse failures
+            if row.get("capture_status") == "fail":
+                continue
+            if row.get("capture_status") == "fallback" and not str(
+                row.get("content") or ""
+            ).strip():
+                continue
             rows.append(row)
         return rows
 
@@ -553,29 +640,42 @@ class RealPlatformSentimentProvider:
         html: str,
     ) -> Dict[str, str]:
         soup = BeautifulSoup(html, "lxml")
+        # strip common chrome / sidebars before extraction
+        for junk in soup.select(
+            "script, style, nav, header, footer, .footer, .header, "
+            "#header, #footer, .nav, .side, .sidebar, .ads, .ad, "
+            ".guba_left, .guba_right, .rightmodule"
+        ):
+            junk.decompose()
+
         page_title = self._extract_page_title(soup)
         text = self._clean_text(soup.get_text(" ", strip=True))
 
-        # try to extract richer article content using common article containers
         content_candidate = ""
         for sel in (
+            "div#zwconbody",
+            "div#zwconttbt",
             "div#zwcon",
+            "div.xeditor_content",
+            "div.stockcodec",
+            "div#ContentBody",
             "div.article-content",
             "div#article",
             "div.article",
             "div#content",
             "div.main-content",
             "div.content",
+            "div.zwconbody",
+            "div.newstext",
         ):
             node = soup.select_one(sel)
             if node:
                 candidate = self._clean_text(node.get_text(" ", strip=True))
-                if len(candidate) >= 160:
+                if len(candidate) >= self.min_content_chars:
                     content_candidate = candidate
                     break
 
         if not content_candidate:
-            # fallback to longest block of text in the page
             paragraphs = [
                 self._clean_text(p.get_text(" ", strip=True))
                 for p in soup.find_all(["p", "div"])
@@ -584,7 +684,7 @@ class RealPlatformSentimentProvider:
             paragraphs = sorted(paragraphs, key=lambda x: len(x), reverse=True)
             if paragraphs:
                 best = paragraphs[0]
-                if len(best) >= 160:
+                if len(best) >= self.min_content_chars:
                     content_candidate = best
 
         content = (
@@ -598,8 +698,27 @@ class RealPlatformSentimentProvider:
         title = strip_boilerplate(title) or title
         post_time = self._extract_time(text, trade_date=trade_date)
 
-        # if content is too short, treat as parse failure to reduce fallback pollution
-        if len(content) < 120:
+        # Prefer title+summary success over empty fallback pollution
+        min_ok = self.min_content_chars
+        if len(content) < min_ok:
+            summary_blob = self._clean_text(f"{title} {content}").strip()
+            if len(summary_blob) >= 16 and title:
+                return {
+                    **self._build_raw_row(
+                        trade_date=trade_date,
+                        platform=platform,
+                        symbol=symbol,
+                        title=title,
+                        summary=summary_blob[:300],
+                        post_time=post_time or trade_date.isoformat(),
+                        content=summary_blob[:800],
+                        url=article_url,
+                        source_page=page_url,
+                        is_noise=self._is_noise_text(summary_blob),
+                        capture_status="success",
+                        failure_reason="",
+                    )
+                }
             return {
                 **self._build_raw_row(
                     trade_date=trade_date,
@@ -612,7 +731,7 @@ class RealPlatformSentimentProvider:
                     url=article_url,
                     source_page=page_url,
                     is_noise=True,
-                    capture_status="fallback",
+                    capture_status="fail",
                     failure_reason="parsed content too short",
                 )
             }
@@ -843,26 +962,31 @@ class RealPlatformSentimentProvider:
         neg = sum((title + " " + content).count(word) for word in self._NEGATIVE_WORDS)
         keyword_score = (pos - neg) / (pos + neg + 5) if (pos + neg + 5) != 0 else 0.0
 
-        # ── 模式 B：逐条 OpenClaw LLM 打分（默认关闭，通过 `row_level_llm` 参数或环境变量开启）────────
-        #   row_level_llm = True  → 开启（每帖一次 LLM 调用）
-        #   row_level_llm = False → 关闭，仅用关键词分（默认）
-        #   注意：逐条 LLM 打分非常耗时（20 帖 × ~2min/帖 ≈ 40min），适用于离线深度分析。
+        # ── 模式 B：逐条 LLM（默认关闭；由 ai_content_pipeline 批量打分）────────
         ai_score = ""
         skip_row_ai = not getattr(self, "row_level_llm", False)
-        score_source = "keyword"
+        score_source = "pending_ai" if skip_row_ai else "keyword"
         if not skip_row_ai and getattr(self, "ai_analyzer", None):
             try:
                 results = self.ai_analyzer.analyze_texts([f"{title} {content}"])
                 if results:
                     ai_score = results[0].score
                     src = results[0].source
-                    score_source = "openclaw" if src in {"openclaw", "transformers"} else "keyword"
+                    score_source = (
+                        "openclaw"
+                        if src in {"openclaw", "transformers", "hybrid"}
+                        else "keyword"
+                    )
             except Exception as exc:
                 logger.debug("Row-level AI score failed: %s", exc)
                 ai_score = ""
         # 未开启或失败时，ai_score 回退为关键词分（两列始终都有值）
         if ai_score == "":
             ai_score = float(keyword_score)
+            if score_source == "pending_ai":
+                pass
+            else:
+                score_source = "keyword"
 
         return {
             "trade_date": trade_date.isoformat(),

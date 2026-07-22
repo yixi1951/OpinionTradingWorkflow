@@ -50,7 +50,14 @@ def compute_icir(period_ics: Iterable[float]) -> float:
 
 
 def annualize_return(mean_daily: float, periods: int = 252) -> float:
-    return float((1.0 + mean_daily) ** periods - 1.0) if mean_daily > -1.0 else -1.0
+    """Annualize a mean daily return. Accepts scalar or length-1 array-like."""
+    try:
+        md = float(np.asarray(mean_daily, dtype=float).reshape(-1)[0])
+    except (TypeError, ValueError, IndexError):
+        return 0.0
+    if not math.isfinite(md):
+        return 0.0
+    return float((1.0 + md) ** periods - 1.0) if md > -1.0 else -1.0
 
 
 def compute_excess_return(

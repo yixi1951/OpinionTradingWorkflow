@@ -32,15 +32,29 @@ def snapshots_from_raw_rows(
     out: List[OpinionSnapshot] = []
     now = datetime.now()
     for (platform, symbol), rows in buckets.items():
+        # Prefer non-noise / relevant rows for aggregation
+        usable = [
+            r
+            for r in rows
+            if not bool(r.get("is_noise"))
+            and r.get("ai_relevant", True) is not False
+            and str(r.get("capture_status", "success")) not in {"fail"}
+        ]
+        if not usable:
+            usable = [
+                r
+                for r in rows
+                if str(r.get("capture_status", "")) not in {"fail", "fallback"}
+            ] or rows
         if recency_enabled:
             avg = weighted_mean_scores(
-                rows,
+                usable,
                 trade_date,
                 half_life_hours=half_life_hours,
             )
         else:
             scores: List[float] = []
-            for row in rows:
+            for row in usable:
                 score = row.get("ai_score")
                 if score is None or score == "":
                     score = row.get("keyword_score", 0.0)
@@ -57,7 +71,7 @@ def snapshots_from_raw_rows(
                 platform=platform,
                 symbol=symbol,
                 sentiment_score=avg,
-                post_count=len(rows),
+                post_count=len(usable),
                 source="raw_csv_replay",
             )
         )

@@ -15,6 +15,8 @@ uvicorn[standard]>=0.32.0
 akshare==1.17.20
 # Market data caching (parquet format)
 pyarrow>=14.0
+# Browser collect for JS-heavy platforms (xueqiu/weibo/douyin)
+playwright>=1.40
 # Microservice scheduler
 apscheduler>=3.10
 # Optional storage drivers (STORAGE_BACKEND=mysql|mongo|redis|multi)

@@ -63,8 +63,12 @@ def is_duplicate_near(text: str, seen_keys: set[str]) -> bool:
     return False
 
 
-def classify_noise(row: Dict[str, Any], seen_keys: set[str] | None = None) -> Tuple[bool, str]:
-    """Return (is_noise, reason)."""
+def classify_noise(
+    row: Dict[str, Any] | str, seen_keys: set[str] | None = None
+) -> Tuple[bool, str]:
+    """Return (is_noise, reason). Accepts a post dict or a plain text string."""
+    if isinstance(row, str):
+        row = {"title": "", "content": row}
     title = str(row.get("title", ""))
     content = str(row.get("content", ""))
     blob = f"{title} {content}".strip()

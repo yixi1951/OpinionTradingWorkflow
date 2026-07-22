@@ -114,15 +114,22 @@ def load_runtime_config(config_path: str = "config/settings.yaml") -> RuntimeCon
 
     expl_lang = str(raw.get("project", {}).get("explanation_lang", "zh")).strip() or "zh"
 
+    browser_raw = raw.get("browser", {}) or {}
+    ai_pipe_raw = raw.get("ai_pipeline", {}) or {}
+
     return RuntimeConfig(
         strategy=strategy_config,
         symbols=list(raw["universe"]["symbols"]),
         memory_dir=storage["memory_dir"],
         report_dir=storage["report_dir"],
         raw_dir=storage.get("raw_dir", "data/raw"),
-        scoring_mode=str(scoring.get("mode", "hybrid")),
-        row_level_llm=bool(scoring.get("row_level_llm", False)),
+        scoring_mode=str(scoring.get("mode", "ai")),
+        row_level_llm=bool(scoring.get("row_level_llm", True)),
         max_posts=int(scoring.get("max_posts", 20)),
+        browser_enabled=bool(browser_raw.get("enabled", True)),
+        ai_screen_enabled=bool(ai_pipe_raw.get("screen_enabled", True)),
+        ai_score_enabled=bool(ai_pipe_raw.get("score_enabled", True)),
+        ai_batch_size=int(ai_pipe_raw.get("max_screen_batch", 12)),
         analysis=analysis_config,
         quality=quality_config,
         execution=execution_config,

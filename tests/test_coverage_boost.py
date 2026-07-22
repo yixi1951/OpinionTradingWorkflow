@@ -95,11 +95,16 @@ def test_metrics_negative_prev_return():
 def test_ai_sentiment_openclaw_not_configured(monkeypatch):
     """When OpenClaw is not configured, falls through to keyword."""
     monkeypatch.delenv("OPENCLAW_URL", raising=False)
+    monkeypatch.delenv("INFERENCE_URL", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("QWEN_API_KEY", raising=False)
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
     monkeypatch.setenv("ENABLE_TRANSFORMERS_PIPELINE", "0")
+    monkeypatch.setenv("USE_LLM_GATEWAY", "0")
 
     from opinion_trading.core.ai_sentiment import AISentimentAnalyzer
 
-    analyzer = AISentimentAnalyzer()
+    analyzer = AISentimentAnalyzer(enable_fusion=False)
     # Ensure openclaw is None (not configured)
     analyzer.openclaw = None
     results = analyzer.analyze_texts(["市场今日震荡走高，收红盘"])
@@ -110,6 +115,7 @@ def test_ai_sentiment_openclaw_not_configured(monkeypatch):
 def test_ai_sentiment_openclaw_fallback_on_wrong_count(monkeypatch):
     """If OpenClaw returns wrong number of scores, fallback to keyword."""
     monkeypatch.setenv("ENABLE_TRANSFORMERS_PIPELINE", "0")
+    monkeypatch.setenv("USE_LLM_GATEWAY", "0")
 
     from opinion_trading.core.ai_sentiment import AISentimentAnalyzer
 
@@ -117,7 +123,7 @@ def test_ai_sentiment_openclaw_fallback_on_wrong_count(monkeypatch):
     mock_client.is_configured.return_value = True
     mock_client.score_texts.return_value = [0.5]  # only 1 score for 2 texts
 
-    analyzer = AISentimentAnalyzer()
+    analyzer = AISentimentAnalyzer(enable_fusion=False)
     analyzer.openclaw = mock_client
     analyzer._pipeline = None
 
@@ -130,6 +136,7 @@ def test_ai_sentiment_openclaw_fallback_on_wrong_count(monkeypatch):
 def test_ai_sentiment_openclaw_fallback_on_exception(monkeypatch):
     """If OpenClaw raises, fallback to keyword."""
     monkeypatch.setenv("ENABLE_TRANSFORMERS_PIPELINE", "0")
+    monkeypatch.setenv("USE_LLM_GATEWAY", "0")
 
     from opinion_trading.core.ai_sentiment import AISentimentAnalyzer
 
@@ -137,7 +144,7 @@ def test_ai_sentiment_openclaw_fallback_on_exception(monkeypatch):
     mock_client.is_configured.return_value = True
     mock_client.score_texts.side_effect = RuntimeError("Connection refused")
 
-    analyzer = AISentimentAnalyzer()
+    analyzer = AISentimentAnalyzer(enable_fusion=False)
     analyzer.openclaw = mock_client
     analyzer._pipeline = None
 
@@ -146,15 +153,18 @@ def test_ai_sentiment_openclaw_fallback_on_exception(monkeypatch):
     assert results[0].source == "keyword"
 
 
-def test_ai_sentiment_openclaw_success():
-    """OpenClaw returns valid scores."""
+def test_ai_sentiment_openclaw_success(monkeypatch):
+    """OpenClaw returns valid scores (fusion off for pure source check)."""
+    monkeypatch.setenv("ENABLE_TRANSFORMERS_PIPELINE", "0")
+    monkeypatch.setenv("USE_LLM_GATEWAY", "0")
+
     from opinion_trading.core.ai_sentiment import AISentimentAnalyzer
 
     mock_client = MagicMock()
     mock_client.is_configured.return_value = True
     mock_client.score_texts.return_value = [0.5, -0.3, 0.0]
 
-    analyzer = AISentimentAnalyzer()
+    analyzer = AISentimentAnalyzer(enable_fusion=False)
     analyzer.openclaw = mock_client
     analyzer._pipeline = None
 
@@ -166,15 +176,18 @@ def test_ai_sentiment_openclaw_success():
     assert results[2].score == 0.0
 
 
-def test_ai_sentiment_openclaw_clamp_score():
+def test_ai_sentiment_openclaw_clamp_score(monkeypatch):
     """Score clamping keeps values within [-1, 1]."""
+    monkeypatch.setenv("ENABLE_TRANSFORMERS_PIPELINE", "0")
+    monkeypatch.setenv("USE_LLM_GATEWAY", "0")
+
     from opinion_trading.core.ai_sentiment import AISentimentAnalyzer
 
     mock_client = MagicMock()
     mock_client.is_configured.return_value = True
     mock_client.score_texts.return_value = [2.5, -3.0, 0.0]
 
-    analyzer = AISentimentAnalyzer()
+    analyzer = AISentimentAnalyzer(enable_fusion=False)
     analyzer.openclaw = mock_client
     analyzer._pipeline = None
 

@@ -45,7 +45,7 @@ async def health() -> dict:
         "status": "ok",
         "service": "openclaw-ws-proxy",
         "started_at": _started_at,
-        "now": datetime.datetime.utcnow().isoformat() + "Z",
+        "now": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
         "requests": _request_count,
         "errors": _error_count,
         "last_score_latency_ms": _last_score_latency_ms,

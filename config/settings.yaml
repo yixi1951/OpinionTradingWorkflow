@@ -58,9 +58,19 @@ storage:
   # file | mysql | mongo | redis | multi （默认 file，DB 未配置时自动回退）
   backend: file
 scoring:
-  mode: hybrid
-  row_level_llm: false
+  mode: ai
+  row_level_llm: true
   max_posts: 20
+browser:
+  enabled: true
+  platforms:
+  - xueqiu
+  - weibo
+  - douyin
+ai_pipeline:
+  screen_enabled: true
+  score_enabled: true
+  max_screen_batch: 12
 analysis:
   enabled: false
   sentiment_weight: 0.4

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 from datetime import date, datetime
 from pathlib import Path
 from time import sleep
@@ -41,6 +42,13 @@ logger = get_logger(__name__)
 class OpinionTradingWorkflow:
     def __init__(self, config_path: str = "config/settings.yaml") -> None:
         self.config = load_runtime_config(config_path)
+        # Propagate browser / scoring defaults into env for collectors & pipeline
+        if not os.environ.get("SCORING_MODE"):
+            os.environ["SCORING_MODE"] = str(getattr(self.config, "scoring_mode", "ai"))
+        if not os.environ.get("BROWSER_COLLECT_ENABLED"):
+            os.environ["BROWSER_COLLECT_ENABLED"] = (
+                "1" if getattr(self.config, "browser_enabled", True) else "0"
+            )
         self.store = JsonLineMemoryStore(self.config.memory_dir)
         self.reporter = DailyReportBuilder(self.config.report_dir)
         self.raw_store = RawPostCsvStore(self.config.raw_dir)
@@ -147,6 +155,48 @@ class OpinionTradingWorkflow:
 
         raw_rows, noise_stats = filter_noisy_rows(raw_rows, mark_only=True)
         raw_rows = enrich_raw_rows(raw_rows)
+
+        # AI relevance screen + batch LLM sentiment (default on when scoring.mode=ai)
+        ai_pipe_stats: Dict = {}
+        try:
+            from opinion_trading.core.ai_content_pipeline import run_ai_content_pipeline
+
+            scoring_mode = str(
+                getattr(self.config, "scoring_mode", os.environ.get("SCORING_MODE", "ai"))
+            ).lower()
+            env_screen = os.environ.get("AI_SCREEN_ENABLED", "").strip().lower()
+            if env_screen in ("0", "false", "no"):
+                screen_on = False
+            elif env_screen in ("1", "true", "yes"):
+                screen_on = True
+            else:
+                screen_on = bool(getattr(self.config, "ai_screen_enabled", True))
+            score_on = bool(getattr(self.config, "ai_score_enabled", True)) or bool(
+                getattr(self.config, "row_level_llm", True)
+            )
+            if scoring_mode in {"ai", "openclaw", "llm", "hybrid"}:
+                score_on = True
+            batch = int(
+                os.environ.get(
+                    "AI_PIPELINE_BATCH",
+                    str(getattr(self.config, "ai_batch_size", 12)),
+                )
+            )
+            if screen_on or score_on:
+                if scoring_mode in {"ai", "openclaw", "llm"}:
+                    os.environ["SCORING_MODE"] = "ai"
+                pipe = run_ai_content_pipeline(
+                    raw_rows,
+                    screen_enabled=screen_on,
+                    score_enabled=score_on,
+                    batch_size=batch,
+                )
+                raw_rows = pipe["rows"]
+                ai_pipe_stats = pipe["stats"]
+                logger.info("AI content pipeline stats: %s", ai_pipe_stats)
+        except Exception as exc:
+            logger.warning("AI content pipeline skipped: %s", exc)
+
         logger.info(
             "Collected %d raw rows (noise_rate=%.1f%%, semantic enrichment applied)",
             len(raw_rows),
@@ -488,6 +538,7 @@ class OpinionTradingWorkflow:
                 "messages": quality_gate.messages if quality_gate else [],
             },
             "execution_export": execution_export,
+            "ai_pipeline": ai_pipe_stats,
         }
 
     def run_realtime(

@@ -329,3 +329,100 @@ def render_review_tab(
     st.write(expl["summary"])
     if expl["key_comments"]:
         st.dataframe(pd.DataFrame(expl["key_comments"]), use_container_width=True, hide_index=True)
+
+
+def render_ai_pipeline_tab(raw_df: pd.DataFrame) -> None:
+    """AI 采集与筛选：score_source / 相关度剔除 / 平台成功率样例。"""
+    st.subheader("AI 采集与筛选")
+    st.caption(
+        "展示 LLM 相关度筛查与情感打分结果；Cookie 驱动的浏览器采集用于雪球/微博/抖音。"
+        "关键词分仅作兜底，不作为主路径。"
+    )
+    if raw_df is None or raw_df.empty:
+        st.info("暂无原始帖数据，请先运行 daily 采集。")
+        return
+
+    df = raw_df.copy()
+    total = len(df)
+    m1, m2, m3, m4 = st.columns(4)
+    llm_n = 0
+    if "score_source" in df.columns:
+        src = df["score_source"].astype(str).str.lower()
+        llm_n = int(src.isin(["openclaw", "transformers", "gateway", "hybrid"]).sum())
+    relevant_n = (
+        int(df["ai_relevant"].fillna(True).astype(bool).sum())
+        if "ai_relevant" in df.columns
+        else total
+    )
+    success_n = (
+        int((df["capture_status"].astype(str) == "success").sum())
+        if "capture_status" in df.columns
+        else 0
+    )
+    m1.metric("原始帖", total)
+    m2.metric("LLM 打分", f"{llm_n} ({llm_n / total:.0%})" if total else "0")
+    m3.metric("AI 判定相关", f"{relevant_n} ({relevant_n / total:.0%})" if total else "0")
+    m4.metric("采集成功", f"{success_n} ({success_n / total:.0%})" if total else "0")
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("#### score_source 分布")
+        if "score_source" in df.columns:
+            st.dataframe(
+                df["score_source"]
+                .fillna("(na)")
+                .astype(str)
+                .value_counts()
+                .rename("count")
+                .reset_index(),
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.caption("无 score_source 列")
+    with c2:
+        st.markdown("#### 平台 × 采集状态")
+        if "platform" in df.columns and "capture_status" in df.columns:
+            ct = pd.crosstab(df["platform"], df["capture_status"].fillna("na"))
+            st.dataframe(ct, use_container_width=True)
+        else:
+            st.caption("缺 platform/capture_status")
+
+    if "ai_drop_reason" in df.columns and "ai_relevant" in df.columns:
+        dropped = df[df["ai_relevant"].fillna(True).astype(bool) == False]  # noqa: E712
+        if not dropped.empty:
+            st.markdown("#### AI 剔除原因（Top）")
+            st.dataframe(
+                dropped["ai_drop_reason"]
+                .fillna("(空)")
+                .astype(str)
+                .value_counts()
+                .head(10)
+                .rename("count")
+                .reset_index(),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+    st.markdown("#### 样例：相关帖 + 情感分")
+    show_cols = [
+        c
+        for c in [
+            "symbol",
+            "platform",
+            "title",
+            "ai_score",
+            "score_source",
+            "ai_relevant",
+            "capture_status",
+            "event_type",
+        ]
+        if c in df.columns
+    ]
+    sample = df
+    if "ai_relevant" in sample.columns:
+        sample = sample[sample["ai_relevant"].fillna(True).astype(bool)]
+    if "ai_score" in sample.columns and not sample.empty:
+        sample = sample.assign(_abs=pd.to_numeric(sample["ai_score"], errors="coerce").abs())
+        sample = sample.sort_values("_abs", ascending=False)
+    st.dataframe(sample[show_cols].head(30), use_container_width=True, hide_index=True)

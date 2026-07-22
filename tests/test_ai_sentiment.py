@@ -19,8 +19,14 @@ def test_sentiment_intensity_label_zh():
 
 def test_keyword_analyze_bullish(monkeypatch):
     monkeypatch.delenv("OPENCLAW_URL", raising=False)
+    monkeypatch.delenv("INFERENCE_URL", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("QWEN_API_KEY", raising=False)
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
     monkeypatch.setenv("ENABLE_TRANSFORMERS_PIPELINE", "0")
-    analyzer = AISentimentAnalyzer()
+    monkeypatch.setenv("USE_LLM_GATEWAY", "0")
+    monkeypatch.setenv("SCORING_MODE", "keyword")
+    analyzer = AISentimentAnalyzer(enable_fusion=False)
     # Force openclaw to None so keyword is used
     analyzer.openclaw = None
     results = analyzer.analyze_texts(["利好上涨突破，看多买入加仓龙头"])
@@ -32,8 +38,10 @@ def test_keyword_analyze_bullish(monkeypatch):
 
 def test_keyword_analyze_bearish(monkeypatch):
     monkeypatch.delenv("OPENCLAW_URL", raising=False)
+    monkeypatch.delenv("INFERENCE_URL", raising=False)
     monkeypatch.setenv("ENABLE_TRANSFORMERS_PIPELINE", "0")
-    analyzer = AISentimentAnalyzer()
+    monkeypatch.setenv("USE_LLM_GATEWAY", "0")
+    analyzer = AISentimentAnalyzer(enable_fusion=False)
     analyzer.openclaw = None
     results = analyzer.analyze_texts(["利空暴跌风险，看空卖出减仓踩雷"])
     assert results[0].score < -0.1
@@ -43,8 +51,26 @@ def test_keyword_analyze_bearish(monkeypatch):
 def test_score_texts_returns_floats(monkeypatch):
     monkeypatch.delenv("OPENCLAW_URL", raising=False)
     monkeypatch.setenv("ENABLE_TRANSFORMERS_PIPELINE", "0")
-    analyzer = AISentimentAnalyzer()
+    monkeypatch.setenv("USE_LLM_GATEWAY", "0")
+    analyzer = AISentimentAnalyzer(enable_fusion=False)
     analyzer.openclaw = None
     scores = analyzer.score_texts(["中性观望"])
     assert len(scores) == 1
     assert -1.0 <= scores[0] <= 1.0
+
+
+def test_hybrid_fusion_blends_openclaw_and_keyword(monkeypatch):
+    monkeypatch.setenv("ENABLE_TRANSFORMERS_PIPELINE", "0")
+    monkeypatch.setenv("USE_LLM_GATEWAY", "0")
+    from unittest.mock import MagicMock
+
+    mock_client = MagicMock()
+    mock_client.is_configured.return_value = True
+    mock_client.score_texts.return_value = [1.0]
+    analyzer = AISentimentAnalyzer(enable_fusion=True)
+    analyzer.openclaw = mock_client
+    analyzer._pipeline = None
+    results = analyzer.analyze_texts(["利好上涨突破看多"])
+    assert results[0].source == "hybrid"
+    assert 0.0 < results[0].score <= 1.0
+    assert results[0].pos_hits >= 1
