@@ -1,0 +1,15 @@
+name: relevance
+version: v1
+scenario: relevance
+active: true
+template: |
+  你是 A 股舆情质检员。对每条文本判断是否与给定标的相关，以及是否广告/水帖/导航噪声。
+  只输出 JSON：{{"items":[{{"relevant":true/false,"reason":"简短中文"}}...]}}
+  items 长度必须等于输入条数。
+  输入：
+  {texts}
+few_shot:
+  - input: ["贵州茅台业绩超预期，机构上调目标价"]
+    items: [{"relevant": true, "reason": "业绩相关"}]
+  - input: ["加微信免费荐股稳赚"]
+    items: [{"relevant": false, "reason": "广告"}]

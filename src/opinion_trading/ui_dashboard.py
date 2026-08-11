@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 import glob
+import html
+import json
+import os
 from pathlib import Path
-from typing import Dict
+from typing import Dict, List
 
 import altair as alt
 import pandas as pd
 import streamlit as st
+
+from opinion_trading.core.env_bootstrap import load_dotenv_if_present
+
+load_dotenv_if_present(Path(__file__).resolve().parents[2])
 
 from opinion_trading.core.evaluation import (
     evaluate_signals,
@@ -21,13 +28,34 @@ from opinion_trading.core.monthly_training import (
     save_monthly_training_report,
 )
 
+from opinion_trading.core.openclaw_adapter import OpenClawClient
+from opinion_trading.core.ai_sentiment import sentiment_intensity_label
 from opinion_trading.ui_helpers import (
+    build_openclaw_activity_feed,
+    build_openclaw_summary,
     build_pick_contribution,
     build_pick_narrative,
+    build_picks_detail_table,
+    build_sentiment_engine_stats,
+    compute_raw_capture_rates,
+    build_symbol_sentiment_summary,
     evidence_stats,
+    infer_score_source,
+    label_platform_column,
     monthly_methodology_text,
     parse_platform_scores,
+    platform_label,
+    symbol_display,
     top_comment_rows,
+)
+from opinion_trading.core.user_workspace import UserWorkspace
+from opinion_trading.ui.mvp_pages import (
+    render_alerts_tab,
+    render_ai_pipeline_tab,
+    render_disclaimer_banner,
+    render_review_tab,
+    render_user_login_sidebar,
+    render_watchlist_tab,
 )
 
 
@@ -89,7 +117,12 @@ LANG = {
         "risk_weak_signal": "Weak sentiment signal",
         "positive_highlight": "Top Positive Comments",
         "negative_highlight": "Top Negative Comments",
+        "click_to_expand": "Click to view full comment",
+        "show_more_comments": "Show {n} more",
+        "show_less_comments": "Show less",
+        "col_post_time": "Time",
         "key_fields": "Key fields",
+        "key_fields_help": "Each row shows one platform sentiment score for a ranked stock. **Avg sentiment** is the weighted composite (-1 bearish ~ +1 bullish).",
         "kpi_label": "KPI",
         "score_label": "Score",
         "risk_hint_label": "Risk hint",
@@ -132,12 +165,71 @@ LANG = {
         "tab_sentiment": "Sentiment",
         "tab_comments": "Evidence",
         "tab_eval": "Backtest",
+        "tab_openclaw": "OpenClaw",
+        "ui_theme_label": "Theme",
+        "ui_theme_light": "Light",
+        "ui_theme_dark": "Dark",
+        "openclaw_engine_title": "OpenClaw Engine",
+        "openclaw_connected": "Connected",
+        "openclaw_disconnected": "Not connected (keyword fallback)",
+        "openclaw_probe_btn": "Test connection",
+        "openclaw_url_label": "Service URL",
+        "openclaw_probe_hint": "First probe may take 30-60s (DeepSeek).",
+        "openclaw_score_stats": "AI-scored rows in latest raw CSV: {ai}/{total}",
+        "openclaw_score_metric": "AI-scored rows",
+        "openclaw_no_raw": "No raw CSV loaded yet.",
         "status_last_report": "Latest report",
         "status_running_hint": "Realtime job may still be running — refresh to update.",
         "rank_label": "Rank",
         "refresh_data": "Refresh data",
         "sidebar_paths": "Data paths",
-        "hero_tagline": "Multi-platform sentiment · AI stock picks · Explainable signals",
+        "hero_tagline": "OpenClaw monitors sentiment in real time · DeepSeek scoring · AI stock picks",
+        "hero_kpi_picks": "Realtime picks",
+        "hero_kpi_alerts": "Score alerts",
+        "hero_kpi_platforms": "Platforms",
+        "hero_kpi_report": "Last report",
+        "hero_kpi_fallback": "Fallback rate",
+        "hero_kpi_none": "—",
+        "wf_export_csv": "Download walk-forward folds (CSV)",
+        "user_guide_title": "What you can do here",
+        "user_guide_body": """
+1. **Realtime Picks** — OpenClaw aggregates multi-platform sentiment into Top 3 rankings and reason cards.  
+2. **OpenClaw Live** — See the AI pipeline, analysis feed, and which texts were scored by OpenClaw vs keyword fallback.  
+3. **Sentiment** — Platform trends and contribution weights.  
+4. **Evidence** — User comments + reference texts that support each pick.  
+
+Connect OpenClaw via `OPENCLAW_URL` (see `scripts/run_demo_openclaw.ps1`). Sidebar shows live connection status.
+""",
+        "tab_openclaw": "OpenClaw Live",
+        "openclaw_status_title": "OpenClaw Engine",
+        "openclaw_connected": "Connected",
+        "openclaw_disconnected": "Not connected (keyword fallback)",
+        "openclaw_url_label": "Endpoint",
+        "openclaw_probe_btn": "Test connection",
+        "openclaw_rescore_btn": "Re-score visible comments with OpenClaw",
+        "openclaw_rescore_hint": "Requires OPENCLAW_URL. Scores update in this session only.",
+        "openclaw_rescore_done": "OpenClaw re-scored {n} comments.",
+        "openclaw_pipeline_title": "OpenClaw realtime pipeline",
+        "openclaw_pipeline_body": """
+**Step 1 · Collect** — Crawl Guba, Xueqiu, Weibo, etc. for target symbols.  
+**Step 2 · OpenClaw score** — Batch sentiment via OpenClaw Gateway → DeepSeek (`/api/v1/sentiment`).  
+**Step 3 · Aggregate** — Platform-weighted composite score per symbol.  
+**Step 4 · Recommend** — Rank Top N picks and generate explainable reason cards.
+""",
+        "openclaw_summary_title": "This run at a glance",
+        "openclaw_summary_fmt": "Raw {total_raw} · Usable {usable} · User comments {user_comments} · OpenClaw-scored {openclaw_scored} · Keyword {keyword_scored} · Picks {pick_count}",
+        "openclaw_activity_title": "Latest analysis feed",
+        "openclaw_pick_rec_title": "OpenClaw recommendations",
+        "openclaw_pick_rec_body": "Composite scores from the latest realtime run. Platform layer uses OpenClaw when connected; row-level batch scoring runs when `OPENCLAW_SKIP_ROW_SCORE=0`.",
+        "openclaw_not_connected_hint": "OpenClaw is offline — showing keyword scores. Run `scripts/run_demo_openclaw.ps1` to enable AI scoring.",
+        "openclaw_setup_expander": "Setup / error details",
+        "reference_expand_hint": "News & analysis (lower weight) — click to expand",
+        "reference_comments": "Reference texts (news / analysis)",
+        "badge_openclaw": "OpenClaw AI",
+        "badge_keyword": "Keyword",
+        "badge_user_comment": "User opinion",
+        "badge_news": "News",
+        "badge_reference": "Reference",
         "no_platform_scores": "No platform breakdown",
         "guide_trend_title": "How to read: Sentiment trend",
         "guide_trend_body": "Each line is one platform's monthly average sentiment (-1 bearish ~ +1 bullish). Rising lines = improving mood. Use **Min samples** to hide thin data.",
@@ -146,15 +238,132 @@ LANG = {
         "guide_snapshot_title": "Platform sentiment snapshot",
         "guide_snapshot_body": "Latest score per platform for the selected symbol. Green = bullish, red = bearish, gray = neutral/no signal.",
         "guide_comments_title": "How to read: Evidence comments",
-        "guide_comments_body": "Fallback/boilerplate rows are filtered. Comments are ranked by AI sentiment score. Prefer rows with platform tags and links for verification.",
+        "guide_comments_body": "User opinions are ranked by OpenClaw/keyword sentiment. Reference texts (news, analysis) are shown separately with lower weight. **Click to expand** full text and source link.",
         "sample_low_warning": "Low sample count — platform stats may be unreliable. Run daily/realtime to collect more posts.",
-        "evidence_summary": "Evidence: {valid} valid / {total} total comments, {platforms} platforms, {fallback} filtered",
+        "evidence_summary": "Evidence: {valid} user comments / {total} raw rows, {platforms} platforms, {fallback} noise filtered, {news_filtered} news filtered",
+        "comments_few_hint": "Few user comments remain after filtering news. Re-run daily mode to collect more Guba/Xueqiu discussions.",
         "no_valid_comments": "No valid comments after filtering fallback/noise. Re-run daily mode for fresher data.",
         "pick_story": "Pick narrative",
         "platform_snapshot": "Platform snapshot",
         "col_config_weight": "config weight",
         "col_weighted_contrib": "weighted contrib",
         "col_direction": "direction",
+        "hero_kpi_ai_coverage": "AI-scored posts",
+        "hero_kpi_sentiment_bias": "Sentiment bias",
+        "sentiment_engine_title": "AI sentiment engine",
+        "sentiment_engine_body": "Scores flow **OpenClaw / DeepSeek** when connected, else expanded **keyword lexicon** on Guba, Xueqiu, Weibo, etc. Range **-1 (bearish) ~ +1 (bullish)**.",
+        "filter_controls": "Filter controls",
+        "min_samples_platform": "Min samples per platform",
+        "include_zero_scores": "Include zero scores (treat 0 as valid)",
+        "filter_hint_samples": "Higher sample thresholds hide thin lines.",
+        "signal_stats": "Signal stats",
+        "show_platform_counts": "Show platform sample counts",
+        "signal_stats_hint": "Counts are based on valid sentiment rows.",
+        "export_section": "Export",
+        "export_hint": "CSV reflects current filters.",
+        "download_csv": "Download CSV",
+        "no_platforms_after_filter": "No platforms remain after filtering; lower Min samples.",
+        "platform_sample_counts": "Platform sample counts",
+        "actions": "Actions",
+        "contrib_actions_hint": "Contribution table and chart update instantly.",
+        "chip_trend": "Trend",
+        "chip_multisource": "Multi-source",
+        "chip_drivers": "Drivers",
+        "chip_weights": "Weights",
+        "chip_snapshot": "Snapshot",
+        "chip_ranked": "Ranked bars",
+        "chip_ai_engine": "AI engine",
+        "symbol_sentiment_card": "Symbol sentiment snapshot",
+        "symbol_avg_score": "Avg sentiment",
+        "symbol_comment_count": "Valid comments",
+        "platform_breakdown": "By platform",
+        "quote_positive": "Top bullish quote",
+        "quote_negative": "Top bearish quote",
+        "deploy_aliyun_title": "Alibaba Cloud realtime scoring",
+        "deploy_aliyun_hint": "Set OPENCLAW_URL on the server to your sentiment proxy; run realtime via systemd or cron.",
+        "tab_analyst": "Analyst Scores",
+        "analyst_compare_title": "Multi-Agent Score Comparison",
+        "analyst_compare_body": "Compare scores from Sentiment, Technical, and Fundamental analysts per symbol. The consensus score fuses all three with configurable weights.",
+        "analyst_select_symbol": "Select symbol for analyst breakdown",
+        "analyst_no_data": "No multi-agent signal data available. Run the pipeline with `analysis.enabled: true` in settings.yaml first.",
+        "analyst_score_chart_title": "Analyst Score Breakdown per Symbol",
+        "analyst_consensus_title": "Consensus Signal Detail",
+        "analyst_col_analyst": "Analyst",
+        "analyst_col_score": "Score",
+        "analyst_col_confidence": "Confidence",
+        "analyst_col_reasoning": "Reasoning",
+        "analyst_kelly": "Kelly Fraction",
+        "analyst_direction": "Direction",
+        "analyst_n_analysts": "Analysts",
+        "analyst_n_agreeing": "Agreeing",
+        "analyst_backtest_hint": "Run `python main.py --mode backtest --multi-agent` to generate comparison data.",
+        "analyst_sentiment": "Sentiment",
+        "analyst_technical": "Technical",
+        "analyst_fundamental": "Fundamental",
+        "analyst_backtest_title": "Sentiment vs Multi-Agent: Backtest Comparison",
+        "analyst_backtest_load": "Load comparison data",
+        "analyst_backtest_no_data": "No comparison CSV found. Run `--mode backtest --multi-agent` first.",
+        "analyst_backtest_csv": "Comparison CSV path",
+        "analyst_backtest_default_path": "data/reports/backtest_comparison.csv",
+        "quality_gate_title": "Raw data quality gate",
+        "quality_gate_pass": "PASS — signals allowed",
+        "quality_gate_fail": "FAIL / blocked — confidence reduced",
+        "quality_gate_no_data": "No quality gate record. Run daily mode first.",
+        "quality_gate_multiplier": "Conf. multiplier",
+        "quality_gate_noise": "Noise rate",
+        "quality_gate_fallback": "Fallback rate",
+        "quality_gate_history_title": "Quality gate history",
+        "quality_gate_history_hint": "Dashed line = quality.max_fallback_rate ({threshold}).",
+        "quality_metric_fallback": "Fallback %",
+        "quality_metric_noise": "Noise %",
+        "quality_chart_date": "Trade date",
+        "signal_explanation_title": "Decision explanation",
+        "paper_price_hint": "Paper trades use market close (yfinance/akshare) when available.",
+        "walk_forward_title": "Walk-forward (out-of-sample)",
+        "walk_forward_run": "Run walk-forward in UI",
+        "walk_forward_load_report": "Load saved report",
+        "walk_forward_no_report": "No walk_forward_report.md — run below or `python main.py --mode walk_forward`.",
+        "walk_forward_avg_test_acc": "Avg test accuracy",
+        "walk_forward_avg_degradation": "Train→test accuracy gap",
+        "walk_forward_avg_deg": "Train→test acc gap",
+        "walk_forward_folds_table": "Walk-forward folds (out-of-sample)",
+        "wf_col_train": "Train window",
+        "wf_col_test": "Test window",
+        "wf_col_train_acc": "Train acc",
+        "wf_col_test_acc": "Test acc",
+        "wf_col_train_sharpe": "Train Sharpe",
+        "wf_col_test_sharpe": "Test Sharpe",
+        "wf_col_deg": "Acc gap",
+        "wf_col_test_n": "Test signals",
+        "walk_forward_recommendation": "Recommendation",
+        "paper_account_title": "Paper account",
+        "paper_equity_title": "Paper equity curve",
+        "paper_equity_hint": "From trade_history.jsonl; marks-to-market via latest close when available.",
+        "paper_cash": "Cash",
+        "paper_positions": "Positions",
+        "paper_total_value": "Total value",
+        "paper_last_trades": "Recent paper fills",
+        "paper_no_state": "No state.json — run daily mode first.",
+        "event_log_title": "Audit trail (signals vs fills)",
+        "event_log_empty": "No events yet — run daily after upgrade.",
+        "event_log_filter": "Filter by event type",
+        "event_log_all_types": "All types",
+        "export_zip": "Download reports bundle (ZIP)",
+        "export_zip_hint": "Includes recent picks, summaries, signals, paper state, event log.",
+        "collect_progress_title": "Latest parallel crawl log",
+        "collect_progress_file": "File",
+        "collect_progress_empty": "No progress lines yet.",
+        "auth_title": "Dashboard access",
+        "auth_prompt": "Enter access password",
+        "auth_wrong": "Incorrect password.",
+        "auth_env_hint": "Set STREAMLIT_DASHBOARD_PASSWORD to enable.",
+        "settings_preview_title": "Strategy settings (read-only)",
+        "settings_preview_hint": "From config/settings.yaml — edit file and restart pipeline to apply.",
+        "universe_edit_title": "Stock universe (write settings.yaml)",
+        "universe_edit_label": "One symbol per line (e.g. 600519.SH)",
+        "universe_save": "Save universe to settings.yaml",
+        "universe_saved": "Saved. Re-run daily/realtime to use new symbols.",
+        "explanation_lang_hint": "Pipeline explanations: set project.explanation_lang to en in settings.yaml",
     },
     "zh": {
         "page_title": "OpenClaw AI 选股",
@@ -181,7 +390,7 @@ LANG = {
         "no_sentiment_history": "未找到情感历史。",
         "platform_contribution": "平台贡献（选股解释）",
         "select_symbol_for_contribution": "选择用于贡献的代码",
-        "platform_radar": "平台雷达（情感对比）",
+        "platform_radar": "平台雷达（情绪对比）",
         "select_symbol_for_radar": "选择雷达代码",
         "top_comments": "为何被选（Top 评论）",
         "no_raw_posts": "未找到原始帖子 CSV。请先运行 daily 模式。",
@@ -212,7 +421,12 @@ LANG = {
         "risk_weak_signal": "信号较弱",
         "positive_highlight": "正面高亮评论",
         "negative_highlight": "负面高亮评论",
-        "key_fields": "关键字段",
+        "click_to_expand": "点击展开查看完整评论",
+        "show_more_comments": "展示更多 ({n} 条)",
+        "show_less_comments": "收起",
+        "col_post_time": "时间",
+        "key_fields": "选股明细",
+        "key_fields_help": "下表按「排名 → 股票 → 各平台情感分」展开。**综合情感分**为加权汇总（-1 偏空 ~ +1 偏多），**平台情感分**为各渠道 AI 打分。",
         "kpi_label": "KPI",
         "score_label": "分数",
         "risk_hint_label": "风险提示",
@@ -255,29 +469,205 @@ LANG = {
         "tab_sentiment": "舆情分析",
         "tab_comments": "评论依据",
         "tab_eval": "回测评估",
+        "tab_openclaw": "OpenClaw 实时",
+        "ui_theme_label": "界面主题",
+        "ui_theme_light": "浅色",
+        "ui_theme_dark": "深色",
+        "openclaw_engine_title": "OpenClaw 分析引擎",
+        "openclaw_connected": "已连接",
+        "openclaw_disconnected": "未连接（当前为关键词兜底）",
+        "openclaw_probe_btn": "测试连接",
+        "openclaw_url_label": "服务地址",
+        "openclaw_probe_hint": "首次探测约需 30-60 秒（DeepSeek）。",
+        "openclaw_score_stats": "最新 raw CSV 中 AI 打分：{ai}/{total} 条",
+        "openclaw_score_metric": "AI 打分条数",
+        "openclaw_no_raw": "尚未加载 raw CSV。",
         "status_last_report": "最新报告",
         "status_running_hint": "选股任务可能仍在运行，点击刷新查看最新结果。",
         "rank_label": "排名",
         "refresh_data": "刷新数据",
         "sidebar_paths": "数据路径",
-        "hero_tagline": "多平台舆情 · AI 智能选股 · 可解释信号",
+        "hero_tagline": "OpenClaw 实时监测舆情 · DeepSeek 情感分析 · AI 智能选股",
+        "hero_kpi_picks": "实时选股",
+        "hero_kpi_alerts": "评分告警",
+        "hero_kpi_platforms": "监测平台",
+        "hero_kpi_report": "最新报告",
+        "hero_kpi_fallback": "采集 fallback 率",
+        "hero_kpi_none": "—",
+        "wf_export_csv": "下载 walk-forward 折表 (CSV)",
+        "user_guide_title": "你可以这样使用本页",
+        "user_guide_body": """
+1. **实时选股** — OpenClaw 汇总多平台情感分，输出 Top 3 排名与选股原因卡。  
+2. **OpenClaw 实时** — 查看 AI 分析流水线、逐条分析流水，以及 OpenClaw / 关键词 打分来源。  
+3. **舆情分析** — 各平台趋势与贡献权重。  
+4. **评论依据** — 用户观点 + 参考文本，支撑选股结论。  
+
+连接 OpenClaw：设置 `OPENCLAW_URL` 或运行 `scripts/run_demo_openclaw.ps1`；侧边栏显示连接状态。
+""",
+        "tab_openclaw": "OpenClaw 实时",
+        "openclaw_status_title": "OpenClaw 分析引擎",
+        "openclaw_connected": "已连接",
+        "openclaw_disconnected": "未连接（当前为关键词兜底）",
+        "openclaw_url_label": "服务地址",
+        "openclaw_probe_btn": "测试连接",
+        "openclaw_rescore_btn": "用 OpenClaw 重新分析当前评论",
+        "openclaw_rescore_hint": "需配置 OPENCLAW_URL；分数仅在本会话内更新。",
+        "openclaw_rescore_done": "OpenClaw 已重新分析 {n} 条评论。",
+        "openclaw_pipeline_title": "OpenClaw 实时分析流水线",
+        "openclaw_pipeline_body": """
+**① 采集** — 从股吧、雪球、微博等平台抓取目标股票相关文本。  
+**② OpenClaw 打分** — 经 OpenClaw Gateway 调用 DeepSeek，批量输出情感分（`/api/v1/sentiment`）。  
+**③ 加权聚合** — 按平台权重汇总为综合舆情分。  
+**④ 选股推荐** — 排名 Top N 并生成可解释的推荐原因卡。
+""",
+        "openclaw_summary_title": "本轮分析概览",
+        "openclaw_summary_fmt": "原始 {total_raw} 条 · 可用 {usable} 条 · 用户观点 {user_comments} 条 · OpenClaw 打分 {openclaw_scored} 条 · 关键词 {keyword_scored} 条 · 推荐 {pick_count} 只",
+        "openclaw_activity_title": "最新分析流水",
+        "openclaw_pick_rec_title": "OpenClaw 选股推荐",
+        "openclaw_pick_rec_body": "综合分来自最近一次 realtime 运行。平台层在 OpenClaw 在线时使用 AI 打分；逐帖批量打分需设置 `OPENCLAW_SKIP_ROW_SCORE=0`。",
+        "openclaw_not_connected_hint": "OpenClaw 未连接，当前展示关键词分数。运行 `scripts/run_demo_openclaw.ps1` 可启用 AI 分析。",
+        "openclaw_setup_expander": "连接说明 / 错误详情",
+        "reference_expand_hint": "参考文本（新闻/分析，权重较低）— 点击展开",
+        "reference_comments": "参考文本（新闻 / 分析，权重较低）",
+        "badge_openclaw": "OpenClaw AI",
+        "badge_keyword": "关键词",
+        "badge_user_comment": "用户观点",
+        "badge_news": "新闻",
+        "badge_reference": "参考",
         "no_platform_scores": "暂无平台分数明细",
         "guide_trend_title": "图表说明：情感趋势",
-        "guide_trend_body": "每条折线代表一个平台的**月度平均情感分**（-1 偏空 ~ +1 偏多）。上行=情绪改善，下行=情绪恶化。可通过「Min samples」过滤样本过少的平台。",
+        "guide_trend_body": "每条折线代表一个平台的**月度平均情绪分**（-1 偏空 ~ +1 偏多）。上行=情绪改善，下行=情绪恶化。可通过「最少样本数」过滤样本过少的平台。",
         "guide_contrib_title": "图表说明：平台贡献（选股解释）",
-        "guide_contrib_body": "分数来自**最新一轮 realtime 选股**的各平台分项；权重来自 config/settings.yaml。**加权贡献 = 分数 × 平台权重**，**贡献 %** 越高表示该平台对本次排名影响越大。",
-        "guide_snapshot_title": "平台情感快照",
-        "guide_snapshot_body": "展示所选股票在各平台的**最新情感分**。绿色偏多、红色偏空、灰色中性/无信号，便于快速对比强弱平台。",
+        "guide_contrib_body": "分数来自**最近一轮实时选股**的各平台分项；权重来自 config/settings.yaml。**加权贡献 = 分数 × 平台权重**，**贡献 %** 越高表示该平台对本次排名影响越大。",
+        "guide_snapshot_title": "平台情绪快照",
+        "guide_snapshot_body": "展示所选股票在各平台的**最新情绪分**。绿色偏多、红色偏空、灰色中性/无信号，便于快速对比强弱平台。",
         "guide_comments_title": "图表说明：评论依据",
-        "guide_comments_body": "已自动过滤 fallback/页面导航等噪声。评论按 AI 情感分排序，建议优先查看带**平台标签**和**原文链接**的条目以便核实。",
+        "guide_comments_body": "用户观点按 OpenClaw/关键词 情感分排序；新闻与分析类参考文本单独展示（权重较低）。**点击评论可展开**查看完整正文与原文链接。",
         "sample_low_warning": "⚠️ 当前样本偏少，平台统计可能不准确。建议多跑几次 daily/realtime 积累数据。",
-        "evidence_summary": "证据统计：有效评论 {valid}/{total} 条，覆盖 {platforms} 个平台，已过滤 {fallback} 条噪声",
+        "evidence_summary": "证据统计：用户评论 {valid}/{total} 条，覆盖 {platforms} 个平台，已过滤噪声 {fallback} 条、新闻 {news_filtered} 条",
+        "comments_few_hint": "过滤新闻后用户评论较少，建议重新运行 daily 模式，优先采集股吧/雪球讨论帖。",
         "no_valid_comments": "过滤噪声后暂无有效评论。请重新运行 daily 模式抓取最新帖子。",
         "pick_story": "选股叙事",
         "platform_snapshot": "平台情感快照",
         "col_config_weight": "配置权重",
         "col_weighted_contrib": "加权贡献",
         "col_direction": "方向",
+        "hero_kpi_ai_coverage": "AI 打分覆盖",
+        "hero_kpi_sentiment_bias": "舆情多空比",
+        "sentiment_engine_title": "AI 情感分析引擎",
+        "sentiment_engine_body": "连接 OpenClaw 时走 **DeepSeek 批量情感接口**；离线时使用扩展 **中文关键词词典** 兜底。分数区间 **-1（偏空）~ +1（偏多）**.",
+        "filter_controls": "筛选条件",
+        "min_samples_platform": "每平台最少样本数",
+        "include_zero_scores": "包含零分（将 0 视为有效信号）",
+        "filter_hint_samples": "提高样本阈值可隐藏样本过少的折线。",
+        "signal_stats": "信号统计",
+        "show_platform_counts": "显示各平台样本数",
+        "signal_stats_hint": "样本数基于有效情感记录统计。",
+        "export_section": "导出",
+        "export_hint": "CSV 与当前筛选条件一致。",
+        "download_csv": "下载 CSV",
+        "no_platforms_after_filter": "筛选后无剩余平台，请降低最少样本数。",
+        "platform_sample_counts": "各平台样本数",
+        "actions": "操作",
+        "contrib_actions_hint": "贡献表与图表随选择即时更新。",
+        "chip_trend": "趋势",
+        "chip_multisource": "多源",
+        "chip_drivers": "驱动",
+        "chip_weights": "权重",
+        "chip_snapshot": "快照",
+        "chip_ranked": "排序柱",
+        "chip_ai_engine": "AI 引擎",
+        "symbol_sentiment_card": "单股情感快照",
+        "symbol_avg_score": "平均情感分",
+        "symbol_comment_count": "有效评论",
+        "platform_breakdown": "分平台均值",
+        "quote_positive": "最强看多摘录",
+        "quote_negative": "最强看空摘录",
+        "deploy_aliyun_title": "阿里云实时打分",
+        "deploy_aliyun_hint": "在服务器配置 OPENCLAW_URL 指向情感代理，并用 systemd/cron 跑 realtime 任务。",
+        "tab_analyst": "分析师评分",
+        "analyst_compare_title": "多 Agent 评分对比",
+        "analyst_compare_body": "对比情绪、技术、基本面三位分析师对每只股票的评分。共识分按配置权重融合三者得出。",
+        "analyst_select_symbol": "选择股票代码查看分析师评分明细",
+        "analyst_no_data": "暂无多 Agent 信号数据。请先在 settings.yaml 中启用 `analysis.enabled: true` 并运行 pipeline。",
+        "analyst_score_chart_title": "各股票分析师评分拆解",
+        "analyst_consensus_title": "共识信号详情",
+        "analyst_col_analyst": "分析师",
+        "analyst_col_score": "评分",
+        "analyst_col_confidence": "置信度",
+        "analyst_col_reasoning": "分析依据",
+        "analyst_kelly": "凯利仓位",
+        "analyst_direction": "方向",
+        "analyst_n_analysts": "分析师数",
+        "analyst_n_agreeing": "一致数",
+        "analyst_backtest_hint": "运行 `python main.py --mode backtest --multi-agent` 生成对比数据。",
+        "analyst_sentiment": "情绪",
+        "analyst_technical": "技术",
+        "analyst_fundamental": "基本面",
+        "analyst_backtest_title": "纯情绪 vs 多 Agent：回测对比",
+        "analyst_backtest_load": "加载对比数据",
+        "analyst_backtest_no_data": "未找到对比 CSV。请先运行 `--mode backtest --multi-agent`。",
+        "analyst_backtest_csv": "对比 CSV 路径",
+        "analyst_backtest_default_path": "data/reports/backtest_comparison.csv",
+        "quality_gate_title": "原始数据质量门控",
+        "quality_gate_pass": "通过 — 可发信号",
+        "quality_gate_fail": "未通过 / 已阻断 — 置信度已下调",
+        "quality_gate_no_data": "暂无质量门控记录，请先运行 daily 模式。",
+        "quality_gate_multiplier": "置信度系数",
+        "quality_gate_noise": "噪声率",
+        "quality_gate_fallback": "Fallback 率",
+        "quality_gate_history_title": "质量门控历史",
+        "quality_gate_history_hint": "虚线 = quality.max_fallback_rate（{threshold}）。",
+        "quality_metric_fallback": "Fallback %",
+        "quality_metric_noise": "噪声 %",
+        "quality_chart_date": "交易日",
+        "signal_explanation_title": "决策说明",
+        "paper_price_hint": "纸面成交优先使用当日收盘价（yfinance / akshare），缺失时回退合成价。",
+        "walk_forward_title": "Walk-forward 样本外评估",
+        "walk_forward_run": "在界面运行 walk-forward",
+        "walk_forward_load_report": "加载已保存报告",
+        "walk_forward_no_report": "尚无 walk_forward_report.md — 点击下方运行或执行 `python main.py --mode walk_forward`。",
+        "walk_forward_avg_test_acc": "平均测试准确率",
+        "walk_forward_avg_degradation": "训练→测试准确率落差",
+        "walk_forward_avg_deg": "训练→测试准确率落差",
+        "walk_forward_folds_table": "Walk-forward 各折明细",
+        "wf_col_train": "训练窗口",
+        "wf_col_test": "测试窗口",
+        "wf_col_train_acc": "训练准确率",
+        "wf_col_test_acc": "测试准确率",
+        "wf_col_train_sharpe": "训练 Sharpe",
+        "wf_col_test_sharpe": "测试 Sharpe",
+        "wf_col_deg": "准确率落差",
+        "wf_col_test_n": "测试信号数",
+        "walk_forward_recommendation": "结论建议",
+        "paper_account_title": "纸面账户",
+        "paper_equity_title": "纸面净值曲线",
+        "paper_equity_hint": "由 trade_history.jsonl 重建；持仓按最近收盘价市值（若可获取）。",
+        "paper_cash": "现金",
+        "paper_positions": "持仓",
+        "paper_total_value": "总市值",
+        "paper_last_trades": "最近纸面成交",
+        "paper_no_state": "尚无 state.json — 请先运行 daily 模式。",
+        "event_log_title": "审计流水（信号 vs 成交）",
+        "event_log_empty": "暂无事件 — 升级后运行 daily 会写入 event_log.jsonl。",
+        "event_log_filter": "按事件类型筛选",
+        "event_log_all_types": "全部类型",
+        "export_zip": "下载报告打包 (ZIP)",
+        "export_zip_hint": "含近期选股、日报、信号、纸面状态与审计流水。",
+        "collect_progress_title": "最近并行采集日志",
+        "collect_progress_file": "文件",
+        "collect_progress_empty": "暂无进度记录。",
+        "auth_title": "仪表盘访问",
+        "auth_prompt": "请输入访问密码",
+        "auth_wrong": "密码错误。",
+        "auth_env_hint": "设置环境变量 STREAMLIT_DASHBOARD_PASSWORD 后启用。",
+        "settings_preview_title": "策略配置（只读）",
+        "settings_preview_hint": "来自 config/settings.yaml — 修改后需重跑 daily/realtime。",
+        "universe_edit_title": "股票池（写入 settings.yaml）",
+        "universe_edit_label": "每行一个代码（如 600519.SH）",
+        "universe_save": "保存股票池到 settings.yaml",
+        "universe_saved": "已保存，请重跑 daily/realtime。",
+        "explanation_lang_hint": "流水线说明语言：在 settings.yaml 设置 project.explanation_lang: en",
     },
 }
 
@@ -306,158 +696,1494 @@ def t(key: str) -> str:
     return LANG.get(lang, LANG["en"]).get(key, key)
 
 
-def _inject_dashboard_styles() -> None:
+def _ui_lang() -> str:
+    try:
+        return str(st.session_state.get("lang", "zh"))
+    except Exception:
+        return "zh"
+
+
+def _platform_label(name: str) -> str:
+    return platform_label(name, _ui_lang())
+
+
+def _symbol_label(symbol: str) -> str:
+    return symbol_display(symbol, _ui_lang())
+
+
+def _evidence_caption(stats: dict) -> str:
+    return t("evidence_summary").format(
+        valid=stats["valid"],
+        total=stats["total"],
+        platforms=stats["platforms"],
+        fallback=stats["fallback"],
+        news_filtered=stats.get("news_filtered", 0),
+    )
+
+
+def _openclaw_client() -> OpenClawClient:
+    if "_openclaw_client" not in st.session_state:
+        st.session_state["_openclaw_client"] = OpenClawClient()
+    return st.session_state["_openclaw_client"]
+
+
+def _openclaw_probe(force: bool = False) -> Dict[str, object]:
+    client = _openclaw_client()
+    if not client.is_configured():
+        return {
+            "connected": False,
+            "url": None,
+            "message": "OPENCLAW_URL not set",
+        }
+    if not force and "_openclaw_probe" in st.session_state:
+        return st.session_state["_openclaw_probe"]
+    result = client.probe()
+    st.session_state["_openclaw_probe"] = result
+    return result
+
+
+def _bootstrap_openclaw_env() -> None:
+    """Load project .env and default local OpenClaw URL for Streamlit sessions."""
+    root = Path(__file__).resolve().parents[2]
+    env_path = root / ".env"
+    if env_path.exists():
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            piece = line.strip()
+            if not piece or piece.startswith("#") or "=" not in piece:
+                continue
+            key, _, val = piece.partition("=")
+            os.environ.setdefault(key.strip(), val.strip())
+    os.environ.setdefault("OPENCLAW_URL", "http://127.0.0.1:18790")
+    os.environ.setdefault("OPENCLAW_TIMEOUT", "120")
+    os.environ.setdefault("OPENCLAW_PROBE_TIMEOUT", "120")
+
+
+def _render_openclaw_sidebar() -> None:
+    probe = _openclaw_probe()
+    connected = bool(probe.get("connected"))
+    status_text = t("openclaw_connected") if connected else t("openclaw_disconnected")
+    css = "openclaw-on" if connected else "openclaw-off"
     st.markdown(
+        f"""
+        <div class='openclaw-status-card'>
+            <div class='openclaw-status-meta'>OpenClaw · {t('openclaw_engine_title')}</div>
+            <span class='status-pill {css} status-pill--dashboard'>
+                <span class='status-dot' aria-hidden='true'></span>
+                <span>{status_text}</span>
+            </span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    if probe.get("url"):
+        st.caption(str(probe.get("url")))
+    if st.button(t("openclaw_probe_btn"), use_container_width=True, key="oc_probe_btn"):
+        st.session_state.pop("_openclaw_probe", None)
+        _openclaw_probe(force=True)
+        st.rerun()
+    if not connected:
+        with st.expander(t("openclaw_setup_expander"), expanded=False):
+            st.caption(t("openclaw_not_connected_hint"))
+            if probe.get("message"):
+                st.code(str(probe.get("message", ""))[:220])
+
+
+def _render_openclaw_pipeline_banner() -> None:
+    steps = [
+        "① 采集" if _ui_lang() == "zh" else "1. Collect",
+        "② OpenClaw" if _ui_lang() == "zh" else "2. OpenClaw",
+        "③ 聚合" if _ui_lang() == "zh" else "3. Aggregate",
+        "④ 推荐" if _ui_lang() == "zh" else "4. Recommend",
+    ]
+    st.markdown(
+        "<div class='pipeline-flow'>"
+        + "".join(f"<div class='pipeline-step'>{s}</div>" for s in steps)
+        + "</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def _comment_badges_html(row: pd.Series) -> str:
+    source = str(row.get("score_source") or infer_score_source(row))
+    ctype = str(row.get("content_type") or "reference")
+    engine_cls = "ai" if source == "openclaw" else "kw"
+    engine_label = t("badge_openclaw") if source == "openclaw" else t("badge_keyword")
+    type_map = {
+        "user_comment": ("user", t("badge_user_comment")),
+        "news": ("news", t("badge_news")),
+        "reference": ("ref", t("badge_reference")),
+    }
+    type_cls, type_label = type_map.get(ctype, ("ref", t("badge_reference")))
+    return (
+        f"<span class='oc-badge {engine_cls}'>{engine_label}</span>"
+        f"<span class='oc-badge {type_cls}'>{type_label}</span>"
+    )
+
+
+def _apply_openclaw_rescore(comments_df: pd.DataFrame) -> pd.DataFrame:
+    if comments_df.empty:
+        return comments_df
+    client = _openclaw_client()
+    if not client.is_configured():
+        return comments_df
+    texts = [
+        str(r.get("full_text") or r.get("display_text") or "")
+        for _, r in comments_df.iterrows()
+    ]
+    texts = [t for t in texts if t.strip()]
+    if not texts:
+        return comments_df
+    scores = client.score_texts(texts)
+    if not scores or len(scores) != len(texts):
+        return comments_df
+    out = comments_df.copy()
+    for idx, score in zip(out.index, scores):
+        out.at[idx, "ai_score"] = float(score)
+        out.at[idx, "score_source"] = "openclaw"
+    return out
+
+
+def _render_openclaw_tab(
+    raw_df: pd.DataFrame, picks_df: pd.DataFrame, report_dir: str
+) -> None:
+    probe = _openclaw_probe()
+    _render_info_box(t("openclaw_pipeline_title"), t("openclaw_pipeline_body"))
+    _render_openclaw_pipeline_banner()
+
+    summary = build_openclaw_summary(raw_df, picks_df)
+    st.markdown(f"#### {t('openclaw_summary_title')}")
+    st.markdown(
+        t("openclaw_summary_fmt").format(**summary),
+        unsafe_allow_html=True,
+    )
+    if not probe.get("connected"):
+        st.warning(t("openclaw_not_connected_hint"))
+
+    st.markdown(f"#### {t('openclaw_pick_rec_title')}")
+    st.caption(t("openclaw_pick_rec_body"))
+    if picks_df.empty:
+        st.info(t("no_realtime_picks"))
+    else:
+        rec = build_picks_detail_table(picks_df, _ui_lang())
+        st.dataframe(rec, use_container_width=True, hide_index=True)
+
+    st.markdown(f"#### {t('openclaw_activity_title')}")
+    feed = build_openclaw_activity_feed(raw_df, limit=30, lang=_ui_lang())
+    if feed.empty:
+        st.info(t("no_raw_posts"))
+    else:
+        st.dataframe(feed, use_container_width=True, hide_index=True)
+
+    if not raw_df.empty:
+        st.caption(t("openclaw_rescore_hint"))
+        symbols = sorted(raw_df["symbol"].dropna().unique().tolist())
+        sym = st.selectbox(t("select_symbol"), symbols, key="oc_rescore_symbol")
+        if st.button(t("openclaw_rescore_btn"), key="oc_rescore_btn"):
+            rows = top_comment_rows(raw_df, sym, top_n=15, include_reference=True)
+            merged = pd.concat(
+                [rows["positive"], rows["negative"], rows["reference"]],
+                ignore_index=True,
+            ).drop_duplicates(subset=["url"], keep="first")
+            rescored = _apply_openclaw_rescore(merged)
+            st.session_state[f"_oc_rescored_{sym}"] = rescored
+            st.success(t("openclaw_rescore_done").format(n=len(rescored)))
+        cached = st.session_state.get(f"_oc_rescored_{sym}")
+        if isinstance(cached, pd.DataFrame) and not cached.empty:
+            st.markdown(f"**OpenClaw re-score · {_symbol_label(sym)}**")
+            _render_comment_highlights(cached, key_prefix=f"oc_live_{sym}")
+
+
+# Dashboard design tokens — modular layout + original teal palette
+_DASH_ACCENT = "#0D9488"
+_DASH_COLORS = [
+    "#0D9488",
+    "#047857",
+    "#115E59",
+    "#134E4A",
+    "#B45309",
+    "#5C6B63",
+    "#0F766E",
+    "#6B7280",
+]
+_SENTIMENT_BAR_SCALE = alt.Scale(
+    domain=["bull", "bear", "flat"],
+    range=["#047857", "#B91C1C", "#5C6B63"],
+)
+
+
+def _sentiment_color(score: float) -> str:
+    if score > 0.05:
+        return "#047857"
+    if score < -0.05:
+        return "#B91C1C"
+    return "#5C6B63"
+
+
+def _platform_chip_html(platform: str, score: float, *, suffix: str = "") -> str:
+    label = _platform_label(platform)
+    text = f"{label} {score:+.3f}{suffix}" if suffix else f"{label} {score:+.3f}"
+    color = _sentiment_color(score)
+    return (
+        f"<span class='platform-chip' style='color:{color};'>"
+        f"<span class='platform-chip-label'>{text}</span></span>"
+    )
+
+
+def _configure_chart(chart: alt.Chart) -> alt.Chart:
+    theme = "light"
+    try:
+        theme = str(st.session_state.get("ui_theme", "light"))
+    except Exception:
+        pass
+    if theme == "dark":
+        ink = "#E8EDEA"
+        muted = "#A8B4AC"
+        grid = "rgba(168, 180, 172, 0.14)"
+        view_fill = "#141A22"
+    else:
+        ink = "#121820"
+        muted = "#4A5750"
+        grid = "rgba(120, 132, 124, 0.16)"
+        view_fill = "#FFFFFF"
+    return (
+        chart.configure_axis(
+            labelFont="Nunito Sans",
+            titleFont="Nunito Sans",
+            labelColor=muted,
+            titleColor=ink,
+            gridColor=grid,
+            domainColor=grid,
+            tickColor=grid,
+        )
+        .configure_view(strokeWidth=0, fill=view_fill)
+        .configure_title(
+            font="Nunito Sans",
+            fontSize=14,
+            fontWeight=600,
+            color=ink,
+        )
+        .configure_legend(
+            labelFont="Nunito Sans",
+            titleFont="Nunito Sans",
+            labelColor=muted,
+            titleColor=ink,
+            symbolType="circle",
+            orient="top",
+            padding=8,
+        )
+    )
+
+
+def _inject_dashboard_styles(theme: str = "light") -> None:
+    is_dark = theme == "dark"
+    if is_dark:
+        tokens = """
+            --dash-bg: #0B0F14;
+            --dash-surface: #141A22;
+            --dash-surface-raised: #1A222C;
+            --dash-surface-muted: #1A222C;
+            --dash-ink: #E8EDEA;
+            --dash-muted: #A8B4AC;
+            --dash-subtle: #7A8A82;
+            --dash-border: rgba(168, 180, 172, 0.16);
+            --dash-accent: #14B8A6;
+            --dash-accent-soft: rgba(13, 148, 136, 0.14);
+            --dash-positive: #34D399;
+            --dash-negative: #F87171;
+            --dash-sidebar: #0E1218;
+            --dash-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+            --dash-shadow-sm: 0 4px 14px rgba(0, 0, 0, 0.22);
         """
+        hero_title = "#F3F5F4"
+        hero_sub = "#A8B4AC"
+        kicker = "#14B8A6"
+        pick_bg = "#141A22"
+        metric_bg = "#141A22"
+        tab_sel_bg = "rgba(13, 148, 136, 0.22)"
+        openclaw_on_color = "#5EEAD4"
+        sidebar_block = """
+            --sidebar-bg: linear-gradient(180deg, #0E1218 0%, #141A22 100%);
+            --sidebar-bg-solid: #0E1218;
+            --sidebar-border: rgba(168, 180, 172, 0.14);
+            --sidebar-ink: #E8EDEA;
+            --sidebar-muted: #A8B4AC;
+            --sidebar-label: #F3F5F4;
+            --sidebar-input-bg: #1A222C;
+            --sidebar-input-border: rgba(168, 180, 172, 0.22);
+            --sidebar-alert-bg: #141A22;
+            --sidebar-expander-bg: #141A22;
+            --sidebar-toolbar-bg: linear-gradient(180deg, rgba(26,34,44,0.98) 0%, rgba(20,26,34,0.92) 100%);
+            --sidebar-hr: rgba(168, 180, 172, 0.14);
+        """
+    else:
+        tokens = """
+            --dash-bg: #F3F5F4;
+            --dash-surface: #FFFFFF;
+            --dash-surface-raised: #FAFBFA;
+            --dash-surface-muted: #F4F6F5;
+            --dash-ink: #121820;
+            --dash-muted: #4A5750;
+            --dash-subtle: #5C6B63;
+            --dash-border: rgba(120, 132, 124, 0.18);
+            --dash-accent: #0D9488;
+            --dash-accent-soft: rgba(13, 148, 136, 0.1);
+            --dash-positive: #047857;
+            --dash-negative: #B91C1C;
+            --dash-sidebar: #121820;
+            --dash-shadow: 0 8px 32px rgba(18, 24, 32, 0.07);
+            --dash-shadow-sm: 0 2px 16px rgba(18, 24, 32, 0.05);
+            --dash-shadow-hover: 0 12px 40px rgba(18, 24, 32, 0.09);
+        """
+        hero_title = "#121820"
+        hero_sub = "#4A5750"
+        kicker = "#0D9488"
+        pick_bg = "#FFFFFF"
+        metric_bg = "#FAFBFA"
+        tab_sel_bg = "#0D9488"
+        openclaw_on_color = "#115E59"
+        sidebar_block = """
+            --sidebar-bg: linear-gradient(180deg, #FBFCFB 0%, #F3F5F4 100%);
+            --sidebar-bg-solid: #F3F5F4;
+            --sidebar-border: rgba(120, 132, 124, 0.14);
+            --sidebar-ink: #1F2937;
+            --sidebar-muted: #6B7280;
+            --sidebar-label: #111827;
+            --sidebar-input-bg: #FFFFFF;
+            --sidebar-input-border: rgba(148, 163, 184, 0.30);
+            --sidebar-alert-bg: #FFFFFF;
+            --sidebar-expander-bg: #FFFFFF;
+            --sidebar-toolbar-bg: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(247,249,248,0.92) 100%);
+            --sidebar-hr: rgba(148, 163, 184, 0.18);
+        """
+
+    st.markdown(
+        f"""
         <style>
-        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;800&display=swap');
-        html, body, [class*="css"] {
-            font-family: 'DM Sans', 'Segoe UI', sans-serif;
-        }
-        .stApp {
-            background:
-                radial-gradient(900px 420px at 0% -10%, rgba(37, 99, 235, 0.12), transparent 60%),
-                radial-gradient(700px 360px at 100% 0%, rgba(16, 185, 129, 0.10), transparent 55%),
-                linear-gradient(180deg, #F8FAFC 0%, #EEF2FF 100%);
-        }
-        [data-testid="stSidebar"] {
-            background: linear-gradient(180deg, #0F172A 0%, #1E293B 100%);
-            border-right: 1px solid rgba(148, 163, 184, 0.18);
-        }
-        [data-testid="stSidebar"] * {
-            color: #E2E8F0 !important;
-        }
+        :root {{
+            {tokens}
+            {sidebar_block}
+            --space-xs: 0.25rem;
+            --space-sm: 0.5rem;
+            --space-md: 1rem;
+            --space-lg: 1.5rem;
+            --radius-sm: 12px;
+            --radius-md: 20px;
+            --radius-lg: 28px;
+            --radius-xl: 32px;
+            --font-display: 'Varela Round', 'Segoe UI', sans-serif;
+            --font-sans: 'Nunito Sans', 'Segoe UI', sans-serif;
+            --font-mono: 'Fira Code', ui-monospace, monospace;
+            --panel-gap: 1.25rem;
+        }}
+        @import url('https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@300;400;500;600;700&family=Varela+Round&display=swap');
+        html, body, [class*="css"] {{
+            font-family: var(--font-sans);
+            font-size: 0.9375rem;
+            line-height: 1.55;
+            color: var(--dash-ink);
+        }}
+        .stApp {{
+            background: var(--dash-bg);
+        }}
+        [data-testid="stSidebar"],
+        [data-testid="stSidebar"] > div:first-child,
+        [data-testid="stSidebarContent"] {{
+            background: var(--sidebar-bg) !important;
+            background-color: var(--sidebar-bg-solid) !important;
+            border-right: 1px solid var(--sidebar-border) !important;
+            border-radius: 0 28px 28px 0;
+            margin: 0.75rem 0 0.75rem 0.75rem;
+            box-shadow: var(--dash-shadow-sm);
+        }}
+        [data-testid="stSidebar"] p,
+        [data-testid="stSidebar"] span,
+        [data-testid="stSidebar"] label,
+        [data-testid="stSidebar"] h1,
+        [data-testid="stSidebar"] h2,
+        [data-testid="stSidebar"] h3,
+        [data-testid="stSidebar"] h4,
+        [data-testid="stSidebar"] h5,
+        [data-testid="stSidebar"] h6,
+        [data-testid="stSidebar"] .stMarkdown,
+        [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] {{
+            color: var(--sidebar-ink) !important;
+            line-height: 1.62;
+        }}
+        [data-testid="stSidebar"] .stCaption,
+        [data-testid="stSidebar"] small {{
+            color: var(--sidebar-muted) !important;
+        }}
         [data-testid="stSidebar"] .stTextInput label,
-        [data-testid="stSidebar"] .stSelectbox label {
-            color: #CBD5E1 !important;
-        }
-        .block-container {
-            padding-top: 1.2rem;
-            padding-bottom: 2.5rem;
-            max-width: 1180px;
-        }
-        .dashboard-hero {
-            border: 1px solid rgba(37, 99, 235, 0.16);
-            border-radius: 22px;
-            padding: 1.35rem 1.5rem;
-            background: linear-gradient(135deg, rgba(255,255,255,0.97), rgba(239,246,255,0.94));
-            box-shadow: 0 22px 50px rgba(15, 23, 42, 0.09);
-            margin-bottom: 1.1rem;
-        }
-        .dashboard-kicker {
-            font-size: 0.76rem;
-            letter-spacing: 0.16em;
-            text-transform: uppercase;
-            color: #2563EB;
-            margin-bottom: 0.3rem;
+        [data-testid="stSidebar"] .stSelectbox label,
+        [data-testid="stSidebar"] .stRadio label {{
+            color: var(--sidebar-label) !important;
+            font-size: 0.8125rem !important;
+            font-weight: 800 !important;
+            letter-spacing: 0.02em;
+            margin-bottom: 0.28rem !important;
+        }}
+        [data-testid="stSidebar"] input,
+        [data-testid="stSidebar"] textarea {{
+            background: var(--sidebar-input-bg) !important;
+            color: var(--sidebar-label) !important;
+            border: 1px solid var(--sidebar-input-border) !important;
+            border-radius: 16px !important;
+        }}
+        [data-testid="stSidebar"] [data-baseweb="select"] > div,
+        [data-testid="stSidebar"] [data-baseweb="input"] > div {{
+            background: var(--sidebar-input-bg) !important;
+            color: var(--sidebar-label) !important;
+            border-color: var(--sidebar-input-border) !important;
+            border-radius: 16px !important;
+        }}
+        [data-testid="stSidebar"] [data-baseweb="select"] svg,
+        [data-testid="stSidebar"] [data-baseweb="input"] svg,
+        [data-testid="stSidebar"] [data-baseweb="select"] path {{
+            color: var(--sidebar-muted) !important;
+            fill: var(--sidebar-muted) !important;
+        }}
+        [data-testid="stSidebar"] [data-testid="stAlert"] {{
+            background: var(--sidebar-alert-bg) !important;
+            color: var(--sidebar-label) !important;
+            border: 1px solid rgba(20, 184, 166, 0.16) !important;
+            border-radius: var(--radius-lg) !important;
+            box-shadow: var(--dash-shadow-sm);
+        }}
+        [data-testid="stSidebar"] [data-testid="stAlert"] * {{
+            color: var(--sidebar-label) !important;
+        }}
+        [data-testid="stSidebar"] .status-pill.openclaw-off {{
+            background: #FFF7F7 !important;
+            color: #B91C1C !important;
+            border-color: rgba(248, 113, 113, 0.3) !important;
+        }}
+        [data-testid="stSidebar"] .status-pill.openclaw-on {{
+            background: rgba(13, 148, 136, 0.12) !important;
+            color: #115E59 !important;
+            border-color: rgba(13, 148, 136, 0.25) !important;
+        }}
+        [data-testid="stSidebar"] .stButton > button {{
+            background: linear-gradient(180deg, #14B8A6 0%, #0D9488 100%) !important;
+            color: #F0FDFA !important;
+            border: 1px solid rgba(13, 148, 136, 0.35) !important;
+            border-radius: 999px !important;
+            font-weight: 700 !important;
+            padding: 0.5rem 1.1rem !important;
+            transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 180ms cubic-bezier(0.22, 1, 0.36, 1), background 180ms ease-out;
+            cursor: pointer;
+            box-shadow: 0 4px 14px rgba(13, 148, 136, 0.14);
+        }}
+        [data-testid="stSidebar"] .stButton > button:hover {{
+            background: linear-gradient(180deg, #0F766E 0%, #0D9488 100%) !important;
+            transform: translateY(-1px);
+            box-shadow: 0 8px 18px rgba(13, 148, 136, 0.2);
+        }}
+        [data-testid="stSidebar"] .stButton > button:focus-visible {{
+            outline: 2px solid #0D9488;
+            outline-offset: 2px;
+        }}
+        [data-testid="stSidebar"] hr {{
+            border-color: var(--sidebar-hr) !important;
+            margin: 1rem 0 !important;
+        }}
+        [data-testid="stSidebar"] [data-testid="stExpander"] {{
+            background: var(--sidebar-expander-bg) !important;
+            border: 1px solid var(--sidebar-border) !important;
+            border-radius: var(--radius-lg) !important;
+            box-shadow: var(--dash-shadow-sm);
+            overflow: hidden;
+        }}
+        [data-testid="stSidebar"] [data-testid="stExpander"] summary {{
+            font-weight: 800 !important;
+            color: var(--sidebar-label) !important;
+            padding: 0.15rem 0.1rem;
+        }}
+        [data-testid="stSidebar"] [data-testid="stExpander"] .streamlit-expanderContent {{
+            padding-top: 0.2rem;
+        }}
+        .sidebar-toolbar {{
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 0.4rem;
+            margin: 0.35rem 0 0.85rem;
+            padding: 0.7rem 0.75rem;
+            border: 1px solid var(--sidebar-border);
+            border-radius: 18px;
+            background: var(--sidebar-toolbar-bg);
+            box-shadow: var(--dash-shadow-sm);
+        }}
+        .symbol-sentiment-card {{
+            margin-bottom: 0.85rem;
+        }}
+        .symbol-sentiment-head {{
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 1rem;
+            flex-wrap: wrap;
+            margin-top: 0.35rem;
+        }}
+        .symbol-sentiment-title {{
+            font-family: var(--font-display);
+            font-size: 1.25rem;
             font-weight: 700;
-        }
-        .dashboard-title {
-            font-size: 2.05rem;
-            font-weight: 800;
-            line-height: 1.12;
-            color: #0F172A;
-        }
-        .dashboard-subtitle {
-            font-size: 0.95rem;
-            color: #64748B;
+            color: var(--dash-ink);
+        }}
+        .symbol-sentiment-meta {{
+            display: flex;
+            align-items: center;
+            gap: 0.65rem;
+            flex-wrap: wrap;
+            margin: 0.5rem 0;
+        }}
+        .symbol-sentiment-platforms {{
+            margin: 0.5rem 0;
+        }}
+        .symbol-quote {{
+            font-size: 0.8125rem;
+            line-height: 1.55;
+            padding: 0.55rem 0.65rem;
+            border-radius: var(--radius-sm);
             margin-top: 0.45rem;
-        }
-        .status-strip {
+            color: var(--dash-muted);
+        }}
+        .symbol-quote-label {{
+            display: block;
+            font-size: 0.65rem;
+            font-weight: 800;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            margin-bottom: 0.25rem;
+            color: var(--dash-subtle);
+        }}
+        .symbol-quote--pos {{
+            background: rgba(4, 120, 87, 0.08);
+            border-left: 3px solid var(--dash-positive);
+        }}
+        .symbol-quote--neg {{
+            background: rgba(185, 28, 28, 0.06);
+            border-left: 3px solid var(--dash-negative);
+        }}
+        .sidebar-toolbar-label {{
+            font-size: 0.68rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--dash-subtle);
+            font-weight: 800;
+        }}
+        .sidebar-toolbar-actions {{
+            display: flex;
+            gap: 0.45rem;
+            flex-wrap: wrap;
+        }}
+        .sidebar-toolbar-chip {{
+            display: inline-flex;
+            align-items: center;
+            padding: 0.2rem 0.55rem;
+            border-radius: 999px;
+            border: 1px solid rgba(13, 148, 136, 0.18);
+            background: rgba(13, 148, 136, 0.08);
+            color: #115E59;
+            font-size: 0.72rem;
+            font-weight: 700;
+        }}
+        .sidebar-status-fixed {{
+            position: sticky;
+            top: 0.5rem;
+            z-index: 4;
+            background: linear-gradient(180deg, rgba(243,245,244,0.98) 0%, rgba(243,245,244,0.88) 100%);
+            backdrop-filter: blur(8px);
+            padding-bottom: 0.35rem;
+        }}
+        .sidebar-status-fixed .openclaw-status-card {{
+            margin-bottom: 0.6rem;
+        }}
+        .sidebar-brand {{
+            font-family: var(--font-display);
+            font-size: 0.72rem;
+            letter-spacing: 0.10em;
+            text-transform: uppercase;
+            color: #0D9488 !important;
+            margin-bottom: 0.12rem;
+            font-weight: 800;
+        }}
+        .sidebar-title {{
+            font-family: var(--font-display);
+            font-size: 1.22rem;
+            font-weight: 700;
+            color: #111827 !important;
+            margin-bottom: var(--space-sm);
+            line-height: 1.15;
+        }}
+        [data-testid="stSidebar"] section[data-testid="stSidebarContent"] > div {{
+            padding-top: 0.2rem;
+            padding-bottom: 0.2rem;
+        }}
+        [data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"] {{
+            background: #FFFFFF !important;
+            border: 1px solid rgba(148, 163, 184, 0.14) !important;
+            border-radius: 22px !important;
+            box-shadow: 0 2px 10px rgba(18, 24, 32, 0.04);
+            padding: 0.6rem 0.75rem;
+        }}
+        [data-testid="stSidebar"] .stTextInput,
+        [data-testid="stSidebar"] .stSelectbox,
+        [data-testid="stSidebar"] .stRadio {{
+            margin-bottom: 0.8rem;
+        }}
+        [data-testid="stSidebar"] .stButton {{
+            margin-top: 0.35rem;
+            margin-bottom: 0.9rem;
+        }}
+        .block-container {{
+            padding: 1.25rem 1.75rem 3rem;
+            max-width: 1320px;
+        }}
+        .main .block-container {{
+            gap: var(--panel-gap);
+            animation: page-enter 200ms cubic-bezier(0.22, 1, 0.36, 1);
+            transform-origin: top center;
+            will-change: transform, opacity;
+        }}
+        .main .stTabs {{
+            background: var(--dash-surface);
+            border: 1px solid var(--dash-border);
+            border-radius: var(--radius-xl);
+            padding: 0.75rem 0.85rem 0.35rem;
+            box-shadow: var(--dash-shadow-sm);
+        }}
+        @keyframes page-enter {{
+            from {{
+                opacity: 0;
+                transform: translateY(8px);
+            }}
+            to {{
+                opacity: 1;
+                transform: translateY(0);
+            }}
+        }}
+        [data-testid="stVerticalBlockBorderWrapper"] {{
+            border-color: var(--dash-border) !important;
+            border-radius: var(--radius-xl) !important;
+            background: var(--dash-surface) !important;
+            box-shadow: var(--dash-shadow-sm);
+            padding: 0.35rem 0.65rem;
+        }}
+        .panel-card {{
+            background: var(--dash-surface);
+            border: 1px solid var(--dash-border);
+            border-radius: var(--radius-xl);
+            padding: 1.35rem 1.5rem;
+            margin-bottom: var(--panel-gap);
+            box-shadow: var(--dash-shadow-sm);
+        }}
+        .panel-card--compact {{
+            padding: 0.85rem 1.15rem;
+            margin-bottom: 0.85rem;
+        }}
+        .panel-card--accent {{
+            background: rgba(13, 148, 136, 0.12);
+            border-color: rgba(13, 148, 136, 0.2);
+            color: var(--dash-ink);
+        }}
+        .panel-card--dark {{
+            background: #121820;
+            border-color: transparent;
+            color: #E8EDEA;
+        }}
+        .comment-panel {{
+            background: var(--dash-surface-muted);
+            border: 1px solid var(--dash-border);
+            border-radius: var(--radius-lg);
+            padding: 1rem 1.1rem;
+            min-height: 120px;
+        }}
+        .comment-panel-title {{
+            font-size: 0.8125rem;
+            font-weight: 700;
+            color: var(--dash-ink);
+            margin-bottom: 0.65rem;
+            letter-spacing: 0.02em;
+        }}
+        h1, h2, h3, h4, h5, h6 {{
+            color: var(--dash-ink) !important;
+            font-family: var(--font-display) !important;
+            font-weight: 600 !important;
+            letter-spacing: -0.02em;
+        }}
+        .section-kicker {{
+            font-family: var(--font-sans);
+            font-size: 0.75rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--dash-accent);
+            font-weight: 700;
+            margin-bottom: 0.25rem;
+        }}
+        div[data-testid="stDataFrame"] {{
+            border: 1px solid var(--dash-border);
+            border-radius: var(--radius-lg);
+            overflow: hidden;
+        }}
+        div[data-testid="stDataFrame"] tbody tr:hover {{
+            background: var(--dash-accent-soft);
+        }}
+        [data-testid="stAlert"] {{
+            border-radius: var(--radius-md);
+        }}
+        hr {{
+            border-color: var(--dash-border) !important;
+            margin: var(--space-md) 0 !important;
+        }}
+        .dashboard-hero {{
+            border: 1px solid var(--dash-border);
+            border-radius: var(--radius-xl);
+            padding: 1.5rem 1.65rem;
+            background: var(--dash-surface);
+            box-shadow: var(--dash-shadow);
+            margin-bottom: var(--panel-gap);
+        }}
+        .dashboard-hero--terminal {{
+            position: relative;
+            overflow: hidden;
+            background:
+                linear-gradient(135deg, rgba(13, 148, 136, 0.06) 0%, transparent 42%),
+                var(--dash-surface);
+            border-color: rgba(13, 148, 136, 0.22);
+        }}
+        .hero-scanline {{
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent,
+                transparent 2px,
+                rgba(13, 148, 136, 0.03) 2px,
+                rgba(13, 148, 136, 0.03) 4px
+            );
+            opacity: 0.5;
+        }}
+        .hero-kpi-grid--6,
+        .hero-kpi-grid--7 {{
+            grid-template-columns: repeat(2, minmax(96px, 1fr));
+        }}
+        @media (min-width: 720px) {{
+            .hero-kpi-grid--7 {{
+                grid-template-columns: repeat(4, minmax(88px, 1fr));
+            }}
+        }}
+        @media (min-width: 1100px) {{
+            .hero-kpi-grid--6 {{
+                grid-template-columns: repeat(6, minmax(88px, 1fr));
+            }}
+            .hero-kpi-grid--7 {{
+                grid-template-columns: repeat(7, minmax(80px, 1fr));
+            }}
+        }}
+        .hero-kpi-value--warn {{
+            color: var(--dash-negative) !important;
+            font-weight: 800;
+        }}
+        .hero-kpi-value.mono {{
+            font-family: var(--font-mono);
+            font-variant-numeric: tabular-nums;
+        }}
+        .sentiment-engine-strip {{
+            margin-bottom: var(--panel-gap);
+        }}
+        .sentiment-engine-title {{
+            font-family: var(--font-display);
+            font-size: 1.05rem;
+            font-weight: 600;
+            color: var(--dash-ink);
+            margin-bottom: 0.35rem;
+        }}
+        .sentiment-engine-body {{
+            font-size: 0.8125rem;
+            color: var(--dash-muted);
+            line-height: 1.55;
+            margin: 0 0 0.75rem 0;
+            max-width: 72ch;
+        }}
+        .sentiment-engine-metrics {{
             display: flex;
             flex-wrap: wrap;
+            gap: 0.5rem;
+        }}
+        .engine-metric {{
+            display: inline-flex;
+            align-items: baseline;
+            gap: 0.35rem;
+            padding: 0.28rem 0.65rem;
+            border-radius: 999px;
+            border: 1px solid var(--dash-border);
+            background: var(--dash-surface-muted);
+            font-family: var(--font-mono);
+            font-size: 0.8125rem;
+            font-weight: 600;
+            color: var(--dash-ink);
+        }}
+        .engine-metric-label {{
+            font-size: 0.65rem;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: var(--dash-accent);
+        }}
+        .hero-top {{
+            display: flex;
+            flex-wrap: wrap;
+            gap: var(--space-lg);
+            align-items: flex-start;
+            justify-content: space-between;
+        }}
+        .hero-copy {{
+            flex: 1 1 320px;
+            min-width: 0;
+        }}
+        .dashboard-kicker {{
+            font-family: var(--font-sans);
+            font-size: 0.75rem;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: {kicker};
+            margin-bottom: 0.35rem;
+            font-weight: 700;
+        }}
+        .dashboard-title {{
+            font-family: var(--font-display);
+            font-size: 1.75rem;
+            font-weight: 600;
+            line-height: 1.2;
+            color: {hero_title};
+        }}
+        .dashboard-subtitle {{
+            font-size: 0.875rem;
+            color: {hero_sub};
+            margin-top: 0.45rem;
+            max-width: 58ch;
+            line-height: 1.55;
+        }}
+        .hero-kpi-grid {{
+            display: grid;
+            grid-template-columns: repeat(2, minmax(120px, 1fr));
             gap: 0.55rem;
-            margin: 0.85rem 0 0.2rem 0;
-        }
-        .status-pill {
+            flex: 0 1 280px;
+        }}
+        .hero-kpi {{
+            border: 1px solid var(--dash-border);
+            border-radius: var(--radius-lg);
+            padding: 0.9rem 1.05rem;
+            background: var(--dash-surface-muted);
+            box-shadow: none;
+        }}
+        .hero-kpi-label {{
+            font-size: 0.6875rem;
+            font-weight: 600;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            color: var(--dash-muted);
+            margin-bottom: 0.35rem;
+        }}
+        .hero-kpi-value {{
+            font-family: var(--font-display);
+            font-size: 1.375rem;
+            font-weight: 600;
+            color: var(--dash-ink);
+            line-height: 1.2;
+        }}
+        .hero-kpi-value.small {{
+            font-size: 0.8125rem;
+            font-weight: 500;
+        }}
+        .status-strip {{
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin: 0.75rem 0 0.15rem 0;
+        }}
+        .status-pill {{
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            padding: 0.32rem 0.7rem;
+            border-radius: 999px;
+            font-size: 0.8125rem;
+            font-weight: 600;
+            border: 1px solid var(--dash-border);
+            background: var(--dash-surface);
+            color: var(--dash-muted);
+        }}
+        .status-dot {{
+            width: 0.45rem;
+            height: 0.45rem;
+            border-radius: 50%;
+            background: var(--dash-subtle);
+            flex-shrink: 0;
+        }}
+        .status-pill.live .status-dot {{
+            background: var(--dash-accent);
+            box-shadow: 0 0 0 3px var(--dash-accent-soft);
+        }}
+        .status-pill.live {{
+            border-color: rgba(13, 148, 136, 0.32);
+            background: rgba(236, 253, 249, 0.96);
+            color: var(--dash-accent);
+        }}
+        .status-pill.openclaw-on {{
+            border-color: rgba(13, 148, 136, 0.32);
+            background: rgba(236, 253, 249, 0.96);
+            color: {openclaw_on_color};
+        }}
+        .status-pill.openclaw-on .status-dot {{
+            background: #047857;
+        }}
+        .status-pill.openclaw-off {{
+            border-color: rgba(120, 132, 124, 0.28);
+            background: var(--dash-surface);
+            color: var(--dash-subtle);
+        }}
+        .status-pill.openclaw-off .status-dot {{
+            background: #B91C1C;
+        }}
+        .openclaw-status-card {{
+            border: 1px solid rgba(13, 148, 136, 0.14);
+            border-radius: 22px;
+            padding: 0.8rem 0.9rem;
+            background: linear-gradient(180deg, #FFFFFF 0%, #F7FAF9 100%);
+            box-shadow: 0 4px 14px rgba(18, 24, 32, 0.05);
+            margin-bottom: 0.55rem;
+        }}
+        .openclaw-status-meta {{
+            font-size: 0.6875rem;
+            font-weight: 800;
+            letter-spacing: 0.11em;
+            text-transform: uppercase;
+            color: var(--dash-accent);
+            margin-bottom: 0.45rem;
+        }}
+        .status-pill--dashboard {{
+            width: 100%;
+            justify-content: space-between;
+            padding: 0.52rem 0.8rem;
+            border-radius: 16px;
+            background: rgba(236, 253, 249, 0.92);
+            border-color: rgba(13, 148, 136, 0.24);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+        }}
+        .status-pill--dashboard span:last-child {{
+            flex: 1;
+            text-align: right;
+        }}
+        @media (prefers-reduced-motion: reduce) {{
+            .status-pill.live .status-dot {{
+                box-shadow: none;
+            }}
+        }}
+        .oc-badge {{
+            display: inline-block;
+            margin-right: 0.35rem;
+            padding: 0.12rem 0.45rem;
+            border-radius: 6px;
+            font-size: 0.6875rem;
+            font-weight: 600;
+            letter-spacing: 0.03em;
+        }}
+        .oc-badge.ai {{ background: #0D9488; color: #F0FDFA; border-radius: 999px; }}
+        .oc-badge.kw {{ background: #5C6B63; color: #F3F5F4; border-radius: 999px; }}
+        .oc-badge.user {{ background: #D1FAE5; color: #047857; border-radius: 999px; }}
+        .oc-badge.news {{ background: #FEF3C7; color: #B45309; border-radius: 999px; }}
+        .oc-badge.ref {{ background: #F3F4F6; color: #6B7280; border-radius: 999px; }}
+        .ref-snippet {{
+            border: 1px solid var(--dash-border);
+            border-radius: var(--radius-lg);
+            padding: 0.85rem 1rem;
+            margin: 0.5rem 0;
+            background: var(--dash-surface);
+            box-shadow: var(--dash-shadow-sm);
+            transition: box-shadow 0.2s ease-out, border-color 0.2s ease-out;
+            cursor: default;
+        }}
+        .ref-snippet:hover {{
+            border-color: rgba(13, 148, 136, 0.35);
+            box-shadow: var(--dash-shadow);
+        }}
+        .ref-snippet-head {{
+            font-size: 0.8125rem;
+            font-weight: 600;
+            color: var(--dash-muted);
+            margin-bottom: 0.35rem;
+        }}
+        .ref-snippet-body {{
+            font-size: 0.875rem;
+            color: var(--dash-ink);
+            line-height: 1.5;
+        }}
+        .pipeline-flow {{
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin: 0.5rem 0 0.75rem;
+        }}
+        .pipeline-step {{
+            flex: 1 1 140px;
+            padding: 0.65rem 0.75rem;
+            border-radius: var(--radius-md);
+            border: 1px solid rgba(13, 148, 136, 0.16);
+            background: var(--dash-accent-soft);
+            font-size: 0.8125rem;
+            font-weight: 600;
+            color: var(--dash-accent);
+        }}
+        .pick-card {{
+            position: relative;
+            overflow: hidden;
+            border: 1px solid var(--dash-border);
+            border-top-left-radius: 14px;
+            border-top-right-radius: 14px;
+            border-bottom-left-radius: 28px;
+            border-bottom-right-radius: 28px;
+            padding: 1.15rem 1.25rem 1.2rem;
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.88) 0%, rgba(255, 255, 255, 0.98) 100%),
+                {pick_bg};
+            box-shadow:
+                0 1px 0 rgba(255, 255, 255, 0.75) inset,
+                0 6px 16px rgba(18, 24, 32, 0.04),
+                0 14px 28px rgba(18, 24, 32, 0.06);
+            min-height: 168px;
+            transform: translateY(0) perspective(1000px) rotateX(0deg);
+            transition:
+                transform 180ms cubic-bezier(0.22, 1, 0.36, 1),
+                box-shadow 180ms cubic-bezier(0.22, 1, 0.36, 1),
+                border-color 180ms ease-out,
+                background 180ms ease-out;
+            will-change: transform, box-shadow;
+        }}
+        .pick-card::before {{
+            content: "";
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.48) 0%, rgba(255, 255, 255, 0) 36%);
+            opacity: 0.7;
+        }}
+        .pick-card::after {{
+            content: "";
+            position: absolute;
+            inset: auto 10% 0.1rem 10%;
+            height: 0.85rem;
+            border-radius: 999px;
+            background: radial-gradient(ellipse at center, rgba(18, 24, 32, 0.18) 0%, rgba(18, 24, 32, 0.06) 45%, rgba(18, 24, 32, 0) 78%);
+            filter: blur(10px);
+            opacity: 0.32;
+            pointer-events: none;
+            transform: translateY(0.1rem);
+        }}
+        .pick-card.rank-1 {{
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.94) 0%, rgba(255, 255, 255, 1) 100%),
+                #FFFFFF;
+            border-color: rgba(13, 148, 136, 0.34);
+            box-shadow:
+                0 1px 0 rgba(255, 255, 255, 0.82) inset,
+                0 8px 20px rgba(13, 148, 136, 0.09),
+                0 18px 36px rgba(18, 24, 32, 0.08);
+        }}
+        .pick-card.rank-2 {{
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(250, 251, 250, 1) 100%),
+                #FAFBFA;
+            box-shadow:
+                0 1px 0 rgba(255, 255, 255, 0.72) inset,
+                0 6px 16px rgba(18, 24, 32, 0.04),
+                0 14px 28px rgba(18, 24, 32, 0.06);
+        }}
+        .pick-card.rank-3 {{
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(255, 255, 255, 1) 100%),
+                #FFFFFF;
+            border-color: rgba(180, 132, 124, 0.22);
+            box-shadow:
+                0 1px 0 rgba(255, 255, 255, 0.72) inset,
+                0 6px 16px rgba(18, 24, 32, 0.04),
+                0 14px 28px rgba(18, 24, 32, 0.06);
+        }}
+        .pick-card:hover {{
+            transform: translateY(-4px) perspective(1000px) rotateX(1.5deg);
+            box-shadow:
+                0 1px 0 rgba(255, 255, 255, 0.84) inset,
+                0 14px 26px rgba(18, 24, 32, 0.08),
+                0 22px 46px rgba(18, 24, 32, 0.12);
+            border-color: rgba(13, 148, 136, 0.28);
+        }}
+        .pick-card:hover::after {{
+            opacity: 0.46;
+            transform: translateY(0.25rem) scale(1.02);
+        }}
+        @media (prefers-reduced-motion: reduce) {{
+            .main .block-container,
+            .pick-card,
+            .ref-snippet,
+            [data-testid="stSidebar"] .stButton > button,
+            .stTabs [data-baseweb="tab-panel"] {{
+                animation: none;
+                transition: none;
+            }}
+            .pick-card:hover {{
+                transform: none;
+            }}
+            .pick-card:hover::after {{
+                transform: translateY(0.1rem);
+            }}
+        }}
+        .pick-rank {{
+            display: inline-block;
+            font-size: 0.6875rem;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: var(--dash-muted);
+            font-weight: 700;
+            background: #F3F4F6;
+            padding: 0.2rem 0.55rem;
+            border-radius: 999px;
+            margin-bottom: 0.5rem;
+        }}
+        .pick-symbol {{
+            font-family: var(--font-display);
+            font-size: 1.15rem;
+            font-weight: 600;
+            color: var(--dash-ink);
+            margin: 0.12rem 0 0.35rem 0;
+        }}
+        .pick-score {{
+            font-family: var(--font-display);
+            font-size: 1.625rem;
+            font-weight: 600;
+            line-height: 1;
+        }}
+        .pick-score.pos {{ color: var(--dash-positive); }}
+        .pick-score.neg {{ color: var(--dash-negative); }}
+        .pick-score.neu {{ color: var(--dash-subtle); }}
+        .reason-card {{
+            border: 1px solid var(--dash-border);
+            border-radius: var(--radius-lg);
+            padding: 1rem;
+            background: var(--dash-surface);
+            box-shadow: var(--dash-shadow-sm);
+            min-height: 220px;
+        }}
+        .section-surface {{
+            border: 1px solid var(--dash-border);
+            border-radius: var(--radius-lg);
+            background: var(--dash-surface);
+            padding: 0.2rem 0.4rem;
+            box-shadow: var(--dash-shadow-sm);
+        }}
+        div[data-testid="stMetric"] {{
+            background: {metric_bg};
+            border: 1px solid var(--dash-border);
+            border-radius: var(--radius-lg);
+            padding: 0.85rem 1rem;
+            box-shadow: var(--dash-shadow-sm);
+        }}
+        div[data-testid="stMetric"] label {{
+            color: var(--dash-subtle) !important;
+            font-size: 0.75rem !important;
+            font-weight: 600 !important;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }}
+        div[data-testid="stMetric"] [data-testid="stMetricValue"] {{
+            font-family: var(--font-mono);
+            color: var(--dash-ink) !important;
+            font-weight: 600 !important;
+        }}
+        .stTabs [data-baseweb="tab-list"] {{
+            gap: 0.4rem;
+            border-bottom: none;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(246, 248, 247, 1) 100%);
+            border-radius: 999px;
+            padding: 0.35rem;
+            width: fit-content;
+            max-width: 100%;
+            border: 1px solid var(--dash-border);
+            box-shadow:
+                0 1px 0 rgba(255, 255, 255, 0.85) inset,
+                var(--dash-shadow-sm);
+            position: relative;
+            isolation: isolate;
+        }}
+        .stTabs [data-baseweb="tab-list"]::before {{
+            content: "";
+            position: absolute;
+            inset: 0.35rem;
+            width: calc(25% - 0.275rem);
+            border-radius: 999px;
+            background: linear-gradient(180deg, rgba(13, 148, 136, 0.18) 0%, rgba(13, 148, 136, 0.24) 100%);
+            box-shadow:
+                0 1px 0 rgba(255, 255, 255, 0.5) inset,
+                0 8px 18px rgba(13, 148, 136, 0.16),
+                0 2px 6px rgba(18, 24, 32, 0.06);
+            transform: translateX(0);
+            transition: transform 340ms cubic-bezier(0.22, 1, 0.36, 1), width 340ms cubic-bezier(0.22, 1, 0.36, 1), opacity 220ms ease-out;
+            pointer-events: none;
+            opacity: 0.95;
+            z-index: 0;
+        }}
+        .stTabs [data-baseweb="tab"] {{
+            position: relative;
+            z-index: 1;
+            border-radius: 999px !important;
+            padding: 0.55rem 1.15rem !important;
+            font-weight: 700;
+            font-size: 0.8125rem;
+            color: var(--dash-muted);
+            cursor: pointer;
+            transition:
+                color 220ms cubic-bezier(0.22, 1, 0.36, 1),
+                background 220ms cubic-bezier(0.22, 1, 0.36, 1),
+                transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+                box-shadow 220ms cubic-bezier(0.22, 1, 0.36, 1);
+            border: 1px solid transparent !important;
+            background: transparent !important;
+            will-change: transform;
+        }}
+        .stTabs [data-baseweb="tab"]:hover {{
+            color: var(--dash-ink);
+            background: rgba(255, 255, 255, 0.34) !important;
+            transform: translateY(-1px);
+        }}
+        .stTabs [aria-selected="true"] {{
+            color: #F0FDFA !important;
+            background: transparent !important;
+            border-bottom: none !important;
+            box-shadow: none;
+            transform: translateY(-1px) scale(1.01);
+        }}
+        .stTabs [aria-selected="true"]::after {{
+            content: "";
+            position: absolute;
+            inset: 0;
+            border-radius: 999px;
+            background: linear-gradient(180deg, rgba(13, 148, 136, 0.96) 0%, rgba(11, 118, 110, 1) 100%);
+            box-shadow:
+                0 1px 0 rgba(255, 255, 255, 0.22) inset,
+                0 6px 16px rgba(13, 148, 136, 0.24),
+                0 2px 6px rgba(18, 24, 32, 0.08);
+            z-index: -1;
+            animation: tab-pill-pop 300ms cubic-bezier(0.22, 1, 0.36, 1);
+        }}
+        .stTabs [data-baseweb="tab-panel"] {{
+            padding-top: 1.25rem;
+            animation: tab-panel-enter 360ms cubic-bezier(0.16, 1, 0.3, 1);
+            transform-origin: top center;
+        }}
+        @keyframes tab-panel-enter {{
+            from {{
+                opacity: 0;
+                transform: translateY(14px) scale(0.985);
+                filter: blur(1px);
+            }}
+            60% {{
+                opacity: 1;
+                transform: translateY(-1px) scale(1.002);
+                filter: blur(0);
+            }}
+            to {{
+                opacity: 1;
+                transform: translateY(0) scale(1);
+                filter: blur(0);
+            }}
+        }}
+        @keyframes tab-pill-pop {{
+            0% {{ transform: scale(0.96); opacity: 0.7; }}
+            60% {{ transform: scale(1.02); opacity: 1; }}
+            100% {{ transform: scale(1); opacity: 1; }}
+        }}
+        .main .stButton > button {{
+            border-radius: 999px !important;
+            font-weight: 700 !important;
+            border: 1px solid var(--dash-border) !important;
+            background: var(--dash-surface) !important;
+            color: var(--dash-ink) !important;
+            transition: background 0.2s ease-out, box-shadow 0.2s ease-out;
+            cursor: pointer;
+        }}
+        .main .stButton > button:hover {{
+            background: var(--dash-surface-muted) !important;
+            box-shadow: var(--dash-shadow-sm);
+        }}
+        .main .stButton > button[kind="primary"],
+        .main .stButton > button[data-testid="baseButton-primary"] {{
+            background: var(--dash-accent) !important;
+            color: #F0FDFA !important;
+            border: none !important;
+        }}
+        .guide-card {{
+            border: 1px solid var(--dash-border);
+            padding: 0.9rem 1rem;
+            margin: 0.35rem 0 0.8rem 0;
+            background: var(--dash-surface-muted);
+            border-radius: var(--radius-xl);
+            color: var(--dash-muted);
+            font-size: 0.875rem;
+            line-height: 1.65;
+            max-width: 72ch;
+            box-shadow: var(--dash-shadow-sm);
+        }}
+        .guide-card-title {{
+            font-family: var(--font-display);
+            font-weight: 700;
+            color: var(--dash-ink);
+            margin-bottom: 0.5rem;
+            font-size: 1rem;
+            letter-spacing: -0.01em;
+        }}
+        .panel-rail {{
+            border: 1px solid var(--dash-border);
+            border-radius: var(--radius-xl);
+            background: var(--dash-surface);
+            box-shadow: var(--dash-shadow-sm);
+            padding: 0.6rem 0.7rem 0.8rem;
+            margin: 0.35rem 0 1rem 0;
+        }}
+        .panel-rail--compact {{
+            padding: 0.55rem 0.65rem 0.7rem;
+        }}
+        .panel-section-title {{
+            font-family: var(--font-display);
+            font-size: 0.76rem;
+            font-weight: 800;
+            letter-spacing: 0.09em;
+            text-transform: uppercase;
+            color: var(--dash-ink);
+            margin-bottom: 0.25rem;
+        }}
+        .panel-subtitle {{
+            font-size: 0.74rem;
+            color: var(--dash-muted);
+            margin-bottom: 0.55rem;
+            line-height: 1.45;
+        }}
+        .panel-rail::before {{
+            content: "";
+            display: block;
+            height: 1px;
+            background: linear-gradient(90deg, rgba(20,184,166,0.0), rgba(20,184,166,0.32), rgba(20,184,166,0.0));
+            margin-bottom: 0.55rem;
+        }}
+        .panel-headbar {{
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            margin-bottom: 0.65rem;
+        }}
+        .panel-headbar-left {{
+            min-width: 0;
+        }}
+        .panel-headbar-right {{
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            flex-wrap: wrap;
+        }}
+        .panel-headbar-chip {{
             display: inline-flex;
             align-items: center;
             gap: 0.35rem;
-            padding: 0.35rem 0.75rem;
+            padding: 0.18rem 0.52rem;
             border-radius: 999px;
-            font-size: 0.82rem;
-            font-weight: 600;
-            border: 1px solid rgba(148, 163, 184, 0.28);
-            background: rgba(255,255,255,0.82);
-            color: #334155;
-        }
-        .status-pill.live {
-            border-color: rgba(16, 185, 129, 0.35);
-            background: rgba(236, 253, 245, 0.95);
-            color: #047857;
-        }
-        .pick-card {
-            border: 1px solid rgba(148, 163, 184, 0.22);
-            border-radius: 18px;
-            padding: 1rem 1.05rem;
-            background: rgba(255,255,255,0.92);
-            box-shadow: 0 14px 32px rgba(15, 23, 42, 0.06);
-            min-height: 168px;
-            transition: transform 0.15s ease, box-shadow 0.15s ease;
-        }
-        .pick-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 18px 36px rgba(15, 23, 42, 0.10);
-        }
-        .pick-rank {
-            font-size: 0.72rem;
-            letter-spacing: 0.12em;
+            border: 1px solid rgba(13, 148, 136, 0.22);
+            background: var(--dash-accent-soft);
+            color: var(--dash-accent);
+            font-size: 0.68rem;
+            font-weight: 800;
+            letter-spacing: 0.04em;
             text-transform: uppercase;
-            color: #64748B;
+        }}
+        .chart-shell {{
+            border: 1px solid var(--dash-border);
+            border-radius: var(--radius-lg);
+            background: var(--dash-surface);
+            box-shadow: var(--dash-shadow-sm);
+            padding: 0.75rem;
+            margin-top: 0.5rem;
+        }}
+        .chart-shell .stDataFrame,
+        .chart-shell [data-testid="stDataFrame"] {{
+            background: var(--dash-surface) !important;
+        }}
+        .panel-control-grid {{
+            display: grid;
+            gap: 0.6rem;
+        }}
+        .panel-control-row {{
+            border: 1px solid rgba(120, 132, 124, 0.14);
+            background: #FFFFFF;
+            border-radius: var(--radius-lg);
+            padding: 0.75rem 0.8rem;
+        }}
+        .panel-control-row + .panel-control-row {{
+            margin-top: 0.5rem;
+        }}
+        .panel-control-label {{
+            font-size: 0.72rem;
             font-weight: 700;
-        }
-        .pick-symbol {
-            font-size: 1.35rem;
-            font-weight: 800;
-            color: #0F172A;
-            margin: 0.15rem 0 0.35rem 0;
-        }
-        .pick-score {
-            font-size: 1.75rem;
-            font-weight: 800;
-            line-height: 1;
-        }
-        .pick-score.pos { color: #059669; }
-        .pick-score.neg { color: #DC2626; }
-        .pick-score.neu { color: #64748B; }
-        .reason-card {
-            border: 1px solid rgba(148, 163, 184, 0.22);
-            border-radius: 18px;
-            padding: 1rem;
-            background: rgba(255,255,255,0.90);
-            box-shadow: 0 12px 28px rgba(15, 23, 42, 0.05);
-            min-height: 220px;
-        }
-        .section-surface {
-            border: 1px solid rgba(148, 163, 184, 0.20);
-            border-radius: 18px;
-            background: rgba(255,255,255,0.88);
-            padding: 0.2rem 0.4rem;
-            box-shadow: 0 12px 28px rgba(15, 23, 42, 0.04);
-        }
-        div[data-testid="stMetric"] {
-            background: rgba(255,255,255,0.90);
-            border: 1px solid rgba(148, 163, 184, 0.18);
-            border-radius: 16px;
-            padding: 0.75rem 0.85rem;
-            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
-        }
-        div[data-testid="stMetric"] label {
-            color: #64748B !important;
-            font-size: 0.82rem !important;
-        }
-        div[data-testid="stMetric"] [data-testid="stMetricValue"] {
-            color: #0F172A !important;
-            font-weight: 800 !important;
-        }
-        .stTabs [data-baseweb="tab-list"] {
-            gap: 0.35rem;
-        }
-        .stTabs [data-baseweb="tab"] {
-            border-radius: 12px 12px 0 0;
-            padding: 0.55rem 1rem;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: var(--dash-subtle);
+            margin-bottom: 0.4rem;
+        }}
+        .panel-control-hint {{
+            font-size: 0.75rem;
+            color: var(--dash-subtle);
+            margin-top: 0.35rem;
+        }}
+        .panel-control-actions {{
+            display: grid;
+            gap: 0.55rem;
+            margin-top: 0.65rem;
+        }}
+        .trend-pill {{
+            display: inline-block;
+            padding: 0.2rem 0.55rem;
+            border-radius: 999px;
+            font-size: 0.75rem;
             font-weight: 700;
-        }
+        }}
+        .trend-pill.pos {{ background: #D1FAE5; color: #047857; }}
+        .trend-pill.neg {{ background: #FEE2E2; color: #B91C1C; }}
+        .trend-pill.neu {{ background: #F3F4F6; color: #6B7280; }}
+        .score-badge {{
+            display: inline-block;
+            padding: 0.15rem 0.55rem;
+            border-radius: 6px;
+            font-size: 0.6875rem;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            font-family: var(--font-mono);
+        }}
+        .score-badge.strong {{ background: #047857; color: #ECFDF5; border-radius: 999px; }}
+        .score-badge.positive {{ background: #0D9488; color: #F0FDFA; border-radius: 999px; }}
+        .score-badge.risk {{ background: #B91C1C; color: #FEF2F2; border-radius: 999px; }}
+        .score-badge.weak {{ background: #B45309; color: #FFFBEB; border-radius: 999px; }}
+        .score-badge.neutral {{ background: #5C6B63; color: #F3F5F4; border-radius: 999px; }}
+        .platform-chip {{
+            display: inline-block;
+            margin: 0.15rem 0.35rem 0 0;
+            padding: 0.2rem 0.55rem;
+            border-radius: 999px;
+            background: #F3F4F6;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }}
+        .platform-chip-label {{ font-weight: 500; }}
+        .trend-up {{ color: var(--dash-positive); font-size: 1rem; }}
+        .trend-down {{ color: var(--dash-negative); font-size: 1rem; }}
+        .trend-flat {{ color: var(--dash-subtle); font-size: 0.75rem; }}
         </style>
         """,
         unsafe_allow_html=True,
@@ -686,21 +2412,21 @@ def _score_badge(score: float) -> str:
     }
     strong, positive, risk, weak, neutral = labels.get(lang, labels["en"])
     if score >= 0.35:
-        return f"<span style='background:#10B981;color:white;padding:3px 10px;border-radius:999px;font-size:0.78rem;font-weight:700;'>{strong}</span>"
+        return f"<span class='score-badge strong'>{strong}</span>"
     if score >= 0.15:
-        return f"<span style='background:#3B82F6;color:white;padding:3px 10px;border-radius:999px;font-size:0.78rem;font-weight:700;'>{positive}</span>"
+        return f"<span class='score-badge positive'>{positive}</span>"
     if score <= -0.35:
-        return f"<span style='background:#EF4444;color:white;padding:3px 10px;border-radius:999px;font-size:0.78rem;font-weight:700;'>{risk}</span>"
+        return f"<span class='score-badge risk'>{risk}</span>"
     if score <= -0.15:
-        return f"<span style='background:#F97316;color:white;padding:3px 10px;border-radius:999px;font-size:0.78rem;font-weight:700;'>{weak}</span>"
-    return f"<span style='background:#6B7280;color:white;padding:3px 10px;border-radius:999px;font-size:0.78rem;font-weight:700;'>{neutral}</span>"
+        return f"<span class='score-badge weak'>{weak}</span>"
+    return f"<span class='score-badge neutral'>{neutral}</span>"
 
 
 def _render_info_box(title: str, body: str) -> None:
     st.markdown(
         f"""
-        <div class="info-callout">
-            <div class="info-callout-title">{title}</div>
+        <div class="guide-card">
+            <div class="guide-card-title">{title}</div>
             <div>{body}</div>
         </div>
         """,
@@ -724,26 +2450,168 @@ def _latest_report_meta(report_dir: str) -> tuple[str, str]:
     return path, display
 
 
+def _render_dashboard_hero(
+    picks_count: int,
+    alerts_count: int,
+    platform_count: int,
+    report_dir: str,
+    *,
+    engine_stats: Dict[str, object] | None = None,
+    capture_rates: Dict[str, float] | None = None,
+) -> None:
+    _, report_time = _latest_report_meta(report_dir)
+    report_display = report_time or t("hero_kpi_none")
+    stats = engine_stats or {}
+    cap = capture_rates or {}
+    ai_pct = stats.get("openclaw_pct", 0.0)
+    bull = stats.get("bullish_pct", 0.0)
+    bear = stats.get("bearish_pct", 0.0)
+    bias_label = f"+{bull:.0f}% / -{bear:.0f}%"
+    fb_rate = float(cap.get("fallback_rate", 0.0) or 0.0)
+    fb_pct = fb_rate * 100.0
+    fb_display = f"{fb_pct:.1f}%" if cap.get("total_rows", 0) else "—"
+    fb_warn_thr = 0.35
+    try:
+        from opinion_trading.core.config_loader import load_runtime_config
+
+        q = load_runtime_config("config/settings.yaml").quality
+        if q:
+            fb_warn_thr = float(q.max_fallback_rate)
+    except Exception:
+        pass
+    fb_value_cls = "hero-kpi-value mono hero-kpi-value--warn" if (
+        cap.get("total_rows", 0) and fb_rate > fb_warn_thr
+    ) else "hero-kpi-value mono"
+    st.markdown(
+        f"""
+        <div class="dashboard-hero dashboard-hero--terminal">
+            <div class="hero-scanline" aria-hidden="true"></div>
+            <div class="hero-top">
+                <div class="hero-copy">
+                    <div class="dashboard-kicker">OpenClaw · AI Research Terminal</div>
+                    <div class="dashboard-title">{t('header_title')}</div>
+                    <div class="dashboard-subtitle">{t('hero_tagline')}</div>
+                </div>
+                <div class="hero-kpi-grid hero-kpi-grid--7">
+                    <div class="hero-kpi">
+                        <div class="hero-kpi-label">{t('hero_kpi_picks')}</div>
+                        <div class="hero-kpi-value mono">{picks_count}</div>
+                    </div>
+                    <div class="hero-kpi">
+                        <div class="hero-kpi-label">{t('hero_kpi_alerts')}</div>
+                        <div class="hero-kpi-value mono">{alerts_count}</div>
+                    </div>
+                    <div class="hero-kpi">
+                        <div class="hero-kpi-label">{t('hero_kpi_platforms')}</div>
+                        <div class="hero-kpi-value mono">{platform_count}</div>
+                    </div>
+                    <div class="hero-kpi">
+                        <div class="hero-kpi-label">{t('hero_kpi_fallback')}</div>
+                        <div class="{fb_value_cls}">{fb_display}</div>
+                    </div>
+                    <div class="hero-kpi">
+                        <div class="hero-kpi-label">{t('hero_kpi_ai_coverage')}</div>
+                        <div class="hero-kpi-value mono">{ai_pct}%</div>
+                    </div>
+                    <div class="hero-kpi">
+                        <div class="hero-kpi-label">{t('hero_kpi_sentiment_bias')}</div>
+                        <div class="hero-kpi-value small mono">{bias_label}</div>
+                    </div>
+                    <div class="hero-kpi">
+                        <div class="hero-kpi-label">{t('hero_kpi_report')}</div>
+                        <div class="hero-kpi-value small">{report_display}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_sentiment_engine_strip(
+    engine_stats: Dict[str, object],
+    *,
+    capture_rates: Dict[str, float] | None = None,
+) -> None:
+    usable = int(engine_stats.get("usable_rows", 0) or 0)
+    oc = int(engine_stats.get("openclaw_rows", 0) or 0)
+    kw = int(engine_stats.get("keyword_rows", 0) or 0)
+    avg = float(engine_stats.get("avg_ai_score", 0.0) or 0.0)
+    tone = sentiment_intensity_label(avg, _ui_lang())
+    cap = capture_rates or {}
+    fb = float(cap.get("fallback_rate", 0.0) or 0.0) * 100.0
+    noise = float(cap.get("noise_rate", 0.0) or 0.0) * 100.0
+    quality_extra = ""
+    if cap.get("total_rows", 0):
+        quality_extra = (
+            f"<span class='engine-metric'><span class='engine-metric-label'>"
+            f"fallback</span>{fb:.1f}%</span>"
+            f"<span class='engine-metric'><span class='engine-metric-label'>"
+            f"noise</span>{noise:.1f}%</span>"
+        )
+    st.markdown(
+        f"""
+        <div class="panel-card panel-card--accent sentiment-engine-strip">
+            <div class="section-kicker">{t('chip_ai_engine')}</div>
+            <div class="sentiment-engine-title">{t('sentiment_engine_title')}</div>
+            <p class="sentiment-engine-body">{t('sentiment_engine_body')}</p>
+            <div class="sentiment-engine-metrics">
+                <span class="engine-metric"><span class="engine-metric-label">n</span>{usable}</span>
+                <span class="engine-metric"><span class="engine-metric-label">OpenClaw</span>{oc}</span>
+                <span class="engine-metric"><span class="engine-metric-label">KW</span>{kw}</span>
+                <span class="engine-metric"><span class="engine-metric-label">μ</span>{avg:+.3f}</span>
+                <span class="engine-metric"><span class="engine-metric-label">tone</span>{tone}</span>
+                {quality_extra}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def _render_status_strip(
-    report_dir: str, picks_count: int, alerts_count: int, platform_count: int
+    report_dir: str,
+    picks_count: int,
+    alerts_count: int,
+    platform_count: int,
+    *,
+    openclaw_connected: bool | None = None,
 ) -> None:
     _, report_time = _latest_report_meta(report_dir)
     pills = []
+    if openclaw_connected is not None:
+        oc_cls = "openclaw-on" if openclaw_connected else "openclaw-off"
+        oc_label = t("openclaw_connected") if openclaw_connected else t("openclaw_disconnected")
+        pills.append(
+            f"<span class='status-pill {oc_cls}'>"
+            f"<span class='status-dot' aria-hidden='true'></span>"
+            f"OpenClaw · {oc_label}</span>"
+        )
     if report_time:
         pills.append(
-            f"<span class='status-pill live'>{t('status_last_report')}: {report_time}</span>"
+            f"<span class='status-pill live'>"
+            f"<span class='status-dot' aria-hidden='true'></span>"
+            f"{t('status_last_report')}: {report_time}</span>"
         )
     pills.append(
-        f"<span class='status-pill'>{t('realtime_picks')}: {picks_count}</span>"
+        f"<span class='status-pill'>"
+        f"<span class='status-dot' aria-hidden='true'></span>"
+        f"{t('realtime_picks')}: {picks_count}</span>"
     )
     pills.append(
-        f"<span class='status-pill'>{t('score_alerts')}: {alerts_count}</span>"
+        f"<span class='status-pill'>"
+        f"<span class='status-dot' aria-hidden='true'></span>"
+        f"{t('score_alerts')}: {alerts_count}</span>"
     )
     pills.append(
-        f"<span class='status-pill'>{t('platform_label')}: {platform_count}</span>"
+        f"<span class='status-pill'>"
+        f"<span class='status-dot' aria-hidden='true'></span>"
+        f"{t('platform_label')}: {platform_count}</span>"
     )
     st.markdown(
-        f"<div class='status-strip'>{''.join(pills)}</div>", unsafe_allow_html=True
+        f"<div class='panel-card panel-card--compact'><div class='status-strip'>{''.join(pills)}</div></div>",
+        unsafe_allow_html=True,
     )
 
 
@@ -759,9 +2627,12 @@ def _render_pick_leaderboard(picks_df: pd.DataFrame) -> None:
 
     view["avg_score"] = pd.to_numeric(view["avg_score"], errors="coerce").fillna(0.0)
     view = view.sort_values("avg_score", ascending=False).reset_index(drop=True)
-    cols = st.columns(min(3, len(view)))
+    st.markdown('<div class="panel-card">', unsafe_allow_html=True)
+    st.markdown(f"#### {t('realtime_picks')}")
+    st.markdown(f"<div class='section-kicker'>Top 5</div>", unsafe_allow_html=True)
+    cols = st.columns(min(5, len(view)))
 
-    for idx, row in view.head(3).iterrows():
+    for idx, row in view.head(5).iterrows():
         symbol = str(row.get("symbol", ""))
         score = float(row.get("avg_score", 0.0))
         score_class = "pos" if score > 0.05 else "neg" if score < -0.05 else "neu"
@@ -772,42 +2643,182 @@ def _render_pick_leaderboard(picks_df: pd.DataFrame) -> None:
             for platform, pscore in sorted(
                 platform_scores.items(), key=lambda x: abs(x[1]), reverse=True
             )[:4]:
-                color = (
-                    "#059669" if pscore > 0 else "#DC2626" if pscore < 0 else "#64748B"
-                )
-                chips.append(
-                    f"<span style='display:inline-block;margin:0.15rem 0.25rem 0 0;padding:0.15rem 0.45rem;"
-                    f"border-radius:999px;background:rgba(148,163,184,0.14);color:{color};font-size:0.78rem;'>"
-                    f"{platform} {pscore:+.3f}</span>"
-                )
+                chips.append(_platform_chip_html(platform, pscore))
             platform_html = "".join(chips)
         else:
-            platform_html = f"<span style='color:#94A3B8;font-size:0.82rem;'>{t('no_platform_scores')}</span>"
+            platform_html = (
+                f"<span style='color:#5C6B63;font-size:0.8125rem;'>"
+                f"{t('no_platform_scores')}</span>"
+            )
 
         with cols[idx]:
+            rank_cls = f"rank-{min(idx + 1, 3)}"
             st.markdown(
                 f"""
-                <div class="pick-card">
+                <div class="pick-card {rank_cls}">
                     <div class="pick-rank">{t('rank_label')} #{idx + 1}</div>
-                    <div class="pick-symbol">{symbol}</div>
-                    <div class="pick-score {score_class}">{score:+.4f}</div>
+                    <div class="pick-symbol">{_symbol_label(symbol)}</div>
+                    <div style="display:flex;align-items:baseline;gap:0.65rem;flex-wrap:wrap;">
+                        <div class="pick-score {score_class}">{score:+.4f}</div>
+                        <span class="trend-pill {score_class}">{score:+.2f}</span>
+                    </div>
                     <div style="margin-top:0.45rem;">{_score_badge(score)}</div>
-                    <div style="margin-top:0.75rem;">{platform_html}</div>
+                    <div style="margin-top:0.65rem;">{platform_html}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
 
     with st.expander(t("key_fields"), expanded=False):
-        st.dataframe(view, use_container_width=True, hide_index=True)
+        st.caption(t("key_fields_help"))
+        detail = build_picks_detail_table(view, _ui_lang())
+        st.dataframe(detail, use_container_width=True, hide_index=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def _trend_arrow(score: float) -> str:
     if score >= 0.15:
-        return "<span style='color:#10B981;font-size:20px;'>▲</span>"
+        return "<span class='trend-up'>▲</span>"
     if score <= -0.15:
-        return "<span style='color:#EF4444;font-size:20px;'>▼</span>"
-    return "<span style='color:#9CA3AF;font-size:20px;'>■</span>"
+        return "<span class='trend-down'>▼</span>"
+    return "<span class='trend-flat'>■</span>"
+
+
+def _comment_preview_label(platform: str, score: float, text: str, max_len: int = 40) -> str:
+    preview = text if len(text) <= max_len else f"{text[:max_len]}…"
+    return f"{_platform_label(platform)} · {score:+.2f} · {preview}"
+
+
+def _render_symbol_sentiment_card(raw_df: pd.DataFrame, symbol: str) -> None:
+    summary = build_symbol_sentiment_summary(raw_df, symbol, lang=_ui_lang())
+    avg = float(summary.get("avg_score", 0.0) or 0.0)
+    tone = sentiment_intensity_label(avg, _ui_lang())
+    score_class = "pos" if avg > 0.05 else "neg" if avg < -0.05 else "neu"
+    count = int(summary.get("comment_count", 0) or 0)
+    plat_rows = summary.get("platforms") or []
+    plat_html = ""
+    if plat_rows:
+        chips = []
+        for item in plat_rows[:6]:
+            pscore = float(item.get("score", 0.0))
+            chips.append(_platform_chip_html(str(item.get("platform", "")), pscore))
+        plat_html = "".join(chips)
+    else:
+        plat_html = (
+            f"<span style='color:var(--dash-subtle);font-size:0.8125rem;'>"
+            f"{t('no_valid_comments')}</span>"
+        )
+    pos_q = str(summary.get("top_positive") or "").strip()
+    neg_q = str(summary.get("top_negative") or "").strip()
+    quote_block = ""
+    if pos_q:
+        quote_block += (
+            f"<div class='symbol-quote symbol-quote--pos'>"
+            f"<span class='symbol-quote-label'>{t('quote_positive')}</span>"
+            f"{pos_q}</div>"
+        )
+    if neg_q:
+        quote_block += (
+            f"<div class='symbol-quote symbol-quote--neg'>"
+            f"<span class='symbol-quote-label'>{t('quote_negative')}</span>"
+            f"{neg_q}</div>"
+        )
+    st.markdown(
+        f"""
+        <div class="panel-card symbol-sentiment-card">
+            <div class="section-kicker">{t('symbol_sentiment_card')}</div>
+            <div class="symbol-sentiment-head">
+                <div class="symbol-sentiment-title">{_symbol_label(symbol)}</div>
+                <div class="pick-score {score_class} mono">{avg:+.4f}</div>
+            </div>
+            <div class="symbol-sentiment-meta">
+                <span class="trend-pill {score_class}">{tone}</span>
+                <span class="engine-metric">
+                    <span class="engine-metric-label">{t('symbol_comment_count')}</span>
+                    {count}
+                </span>
+            </div>
+            <div class="symbol-sentiment-platforms">{plat_html}</div>
+            {quote_block}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_comment_highlights(
+    comments_df: pd.DataFrame,
+    *,
+    key_prefix: str,
+    empty_message: str | None = None,
+    use_expanders: bool = True,
+    initial_visible: int = 4,
+) -> None:
+    if comments_df.empty:
+        if empty_message:
+            st.caption(empty_message)
+        return
+
+    total = len(comments_df)
+    show_all_key = f"{key_prefix}_show_all"
+    if show_all_key not in st.session_state:
+        st.session_state[show_all_key] = False
+    show_all = bool(st.session_state[show_all_key])
+    limit = max(1, initial_visible)
+    visible_df = comments_df if show_all or total <= limit else comments_df.head(limit)
+
+    if use_expanders:
+        st.caption(t("click_to_expand"))
+    for idx, (_, row) in enumerate(visible_df.iterrows()):
+        platform = str(row.get("platform", "") or "")
+        score = float(row.get("ai_score", 0) or 0)
+        full_text = str(row.get("full_text") or row.get("display_text") or "")
+        if not full_text:
+            continue
+        label = _comment_preview_label(platform, score, full_text)
+        if use_expanders:
+            with st.expander(f"{label} · #{idx + 1}", expanded=False):
+                st.markdown(_comment_badges_html(row), unsafe_allow_html=True)
+                st.markdown(full_text)
+                post_time = str(row.get("post_time", "") or "").strip()
+                if post_time:
+                    st.caption(f"{t('col_post_time')}: {post_time}")
+                url = str(row.get("url", "") or "")
+                if url.startswith("http"):
+                    st.markdown(f"[{t('col_url')}]({url})")
+        else:
+            st.markdown(
+                f"<div class='ref-snippet'>"
+                f"<div class='ref-snippet-head'>{label}</div>"
+                f"{_comment_badges_html(row)}"
+                f"<div class='ref-snippet-body'>{full_text}</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+            post_time = str(row.get("post_time", "") or "").strip()
+            if post_time:
+                st.caption(f"{t('col_post_time')}: {post_time}")
+            url = str(row.get("url", "") or "")
+            if url.startswith("http"):
+                st.markdown(f"[{t('col_url')}]({url})")
+
+    if total > limit:
+        remaining = total - limit
+        if not show_all:
+            if st.button(
+                t("show_more_comments").format(n=remaining),
+                key=f"{key_prefix}_more",
+                use_container_width=True,
+            ):
+                st.session_state[show_all_key] = True
+                st.rerun()
+        elif st.button(
+            t("show_less_comments"),
+            key=f"{key_prefix}_less",
+            use_container_width=True,
+        ):
+            st.session_state[show_all_key] = False
+            st.rerun()
 
 
 def _render_reason_cards(
@@ -834,91 +2845,787 @@ def _render_reason_cards(
         contrib = build_pick_contribution(
             symbol, picks_df, raw_df, sentiment_df, lookback_days
         )
-        st.markdown(f"##### #{rank} {symbol}")
+        st.markdown('<div class="panel-card">', unsafe_allow_html=True)
+        st.markdown(f"##### #{rank} {_symbol_label(symbol)}")
         st.markdown(build_pick_narrative(symbol, avg_score, contrib, raw_df, lang=lang))
 
         stats = evidence_stats(raw_df, symbol)
-        st.caption(
-            t("evidence_summary").format(
-                valid=stats["valid"],
-                total=stats["total"],
-                platforms=stats["platforms"],
-                fallback=stats["fallback"],
-            )
-        )
+        st.caption(_evidence_caption(stats))
         if stats["valid"] < 5:
             st.warning(t("sample_low_warning"))
+        if stats["valid"] < 3:
+            st.info(t("comments_few_hint"))
 
-        top_rows = top_comment_rows(raw_df, symbol, top_n=5)
+        top_rows = top_comment_rows(
+            raw_df, symbol, top_n=8, include_reference=True, ref_n=3
+        )
         pos_items = top_rows["positive"]
         neg_items = top_rows["negative"]
+        ref_items = top_rows["reference"]
         c1, c2 = st.columns(2)
         with c1:
-            st.markdown(f"**{t('positive_highlight')}**")
-            if pos_items.empty:
-                st.caption(t("no_valid_comments"))
-            else:
-                for _, row in pos_items.iterrows():
-                    platform = row.get("platform", "")
-                    score = float(row.get("ai_score", 0))
-                    text = row.get("display_text", row.get("_display", ""))
-                    st.markdown(
-                        f"<div style='padding:0.55rem 0.65rem;margin:0.35rem 0;border-radius:10px;"
-                        f"background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);'>"
-                        f"<span style='font-size:0.72rem;color:#047857;font-weight:700;'>{platform} {score:+.2f}</span><br>"
-                        f"<span style='font-size:0.84rem;color:#334155;'>{text}</span></div>",
-                        unsafe_allow_html=True,
-                    )
+            st.markdown(
+                f"<div class='comment-panel'><div class='comment-panel-title'>"
+                f"{t('positive_highlight')} ({len(pos_items)})</div>",
+                unsafe_allow_html=True,
+            )
+            _render_comment_highlights(
+                pos_items,
+                key_prefix=f"pick_pos_{symbol}",
+                empty_message=t("no_valid_comments"),
+            )
+            st.markdown("</div>", unsafe_allow_html=True)
         with c2:
-            st.markdown(f"**{t('negative_highlight')}**")
-            if neg_items.empty:
-                st.caption(t("no_valid_comments"))
-            else:
-                for _, row in neg_items.iterrows():
-                    platform = row.get("platform", "")
-                    score = float(row.get("ai_score", 0))
-                    text = row.get("display_text", row.get("_display", ""))
-                    st.markdown(
-                        f"<div style='padding:0.55rem 0.65rem;margin:0.35rem 0;border-radius:10px;"
-                        f"background:rgba(239,68,68,0.07);border:1px solid rgba(239,68,68,0.18);'>"
-                        f"<span style='font-size:0.72rem;color:#B91C1C;font-weight:700;'>{platform} {score:+.2f}</span><br>"
-                        f"<span style='font-size:0.84rem;color:#334155;'>{text}</span></div>",
-                        unsafe_allow_html=True,
-                    )
+            st.markdown(
+                f"<div class='comment-panel'><div class='comment-panel-title'>"
+                f"{t('negative_highlight')} ({len(neg_items)})</div>",
+                unsafe_allow_html=True,
+            )
+            _render_comment_highlights(
+                neg_items,
+                key_prefix=f"pick_neg_{symbol}",
+                empty_message=t("no_valid_comments"),
+            )
+            st.markdown("</div>", unsafe_allow_html=True)
+        if not ref_items.empty:
+            with st.expander(
+                f"{t('reference_expand_hint')} ({len(ref_items)})",
+                expanded=False,
+            ):
+                _render_comment_highlights(
+                    ref_items,
+                    key_prefix=f"pick_ref_{symbol}",
+                    empty_message=None,
+                    use_expanders=False,
+                )
 
         if not contrib.empty:
             drivers = contrib[contrib["platform_score"].abs() > 0.001].head(4)
             if not drivers.empty:
                 chips = []
                 for _, dr in drivers.iterrows():
-                    color = (
-                        "#059669"
-                        if dr["platform_score"] > 0.05
-                        else "#DC2626"
-                        if dr["platform_score"] < -0.05
-                        else "#64748B"
-                    )
                     chips.append(
-                        f"<span style='display:inline-block;margin:0.2rem 0.35rem 0 0;padding:0.2rem 0.55rem;"
-                        f"border-radius:999px;background:rgba(148,163,184,0.12);color:{color};font-size:0.78rem;'>"
-                        f"{dr['platform']} {dr['platform_score']:+.2f} · {dr['weight_pct']:.0f}%</span>"
+                        _platform_chip_html(
+                            str(dr["platform"]),
+                            float(dr["platform_score"]),
+                            suffix=f" · {dr['weight_pct']:.0f}%",
+                        )
                     )
                 st.markdown("".join(chips), unsafe_allow_html=True)
-        st.divider()
+        st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("<div style='height:0.75rem'></div>", unsafe_allow_html=True)
+
+
+def _render_analyst_tab(memory_dir: str, report_dir: str) -> None:
+    """Render the multi-agent analyst score comparison tab."""
+    _render_quality_gate_panel(_load_latest_quality_gate(memory_dir))
+    st.caption(t("paper_price_hint"))
+    _render_info_box(t("analyst_compare_title"), t("analyst_compare_body"))
+    st.caption(t("analyst_backtest_hint"))
+
+    # ── Load signal history and extract multi-agent data ──
+    signal_path = Path(memory_dir) / "signal_history.jsonl"
+    multi_agent_rows: List[Dict] = []
+    all_signals: List[Dict] = []
+
+    if signal_path.exists():
+        for line in signal_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+                all_signals.append(row)
+                # Check for multi-agent fields
+                scores = row.get("analyst_scores")
+                has_scores = bool(scores) and (
+                    isinstance(scores, dict) or (isinstance(scores, str) and scores.strip())
+                )
+                if has_scores or row.get("consensus_score") is not None:
+                    multi_agent_rows.append(row)
+            except json.JSONDecodeError:
+                continue
+
+    has_multi_agent = len(multi_agent_rows) > 0
+
+    # ── Section 1: Per-symbol analyst breakdown ──
+    st.markdown(f"#### {t('analyst_score_chart_title')}")
+    if has_multi_agent:
+        symbols = sorted(set(r.get("symbol", "") for r in multi_agent_rows if r.get("symbol")))
+        selected = st.selectbox(t("analyst_select_symbol"), symbols, key="analyst_symbol")
+
+        # Filter for selected symbol
+        symbol_rows = [r for r in multi_agent_rows if r.get("symbol") == selected]
+        if symbol_rows:
+            latest = symbol_rows[-1]  # most recent
+            _render_analyst_detail_card(latest, selected)
+
+            # Bar chart: analyst scores over time
+            _render_analyst_timeline(symbol_rows, selected)
+    else:
+        # Fallback: try to build a live view from any consensus data in recent signals
+        consensus_inferred = _try_infer_consensus(all_signals, memory_dir)
+        if consensus_inferred:
+            symbols = sorted(set(r.get("symbol", "") for r in consensus_inferred if r.get("symbol")))
+            selected = st.selectbox(t("analyst_select_symbol"), symbols, key="analyst_symbol_infer")
+            latest_rows = [r for r in consensus_inferred if r.get("symbol") == selected]
+            if latest_rows:
+                _render_analyst_detail_card(latest_rows[-1], selected)
+                _render_analyst_timeline(latest_rows, selected)
+        else:
+            st.info(t("analyst_no_data"))
+
+    # ── Section 2: Backtest comparison ──
+    st.markdown("---")
+    st.markdown(f"#### {t('analyst_backtest_title')}")
+    cmp_path = st.text_input(
+        t("analyst_backtest_csv"),
+        value=t("analyst_backtest_default_path"),
+        key="analyst_cmp_path",
+    )
+    if st.button(t("analyst_backtest_load"), key="analyst_load_cmp"):
+        _render_backtest_comparison(cmp_path)
+
+
+def _render_analyst_detail_card(latest_row: Dict, symbol: str) -> None:
+    """Render a detail card for the latest consensus signal."""
+    analyst_scores_raw = latest_row.get("analyst_scores") or "{}"
+    analyst_confidences_raw = latest_row.get("analyst_confidences") or "{}"
+
+    try:
+        analyst_scores = json.loads(analyst_scores_raw) if isinstance(analyst_scores_raw, str) else analyst_scores_raw
+    except (json.JSONDecodeError, TypeError):
+        analyst_scores = {}
+    try:
+        analyst_confidences = json.loads(analyst_confidences_raw) if isinstance(analyst_confidences_raw, str) else analyst_confidences_raw
+    except (json.JSONDecodeError, TypeError):
+        analyst_confidences = {}
+
+    consensus_score = float(latest_row.get("consensus_score", latest_row.get("score", 0.0)))
+    confidence = float(latest_row.get("confidence", 0.0))
+    direction = str(latest_row.get("consensus_direction", latest_row.get("action", "NEUTRAL")))
+    kelly = float(latest_row.get("kelly_fraction", 0.0))
+    n_analysts = int(latest_row.get("n_analysts", 0))
+    n_agreeing = int(latest_row.get("n_agreeing", 0))
+
+    score_class = "pos" if consensus_score > 0.05 else "neg" if consensus_score < -0.05 else "neu"
+
+    st.markdown(
+        f"""
+        <div class="panel-card">
+            <div class="section-kicker">{t('analyst_consensus_title')}</div>
+            <div class="symbol-sentiment-head">
+                <div class="symbol-sentiment-title">{_symbol_label(symbol)}</div>
+                <div class="pick-score {score_class} mono">{consensus_score:+.4f}</div>
+            </div>
+            <div class="symbol-sentiment-meta">
+                <span class="trend-pill {score_class}">{direction}</span>
+                <span class="engine-metric">
+                    <span class="engine-metric-label">{t('analyst_col_confidence')}</span>
+                    {confidence:.2%}
+                </span>
+                <span class="engine-metric">
+                    <span class="engine-metric-label">{t('analyst_kelly')}</span>
+                    {kelly:.2%}
+                </span>
+                <span class="engine-metric">
+                    <span class="engine-metric-label">{t('analyst_n_analysts')}</span>
+                    {n_analysts}
+                </span>
+                <span class="engine-metric">
+                    <span class="engine-metric-label">{t('analyst_n_agreeing')}</span>
+                    {n_agreeing}
+                </span>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # Analyst breakdown table
+    analyst_map = {
+        "sentiment": t("analyst_sentiment"),
+        "technical": t("analyst_technical"),
+        "fundamental": t("analyst_fundamental"),
+    }
+    breakdown_rows = []
+    for aname, alabel in analyst_map.items():
+        ascore = analyst_scores.get(aname)
+        aconf = analyst_confidences.get(aname)
+        if ascore is not None:
+            breakdown_rows.append({
+                t("analyst_col_analyst"): alabel,
+                t("analyst_col_score"): f"{float(ascore):+.4f}",
+                t("analyst_col_confidence"): f"{float(aconf or 0):.2%}",
+            })
+
+    if breakdown_rows:
+        st.dataframe(pd.DataFrame(breakdown_rows), use_container_width=True, hide_index=True)
+
+        # Mini bar chart for analyst scores
+        chart_data = pd.DataFrame(breakdown_rows)
+        chart_data["score_val"] = pd.to_numeric(
+            chart_data[t("analyst_col_score")].str.replace("+", ""), errors="coerce"
+        ).fillna(0.0)
+        bar = (
+            alt.Chart(chart_data)
+            .mark_bar(cornerRadiusEnd=12)
+            .encode(
+                x=alt.X("score_val:Q", title=t("analyst_col_score")),
+                y=alt.Y(t("analyst_col_analyst") + ":N", sort="-x", title=None),
+                color=alt.Color(
+                    "score_val:Q",
+                    scale=alt.Scale(scheme="tealblues"),
+                    title=t("analyst_col_score"),
+                ),
+                tooltip=[t("analyst_col_analyst"), t("analyst_col_score"), t("analyst_col_confidence")],
+            )
+            .properties(height=140)
+        )
+        st.altair_chart(_configure_chart(bar), use_container_width=True)
+
+    explanation = (
+        str(latest_row.get("explanation") or "").strip()
+        or str(latest_row.get("reason") or "").strip()
+    )
+    if explanation:
+        from opinion_trading.core.explainability import translate_signal_explanation_for_ui
+
+        lang = st.session_state.get("lang", "zh")
+        explanation = translate_signal_explanation_for_ui(
+            explanation, lang, row=latest_row
+        )
+        st.markdown(f"**{t('signal_explanation_title')}**")
+        st.markdown(
+            f"<div class='guide-card' style='white-space:pre-wrap;'>{html.escape(explanation)}</div>",
+            unsafe_allow_html=True,
+        )
+
+
+def _render_analyst_timeline(rows: List[Dict], symbol: str) -> None:
+    """Render a timeline of analyst scores over time."""
+    if len(rows) < 2:
+        return
+
+    records = []
+    for r in rows:
+        td = r.get("trade_date", "")
+        try:
+            analyst_scores_raw = r.get("analyst_scores") or "{}"
+            if isinstance(analyst_scores_raw, str):
+                scores = json.loads(analyst_scores_raw)
+            else:
+                scores = analyst_scores_raw
+        except (json.JSONDecodeError, TypeError):
+            scores = {}
+        cs = float(r.get("consensus_score", r.get("score", 0.0)))
+        records.append({
+            "trade_date": str(td)[:10] if td else "",
+            "sentiment": float(scores.get("sentiment", 0)),
+            "technical": float(scores.get("technical", 0)),
+            "fundamental": float(scores.get("fundamental", 0)),
+            "consensus": cs,
+        })
+
+    if not records:
+        return
+
+    df = pd.DataFrame(records)
+    df = df.dropna(subset=["trade_date"])
+    df["trade_date"] = pd.to_datetime(df["trade_date"], errors="coerce")
+    df = df.sort_values("trade_date")
+
+    melted = df.melt(
+        id_vars=["trade_date"],
+        value_vars=["sentiment", "technical", "fundamental", "consensus"],
+        var_name="analyst",
+        value_name="score",
+    )
+    analyst_labels = {
+        "sentiment": t("analyst_sentiment"),
+        "technical": t("analyst_technical"),
+        "fundamental": t("analyst_fundamental"),
+        "consensus": "Consensus",
+    }
+    melted["analyst_label"] = melted["analyst"].map(analyst_labels).fillna(melted["analyst"])
+
+    line = (
+        alt.Chart(melted)
+        .mark_line(point=True, strokeWidth=2)
+        .encode(
+            x=alt.X("trade_date:T", title=t("month")),
+            y=alt.Y("score:Q", title=t("analyst_col_score")),
+            color=alt.Color(
+                "analyst_label:N",
+                scale=alt.Scale(range=_DASH_COLORS),
+                title=t("analyst_col_analyst"),
+            ),
+            tooltip=["trade_date", "analyst_label", "score"],
+        )
+        .properties(title=f"{symbol} — {t('analyst_score_chart_title')}", height=260)
+    )
+    st.altair_chart(_configure_chart(line), use_container_width=True)
+
+
+def _try_infer_consensus(all_signals: List[Dict], memory_dir: str) -> List[Dict]:
+    """Try to build multi-agent-like entries from enriched signal history."""
+    # Check if we have consensus-like fields in signal data
+    enriched = []
+    for row in all_signals:
+        has_extra = any(k in row for k in ("consensus_score", "analyst_scores", "kelly_fraction"))
+        if has_extra:
+            enriched.append(row)
+    return enriched
+
+
+def _render_backtest_comparison(cmp_path: str) -> None:
+    """Load and display the backtest comparison CSV."""
+    path = Path(cmp_path)
+    if not path.exists():
+        st.warning(t("analyst_backtest_no_data"))
+        return
+
+    try:
+        df = pd.read_csv(path)
+        st.dataframe(df, use_container_width=True, hide_index=True)
+
+        # Highlight the better value in each metric
+        for _, row in df.iterrows():
+            metric = str(row.get("Metric", ""))
+            sent_val = str(row.get("Sentiment Only", "0%"))
+            ma_val = str(row.get("Multi-Agent", "0%"))
+            st.markdown(
+                f"- **{metric}**: Sentiment {sent_val} | Multi-Agent {ma_val}"
+            )
+    except Exception as e:
+        st.error(f"Failed to load comparison: {e}")
+
+
+def _load_latest_quality_gate(memory_dir: str) -> Dict:
+    path = Path(memory_dir) / "quality_gate_history.jsonl"
+    if not path.exists():
+        return {}
+    for line in reversed(path.read_text(encoding="utf-8").splitlines()):
+        if not line.strip():
+            continue
+        try:
+            return json.loads(line)
+        except json.JSONDecodeError:
+            continue
+    return {}
+
+
+def _render_quality_gate_panel(gate: Dict) -> None:
+    if not gate:
+        st.caption(t("quality_gate_no_data"))
+        return
+    passed = bool(gate.get("overall_pass", True))
+    mult = float(gate.get("sentiment_confidence_multiplier", 1.0) or 1.0)
+    blocked = bool(gate.get("block_new_signals", False))
+    noise = float(gate.get("noise_rate", 0.0) or 0.0)
+    fb = float(gate.get("fallback_rate", 0.0) or 0.0)
+    pill_cls = "openclaw-on" if passed and not blocked else "openclaw-off"
+    status = t("quality_gate_pass") if passed and not blocked else t("quality_gate_fail")
+    st.markdown(
+        f"""
+        <div class="panel-card panel-card--compact">
+            <div class="section-kicker">{t('quality_gate_title')}</div>
+            <span class="status-pill {pill_cls} status-pill--dashboard">
+                <span class="status-dot" aria-hidden="true"></span>
+                <span>{status}</span>
+            </span>
+            <div class="symbol-sentiment-meta" style="margin-top:0.65rem;">
+                <span class="engine-metric">
+                    <span class="engine-metric-label">{t('quality_gate_multiplier')}</span>
+                    {mult:.2f}
+                </span>
+                <span class="engine-metric">
+                    <span class="engine-metric-label">{t('quality_gate_noise')}</span>
+                    {noise:.1%}
+                </span>
+                <span class="engine-metric">
+                    <span class="engine-metric-label">{t('quality_gate_fallback')}</span>
+                    {fb:.1%}
+                </span>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    msgs = gate.get("messages") or []
+    if msgs:
+        for m in msgs[:6]:
+            st.caption(str(m))
+
+
+def _load_paper_state(memory_dir: str) -> Dict:
+    path = Path(memory_dir) / "state.json"
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _load_recent_trades(memory_dir: str, limit: int = 8) -> pd.DataFrame:
+    path = Path(memory_dir) / "trade_history.jsonl"
+    if not path.exists():
+        return pd.DataFrame()
+    rows: List[Dict] = []
+    for line in path.read_text(encoding="utf-8").splitlines()[-limit * 3 :]:
+        if not line.strip():
+            continue
+        try:
+            rows.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return pd.DataFrame(rows[-limit:] if rows else [])
+
+
+def _render_paper_account_panel(
+    memory_dir: str,
+    today_aggregated: Dict | None = None,
+) -> None:
+    state = _load_paper_state(memory_dir)
+    if not state:
+        st.info(t("paper_no_state"))
+        return
+    cash = float(state.get("cash", 0))
+    positions = state.get("positions") or {}
+    open_pos = {k: int(v) for k, v in positions.items() if int(v) > 0}
+    total_val: float | None = None
+    try:
+        from opinion_trading.skills.trade_simulation import PaperTradingSkill
+
+        skill = PaperTradingSkill(100_000.0, 0.2, use_market_prices=True)
+        total_val = skill.portfolio_value(today_aggregated or {}, state)
+    except Exception:
+        total_val = None
+    st.markdown(f"#### {t('paper_account_title')}")
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.metric(t("paper_cash"), f"{cash:,.2f}")
+    with c2:
+        st.metric(t("paper_positions"), len(open_pos))
+    with c3:
+        tv = f"{total_val:,.2f}" if total_val is not None else "—"
+        st.metric(t("paper_total_value"), tv)
+    st.caption(t("paper_price_hint"))
+    if open_pos:
+        st.markdown(f"**{t('paper_positions')}**")
+        st.json(open_pos)
+    trades_df = _load_recent_trades(memory_dir)
+    if not trades_df.empty:
+        st.markdown(f"**{t('paper_last_trades')}**")
+        st.dataframe(trades_df, use_container_width=True, hide_index=True)
+    _render_paper_equity_chart(memory_dir)
+
+
+def _render_paper_equity_chart(memory_dir: str) -> None:
+    from opinion_trading.core.paper_equity import build_paper_equity_curve
+
+    eq = build_paper_equity_curve(memory_dir)
+    if eq.empty:
+        return
+    st.markdown(f"#### {t('paper_equity_title')}")
+    st.caption(t("paper_equity_hint"))
+    chart = (
+        alt.Chart(eq)
+        .mark_line(color="#0D9488", point=True)
+        .encode(
+            x=alt.X("trade_date:T", title=""),
+            y=alt.Y("total_value:Q", title=""),
+            tooltip=[
+                alt.Tooltip("trade_date:T"),
+                alt.Tooltip("total_value:Q", format=",.2f"),
+                alt.Tooltip("cash:Q", format=",.2f"),
+                alt.Tooltip("drawdown_pct:Q", format=".2%"),
+            ],
+        )
+        .properties(height=220)
+    )
+    st.altair_chart(_configure_chart(chart), use_container_width=True)
+
+
+def _render_quality_gate_history_chart(memory_dir: str) -> None:
+    from opinion_trading.core.quality_gate_history import load_quality_gate_history
+
+    rows = load_quality_gate_history(memory_dir, limit=40)
+    if not rows:
+        return
+    st.markdown(f"#### {t('quality_gate_history_title')}")
+    df = pd.DataFrame(rows)
+    if "trade_date" not in df.columns:
+        return
+    df["trade_date"] = pd.to_datetime(df["trade_date"], errors="coerce")
+    df = df.dropna(subset=["trade_date"]).sort_values("trade_date")
+    if df.empty:
+        return
+    try:
+        from opinion_trading.core.config_loader import load_runtime_config
+
+        thr = 0.35
+        q = load_runtime_config("config/settings.yaml").quality
+        if q:
+            thr = float(q.max_fallback_rate)
+    except Exception:
+        thr = 0.35
+    df["fallback_pct"] = pd.to_numeric(df["fallback_rate"], errors="coerce").fillna(0) * 100
+    df["noise_pct"] = pd.to_numeric(df["noise_rate"], errors="coerce").fillna(0) * 100
+    long = df.melt(
+        id_vars=["trade_date"],
+        value_vars=["fallback_pct", "noise_pct"],
+        var_name="metric",
+        value_name="pct",
+    )
+    long["metric"] = long["metric"].map(
+        {
+            "fallback_pct": t("quality_metric_fallback"),
+            "noise_pct": t("quality_metric_noise"),
+        }
+    )
+    chart = (
+        alt.Chart(long)
+        .mark_line(point=True)
+        .encode(
+            x=alt.X("trade_date:T", title=t("quality_chart_date")),
+            y=alt.Y("pct:Q", title="%"),
+            color=alt.Color("metric:N", title=None),
+            tooltip=["trade_date:T", "metric:N", alt.Tooltip("pct:Q", format=".1f")],
+        )
+        .properties(height=200)
+    )
+    rule = (
+        alt.Chart(pd.DataFrame({"y": [thr * 100]}))
+        .mark_rule(color="#B91C1C", strokeDash=[4, 4])
+        .encode(y="y:Q")
+    )
+    st.altair_chart(_configure_chart(chart + rule), use_container_width=True)
+    st.caption(t("quality_gate_history_hint").format(threshold=f"{thr:.0%}"))
+
+
+def _render_walk_forward_folds_table(report_dir: str) -> None:
+    from opinion_trading.core.walk_forward_cache import load_walk_forward_json
+
+    data = load_walk_forward_json(report_dir)
+    if not data or not data.get("folds"):
+        return
+    st.markdown(f"**{t('walk_forward_folds_table')}**")
+    rows = []
+    for f in data["folds"]:
+        rows.append(
+            {
+                t("wf_col_train"): f"{f['train_start']} ~ {f['train_end']}",
+                t("wf_col_test"): f"{f['test_start']} ~ {f['test_end']}",
+                t("wf_col_train_acc"): f"{float(f['train_accuracy']):.2%}",
+                t("wf_col_test_acc"): f"{float(f['test_accuracy']):.2%}",
+                t("wf_col_train_sharpe"): f"{float(f['train_sharpe']):.4f}",
+                t("wf_col_test_sharpe"): f"{float(f['test_sharpe']):.4f}",
+                t("wf_col_deg"): f"{float(f['degradation_accuracy']):+.2%}",
+                t("wf_col_test_n"): int(f.get("test_signals", 0)),
+            }
+        )
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    st.caption(
+        f"{t('walk_forward_avg_test_acc')}: {float(data.get('avg_test_accuracy', 0)):.2%} | "
+        f"{t('walk_forward_avg_deg')}: {float(data.get('avg_degradation_accuracy', 0)):+.2%}"
+    )
+    from opinion_trading.core.walk_forward_cache import export_walk_forward_folds_csv
+
+    csv_bytes = export_walk_forward_folds_csv(report_dir)
+    if len(csv_bytes) > 80:
+        st.download_button(
+            t("wf_export_csv"),
+            data=csv_bytes,
+            file_name="walk_forward_folds.csv",
+            mime="text/csv",
+            key="wf_export_csv_btn",
+        )
+
+
+def _render_walk_forward_panel(
+    memory_dir: str,
+    report_dir: str,
+    price_df: pd.DataFrame | None,
+    *,
+    auto_run: bool = True,
+) -> None:
+    st.markdown(f"#### {t('walk_forward_title')}")
+    report_path = Path(report_dir) / "walk_forward_report.md"
+    signal_path = str(Path(memory_dir) / "signal_history.jsonl")
+    can_run = (
+        price_df is not None
+        and not price_df.empty
+        and Path(signal_path).exists()
+    )
+    cache_key = f"wf_auto_{report_dir}_{memory_dir}"
+    if auto_run and can_run and not st.session_state.get(cache_key):
+        from opinion_trading.core.walk_forward import (
+            run_walk_forward,
+            save_walk_forward_report,
+        )
+
+        try:
+            report = run_walk_forward(signal_path, price_df, n_folds=3)
+            save_walk_forward_report(report_dir, report)
+            st.session_state[cache_key] = True
+            st.session_state["wf_last_recommendation"] = report.recommendation
+        except Exception as exc:
+            st.caption(f"walk-forward auto: {exc}")
+
+    rec = st.session_state.get("wf_last_recommendation")
+    if not rec and report_path.exists():
+        from opinion_trading.core.walk_forward_cache import load_walk_forward_json
+
+        cached = load_walk_forward_json(report_dir)
+        if cached:
+            rec = cached.get("recommendation")
+
+    _render_walk_forward_folds_table(report_dir)
+
+    if rec:
+        st.info(rec)
+    elif report_path.exists():
+        st.markdown(report_path.read_text(encoding="utf-8")[:2500])
+    else:
+        st.caption(t("walk_forward_no_report"))
+    if not can_run:
+        if price_df is None or price_df.empty:
+            st.caption(t("upload_required"))
+        return
+    if st.button(t("walk_forward_run"), key="wf_run_ui"):
+        from opinion_trading.core.walk_forward import (
+            run_walk_forward,
+            save_walk_forward_report,
+        )
+
+        report = run_walk_forward(signal_path, price_df, n_folds=3)
+        save_walk_forward_report(report_dir, report)
+        st.session_state["wf_last_recommendation"] = report.recommendation
+        st.session_state[cache_key] = True
+        st.success(t("walk_forward_load_report"))
+        st.rerun()
+
+
+def _require_dashboard_auth() -> None:
+    expected = os.environ.get("STREAMLIT_DASHBOARD_PASSWORD", "").strip()
+    if not expected:
+        return
+    if st.session_state.get("dashboard_authenticated"):
+        return
+    st.markdown(f"### {t('auth_title')}")
+    st.caption(t("auth_env_hint"))
+    pwd = st.text_input(t("auth_prompt"), type="password", key="dashboard_pwd")
+    if st.button("OK", key="dashboard_auth_btn"):
+        if pwd == expected:
+            st.session_state["dashboard_authenticated"] = True
+            st.rerun()
+        else:
+            st.error(t("auth_wrong"))
+    st.stop()
+
+
+def _render_collect_progress_expander(report_dir: str) -> None:
+    rep = Path(report_dir)
+    if not rep.is_dir():
+        return
+    logs = sorted(rep.glob("collect_progress_*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not logs:
+        return
+    latest = logs[0]
+    with st.expander(t("collect_progress_title"), expanded=False):
+        st.caption(f"{t('collect_progress_file')}: `{latest.name}`")
+        lines = latest.read_text(encoding="utf-8").strip().splitlines()
+        tail = lines[-12:] if len(lines) > 12 else lines
+        rows = []
+        for ln in tail:
+            try:
+                rows.append(json.loads(ln))
+            except json.JSONDecodeError:
+                continue
+        if rows:
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        else:
+            st.caption(t("collect_progress_empty"))
+
+
+def _render_export_zip_button(report_dir: str, memory_dir: str, raw_dir: str) -> None:
+    from opinion_trading.core.export_bundle import build_dashboard_export_zip
+
+    try:
+        payload = build_dashboard_export_zip(report_dir, memory_dir, raw_dir)
+    except Exception as exc:
+        st.caption(f"ZIP: {exc}")
+        return
+    st.download_button(
+        label=t("export_zip"),
+        data=payload,
+        file_name="openclaw_export.zip",
+        mime="application/zip",
+        use_container_width=True,
+        help=t("export_zip_hint"),
+    )
+
+
+def _render_event_log_panel(memory_dir: str) -> None:
+    from opinion_trading.core.event_log import load_recent_events
+
+    with st.expander(t("event_log_title"), expanded=False):
+        events = load_recent_events(memory_dir, limit=80)
+        if not events:
+            st.caption(t("event_log_empty"))
+            return
+        types = sorted({str(e.get("event_type", "")) for e in events if e.get("event_type")})
+        choice = st.selectbox(
+            t("event_log_filter"),
+            [t("event_log_all_types")] + types,
+            key="event_log_type_filter",
+        )
+        if choice != t("event_log_all_types"):
+            events = [e for e in events if e.get("event_type") == choice]
+        st.dataframe(pd.DataFrame(events), use_container_width=True, hide_index=True)
 
 
 def main() -> None:
+    _bootstrap_openclaw_env()
     st.set_page_config(
         page_title=LANG.get("zh", {}).get("page_title", "OpenClaw"),
         layout="wide",
         initial_sidebar_state="expanded",
     )
-    _inject_dashboard_styles()
     if "lang" not in st.session_state:
         st.session_state["lang"] = "zh"
+    if "ui_theme" not in st.session_state:
+        st.session_state["ui_theme"] = "light"
+    _inject_dashboard_styles(st.session_state.get("ui_theme", "light"))
+    _require_dashboard_auth()
+    render_disclaimer_banner()
+    _mvp_ws = UserWorkspace()
+    mvp_user = render_user_login_sidebar(_mvp_ws)
 
     with st.sidebar:
-        st.markdown("### OpenClaw AI")
+        st.markdown(
+            "<div class='sidebar-brand'>OpenClaw</div>"
+            "<div class='sidebar-title'>AI Picks</div>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            "<div class='sidebar-status-fixed'>",
+            unsafe_allow_html=True,
+        )
+        _render_openclaw_sidebar()
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        st.markdown(
+            "<div class='sidebar-toolbar'>"
+            "<div class='sidebar-toolbar-label'>Controls</div>"
+            "<div class='sidebar-toolbar-actions'>"
+            "<span class='sidebar-toolbar-chip'>Locale</span>"
+            "<span class='sidebar-toolbar-chip'>Theme</span>"
+            "<span class='sidebar-toolbar-chip'>Refresh</span>"
+            "</div></div>",
+            unsafe_allow_html=True,
+        )
         opts = [
             ("en", LANG.get("en", {}).get("language_en", "English")),
             ("zh", LANG.get("zh", {}).get("language_zh", "中文")),
@@ -932,19 +3639,114 @@ def main() -> None:
             key="_lang_display",
             format_func=lambda x: x[1],
         )
-        if isinstance(sel, tuple):
+        if isinstance(sel, tuple) and sel[0] != cur:
             st.session_state["lang"] = sel[0]
+            try:
+                from opinion_trading.core.settings_patch import update_explanation_lang
+
+                cfg_path = str(Path("config/settings.yaml").resolve())
+                if Path(cfg_path).is_file():
+                    update_explanation_lang(cfg_path, sel[0])
+            except Exception:
+                pass
+
+        theme_opts = [
+            ("light", t("ui_theme_light")),
+            ("dark", t("ui_theme_dark")),
+        ]
+        theme_cur = st.session_state.get("ui_theme", "light")
+        theme_idx = 0 if theme_cur == "light" else 1
+        theme_sel = st.radio(
+            t("ui_theme_label"),
+            options=theme_opts,
+            index=theme_idx,
+            key="_theme_display",
+            format_func=lambda x: x[1],
+            horizontal=True,
+        )
+        if isinstance(theme_sel, tuple) and theme_sel[0] != theme_cur:
+            st.session_state["ui_theme"] = theme_sel[0]
+            st.rerun()
 
         if st.button(t("refresh_data"), use_container_width=True):
             st.rerun()
 
-        st.markdown(f"#### {t('sidebar_paths')}")
+        st.markdown(f"<div class='panel-rail panel-rail--compact'><div class='panel-section-title'>{t('sidebar_paths')}</div>", unsafe_allow_html=True)
         report_dir = st.text_input(t("report_dir"), "data/reports")
         raw_dir = st.text_input(t("raw_dir"), "data/raw")
         memory_dir = st.text_input(t("memory_dir"), "data/memory")
+        st.markdown("</div>", unsafe_allow_html=True)
+        _render_export_zip_button(report_dir, memory_dir, raw_dir)
+        _render_collect_progress_expander(report_dir)
+
+        with st.expander(t("settings_preview_title"), expanded=False):
+            try:
+                from opinion_trading.core.config_loader import load_runtime_config
+
+                cfg = load_runtime_config("config/settings.yaml")
+                rec = cfg.sentiment_recency
+                st.caption(t("settings_preview_hint"))
+                st.json(
+                    {
+                        "universe_symbols": cfg.symbols[:12],
+                        "analysis_enabled": bool(
+                            cfg.analysis and cfg.analysis.enabled
+                        ),
+                        "sentiment_recency": {
+                            "enabled": bool(rec and rec.enabled),
+                            "half_life_hours": rec.half_life_hours if rec else 24,
+                        },
+                        "risk": {
+                            "max_single_symbol_notional_pct": (
+                                cfg.risk.max_single_symbol_notional_pct
+                                if cfg.risk
+                                else 0.25
+                            ),
+                        },
+                        "execution_mode": (
+                            cfg.execution.mode if cfg.execution else "paper"
+                        ),
+                    }
+                )
+            except Exception as exc:
+                st.caption(str(exc))
+
+        with st.expander(t("universe_edit_title"), expanded=False):
+            cfg_path = "config/settings.yaml"
+            try:
+                from opinion_trading.core.config_loader import load_runtime_config
+                from opinion_trading.core.settings_patch import (
+                    parse_symbol_list,
+                    update_universe_symbols,
+                )
+
+                cur = load_runtime_config(cfg_path)
+                default_text = "\n".join(cur.symbols)
+                sym_text = st.text_area(
+                    t("universe_edit_label"),
+                    value=default_text,
+                    height=120,
+                    key="universe_edit_area",
+                )
+                st.caption(t("explanation_lang_hint"))
+                if st.button(t("universe_save"), key="universe_save_btn"):
+                    syms = parse_symbol_list(sym_text)
+                    if not syms:
+                        st.warning("empty symbol list")
+                    else:
+                        update_universe_symbols(cfg_path, syms)
+                        st.success(t("universe_saved"))
+            except Exception as exc:
+                st.caption(str(exc))
 
         with st.expander(t("quick_start"), expanded=False):
             st.markdown(t("tutorial_markdown"))
+        with st.expander(t("deploy_aliyun_title"), expanded=False):
+            st.caption(t("deploy_aliyun_hint"))
+            st.markdown(
+                "See **[docs/deploy-aliyun-realtime.md](docs/deploy-aliyun-realtime.md)** "
+                "and `deploy/aliyun/` (systemd + `openclaw.env.example`)."
+            )
 
     picks_df = _load_latest_realtime_picks(report_dir)
     alerts_df = _load_latest_alerts(report_dir)
@@ -953,32 +3755,66 @@ def main() -> None:
     )
     raw_df = _load_latest_raw_posts(raw_dir)
     platform_count = 0 if sentiment_df.empty else sentiment_df["platform"].nunique()
+    engine_stats = build_sentiment_engine_stats(raw_df)
+    capture_rates = compute_raw_capture_rates(raw_df)
 
-    st.markdown(
-        f"""
-        <div class="dashboard-hero">
-            <div class="dashboard-kicker">OpenClaw AI</div>
-            <div class="dashboard-title">{t('header_title')}</div>
-            <div class="dashboard-subtitle">{t('hero_tagline')}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    _render_dashboard_hero(
+        len(picks_df),
+        len(alerts_df),
+        platform_count,
+        report_dir,
+        engine_stats=engine_stats,
+        capture_rates=capture_rates,
     )
-    _render_status_strip(report_dir, len(picks_df), len(alerts_df), platform_count)
+    _render_sentiment_engine_strip(engine_stats, capture_rates=capture_rates)
+    with st.expander(t("user_guide_title"), expanded=False):
+        st.markdown(t("user_guide_body"))
+    oc_probe = _openclaw_probe()
+    _render_status_strip(
+        report_dir,
+        len(picks_df),
+        len(alerts_df),
+        platform_count,
+        openclaw_connected=bool(oc_probe.get("connected")),
+    )
 
-    tab_picks, tab_sentiment, tab_comments, tab_eval = st.tabs(
-        [t("tab_picks"), t("tab_sentiment"), t("tab_comments"), t("tab_eval")]
+    tab_watch, tab_alert, tab_review, tab_ai, tab_picks, tab_openclaw, tab_sentiment, tab_comments, tab_eval, tab_analyst = st.tabs(
+        [
+            "自选股监控",
+            "信号预警",
+            "舆情股价复盘",
+            "AI采集筛选",
+            t("tab_picks"),
+            t("tab_openclaw"),
+            t("tab_sentiment"),
+            t("tab_comments"),
+            t("tab_eval"),
+            t("tab_analyst"),
+        ]
     )
+
+    with tab_watch:
+        render_watchlist_tab(sentiment_df, raw_df, mvp_user, workspace=_mvp_ws)
+
+    with tab_alert:
+        render_alerts_tab(sentiment_df, mvp_user, workspace=_mvp_ws)
+
+    with tab_review:
+        render_review_tab(sentiment_df, raw_df, mvp_user, workspace=_mvp_ws)
+
+    with tab_ai:
+        render_ai_pipeline_tab(raw_df)
 
     with tab_picks:
-        st.markdown(f"#### {t('realtime_picks')}")
         _render_pick_leaderboard(picks_df)
 
+        st.markdown('<div class="panel-card">', unsafe_allow_html=True)
         st.markdown(f"#### {t('score_alerts')}")
         if alerts_df.empty:
             st.info(t("no_alerts"))
         else:
             st.dataframe(alerts_df, use_container_width=True, hide_index=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
         st.markdown(f"#### {t('pick_reason_cards')}")
         if picks_df.empty:
@@ -986,171 +3822,175 @@ def main() -> None:
         else:
             _render_reason_cards(raw_df, picks_df, sentiment_df, lookback_days=30)
 
+    with tab_openclaw:
+        _render_openclaw_tab(raw_df, picks_df, report_dir)
+
     with tab_sentiment:
-        _render_info_box(t("guide_trend_title"), t("guide_trend_body"))
-        st.markdown(f"#### {t('sentiment_trend')}")
+        st.markdown(
+            "<div class='panel-rail'>"
+            "<div class='panel-headbar'>"
+            "<div class='panel-headbar-left'>"
+            f"<div class='panel-section-title'>{t('sentiment_trend')}</div>"
+            f"<div class='panel-subtitle'>{t('guide_trend_body')}</div>"
+            "</div>"
+            "<div class='panel-headbar-right'>"
+            f"<span class='panel-headbar-chip'>{t('chip_trend')}</span>"
+            f"<span class='panel-headbar-chip'>{t('chip_multisource')}</span>"
+            "</div>"
+            "</div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
         with st.container(border=True):
+            c_filter, c_stats, c_export = st.columns([1.4, 1.0, 1.0])
+            with c_filter:
+                st.markdown(
+                    f"<div class='panel-control-row'><div class='panel-control-label'>"
+                    f"{t('filter_controls')}</div>",
+                    unsafe_allow_html=True,
+                )
+                min_samples = st.number_input(
+                    t("min_samples_platform"),
+                    min_value=0,
+                    value=1,
+                    step=1,
+                )
+                include_zero = st.checkbox(
+                    t("include_zero_scores"), value=True
+                )
+                try:
+                    st.session_state["include_zero_scores"] = bool(include_zero)
+                except Exception:
+                    pass
+                st.markdown(
+                    f"<div class='panel-control-hint'>"
+                    f"{t('filter_hint_samples')}"
+                    "</div></div>",
+                    unsafe_allow_html=True,
+                )
+            with c_stats:
+                st.markdown(
+                    f"<div class='panel-control-row'><div class='panel-control-label'>"
+                    f"{t('signal_stats')}</div>",
+                    unsafe_allow_html=True,
+                )
+                show_counts = st.checkbox(t("show_platform_counts"), value=True)
+                st.markdown(
+                    f"<div class='panel-control-hint'>{t('signal_stats_hint')}</div></div>",
+                    unsafe_allow_html=True,
+                )
+            with c_export:
+                st.markdown(
+                    f"<div class='panel-control-row'><div class='panel-control-label'>"
+                    f"{t('export_section')}</div>",
+                    unsafe_allow_html=True,
+                )
+                export_placeholder = st.empty()
+                st.markdown(
+                    f"<div class='panel-control-hint'>{t('export_hint')}</div></div>",
+                    unsafe_allow_html=True,
+                )
+
             if not sentiment_df.empty:
                 df = sentiment_df.copy()
                 df["trade_date"] = pd.to_datetime(df["trade_date"], errors="coerce")
                 df["sentiment_score"] = pd.to_numeric(
                     df.get("sentiment_score", None), errors="coerce"
                 )
-                include_zero = False
-                try:
-                    include_zero = bool(
-                        st.session_state.get("include_zero_scores", False)
-                    )
-                except Exception:
-                    include_zero = False
                 if not include_zero:
                     df.loc[df["sentiment_score"] == 0.0, "sentiment_score"] = pd.NA
-
                 df["month"] = df["trade_date"].dt.to_period("M").astype(str)
-
                 if "post_count" in df.columns:
                     df["post_count"] = pd.to_numeric(
                         df.get("post_count", 1), errors="coerce"
                     ).fillna(1)
                     tmp2 = df.dropna(subset=["sentiment_score"]).copy()
                     if tmp2.empty:
-                        grouped = pd.DataFrame(
-                            columns=["month", "platform", "sentiment_score"]
-                        )
+                        grouped = pd.DataFrame(columns=["month", "platform", "sentiment_score"])
                     else:
-                        tmp2 = tmp2.copy()
                         tmp2["_weighted"] = tmp2["sentiment_score"] * tmp2["post_count"]
                         sums = tmp2.groupby(["month", "platform"])["post_count"].sum()
                         numer = tmp2.groupby(["month", "platform"])["_weighted"].sum()
                         series = numer / sums
-                        idx = pd.DataFrame(
-                            list(series.index), columns=["month", "platform"]
-                        )
-                        grouped = pd.concat(
-                            [
-                                idx.reset_index(drop=True),
-                                pd.DataFrame({"sentiment_score": list(series.values)}),
-                            ],
-                            axis=1,
-                        )
+                        idx = pd.DataFrame(list(series.index), columns=["month", "platform"])
+                        grouped = pd.concat([idx.reset_index(drop=True), pd.DataFrame({"sentiment_score": list(series.values)})], axis=1)
                 else:
-                    grouped = (
-                        df.dropna(subset=["sentiment_score"])
-                        .groupby(["month", "platform"], as_index=False)[
-                            "sentiment_score"
-                        ]
-                        .mean()
-                    )
+                    grouped = df.dropna(subset=["sentiment_score"]).groupby(["month", "platform"], as_index=False)["sentiment_score"].mean()
 
                 if grouped.empty:
                     st.info(t("no_sentiment_history"))
                 else:
-                    counts = (
-                        df.dropna(subset=["sentiment_score"])
-                        .groupby("platform")
-                        .size()
-                        .reset_index(name="samples")
-                    )
-                    cols = st.columns([1, 1, 1])
-                    min_samples = cols[0].number_input(
-                        "Min samples per platform",
-                        min_value=0,
-                        value=1,
-                        step=1,
-                    )
-                    show_counts = cols[1].checkbox(
-                        "Show platform sample counts", value=True
-                    )
-                    include_zero = cols[2].checkbox(
-                        "Include zero scores (treat 0 as valid)", value=True
-                    )
-                    try:
-                        st.session_state["include_zero_scores"] = bool(include_zero)
-                    except Exception:
-                        pass
-
-                    valid_platforms = counts[counts["samples"] >= int(min_samples)][
-                        "platform"
-                    ].tolist()
+                    counts = df.dropna(subset=["sentiment_score"]).groupby("platform").size().reset_index(name="samples")
+                    valid_platforms = counts[counts["samples"] >= int(min_samples)]["platform"].tolist()
                     filtered = grouped[grouped["platform"].isin(valid_platforms)].copy()
-                    csv_bytes = filtered.to_csv(index=False).encode("utf-8")
-                    cols[2].download_button(
-                        label="Download CSV",
-                        data=csv_bytes,
-                        file_name="agg_monthly_filtered.csv",
-                        mime="text/csv",
-                    )
-
                     if show_counts:
                         st.markdown(
-                            "**Platform sample counts**: "
-                            + ", ".join(
-                                [
-                                    f"{r['platform']}={r['samples']}"
-                                    for _, r in counts.iterrows()
-                                ]
-                            )
+                            f"<div class='panel-control-row'><div class='panel-control-label'>"
+                            f"{t('platform_sample_counts')}</div><div class='panel-control-hint'>"
+                            + ", ".join([f"{_platform_label(str(r['platform']))}={r['samples']}" for _, r in counts.iterrows()])
+                            + "</div></div>",
+                            unsafe_allow_html=True,
                         )
-
                     if filtered.empty:
-                        st.warning(
-                            "No platforms remain after filtering; lower Min samples."
-                        )
+                        st.warning(t("no_platforms_after_filter"))
                     else:
-                        chart = (
-                            alt.Chart(filtered)
-                            .mark_line(point=True, strokeWidth=2.4)
-                            .encode(
-                                x=alt.X("month:N", title=t("month")),
-                                y=alt.Y(
-                                    "sentiment_score:Q",
-                                    title=t("sentiment_score_label"),
-                                ),
-                                color=alt.Color(
-                                    "platform:N",
-                                    scale=alt.Scale(scheme="category10"),
-                                    title=t("platform_label"),
-                                ),
-                                tooltip=["month", "platform", "sentiment_score"],
-                            )
-                            .properties(title=t("sentiment_trend"), height=280)
+                        export_placeholder.download_button(
+                            label=t("download_csv"),
+                            data=filtered.to_csv(index=False).encode("utf-8"),
+                            file_name="agg_monthly_filtered.csv",
+                            mime="text/csv",
+                            use_container_width=True,
                         )
-                        st.altair_chart(chart, use_container_width=True)
+                        st.markdown("<div class='chart-shell'>", unsafe_allow_html=True)
+                        chart_df = label_platform_column(filtered, _ui_lang())
+                        chart = alt.Chart(chart_df).mark_line(point=True, strokeWidth=2.2).encode(
+                            x=alt.X("month:N", title=t("month")),
+                            y=alt.Y("sentiment_score:Q", title=t("sentiment_score_label")),
+                            color=alt.Color("platform:N", scale=alt.Scale(range=_DASH_COLORS), title=t("platform_label")),
+                            tooltip=["month", "platform", "sentiment_score"],
+                        ).properties(title=t("sentiment_trend"), height=280)
+                        st.altair_chart(_configure_chart(chart), use_container_width=True)
+                        st.markdown("</div>", unsafe_allow_html=True)
             else:
                 st.info(t("no_sentiment_history"))
 
-        _render_info_box(t("guide_contrib_title"), t("guide_contrib_body"))
-        st.markdown(f"#### {t('platform_contribution')}")
+        st.markdown(
+            "<div class='panel-rail panel-rail--compact'>"
+            "<div class='panel-headbar'>"
+            "<div class='panel-headbar-left'>"
+            f"<div class='panel-section-title'>{t('platform_contribution')}</div>"
+            f"<div class='panel-subtitle'>{t('guide_contrib_body')}</div>"
+            "</div>"
+            "<div class='panel-headbar-right'>"
+            f"<span class='panel-headbar-chip'>{t('chip_drivers')}</span>"
+            f"<span class='panel-headbar-chip'>{t('chip_weights')}</span>"
+            "</div>"
+            "</div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
         with st.container(border=True):
-            lookback_days = st.number_input(
-                t("lookback_days_non_zero"),
-                min_value=1,
-                value=30,
-                step=1,
-            )
-            pick_symbols = (
-                sorted(picks_df["symbol"].unique()) if not picks_df.empty else []
-            )
-            hist_symbols = (
-                sorted(sentiment_df["symbol"].unique())
-                if not sentiment_df.empty
-                else []
-            )
+            c_left, c_mid, c_right = st.columns([1.2, 1.0, 0.9])
+            pick_symbols = sorted(picks_df["symbol"].unique()) if not picks_df.empty else []
+            hist_symbols = sorted(sentiment_df["symbol"].unique()) if not sentiment_df.empty else []
             symbol_options = sorted(set(pick_symbols + hist_symbols))
             if not symbol_options:
                 st.info(t("no_contribution_data"))
             else:
-                symbol = st.selectbox(
-                    t("select_symbol_for_contribution"),
-                    symbol_options,
-                )
-                contrib_df = build_pick_contribution(
-                    symbol,
-                    picks_df,
-                    raw_df,
-                    sentiment_df,
-                    lookback_days=int(lookback_days),
-                )
+                with c_left:
+                    symbol = st.selectbox(t("select_symbol_for_contribution"), symbol_options)
+                with c_mid:
+                    lookback_days = st.number_input(t("lookback_days_non_zero"), min_value=1, value=30, step=1)
+                with c_right:
+                    st.markdown(
+                        f"<div class='panel-control-row'><div class='panel-control-label'>{t('actions')}</div>",
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown(
+                        f"<div class='panel-control-hint'>{t('contrib_actions_hint')}</div></div>",
+                        unsafe_allow_html=True,
+                    )
+                contrib_df = build_pick_contribution(symbol, picks_df, raw_df, sentiment_df, lookback_days=int(lookback_days))
                 if contrib_df.empty:
                     st.info(t("no_contribution_data"))
                 else:
@@ -1158,172 +3998,72 @@ def main() -> None:
                     if not picks_df.empty:
                         pr = picks_df[picks_df["symbol"] == symbol].head(1)
                         if not pr.empty:
-                            avg_score = float(
-                                pd.to_numeric(pr["avg_score"], errors="coerce").fillna(
-                                    0
-                                )
-                            )
-                    lang = st.session_state.get("lang", "zh")
-                    st.markdown(
-                        build_pick_narrative(
-                            symbol, avg_score, contrib_df, raw_df, lang=lang
-                        )
-                    )
+                            avg_score = float(pd.to_numeric(pr["avg_score"], errors="coerce").fillna(0))
+                    st.markdown(build_pick_narrative(symbol, avg_score, contrib_df, raw_df, lang=st.session_state.get("lang", "zh")))
                     stats = evidence_stats(raw_df, symbol)
-                    st.caption(
-                        t("evidence_summary").format(
-                            valid=stats["valid"],
-                            total=stats["total"],
-                            platforms=stats["platforms"],
-                            fallback=stats["fallback"],
-                        )
-                    )
+                    st.caption(_evidence_caption(stats))
                     if stats["valid"] < 8:
                         st.warning(t("sample_low_warning"))
-
-                    display_df = contrib_df[
-                        [
-                            "platform",
-                            "platform_score",
-                            "config_weight",
-                            "weighted_contrib",
-                            "weight_pct",
-                            "observations",
-                            "direction",
-                        ]
-                    ].rename(
-                        columns={
-                            "platform": t("col_platform"),
-                            "platform_score": t("col_platform_score"),
-                            "config_weight": t("col_config_weight"),
-                            "weighted_contrib": t("col_weighted_contrib"),
-                            "weight_pct": t("col_weight_pct"),
-                            "observations": t("col_observations"),
-                            "direction": t("col_direction"),
-                        }
-                    )
+                    display_df = label_platform_column(contrib_df, _ui_lang())[["platform", "platform_score", "config_weight", "weighted_contrib", "weight_pct", "observations", "direction"]].rename(columns={"platform": t("col_platform"), "platform_score": t("col_platform_score"), "config_weight": t("col_config_weight"), "weighted_contrib": t("col_weighted_contrib"), "weight_pct": t("col_weight_pct"), "observations": t("col_observations"), "direction": t("col_direction")})
                     st.dataframe(display_df, use_container_width=True, hide_index=True)
-
-                    chart_view = contrib_df[
-                        contrib_df["platform_score"].abs() > 0.001
-                    ].copy()
+                    st.markdown("<div class='chart-shell'>", unsafe_allow_html=True)
+                    chart_view = contrib_df[contrib_df["platform_score"].abs() > 0.001].copy()
                     if chart_view.empty:
                         chart_view = contrib_df.copy()
-                    bar = (
-                        alt.Chart(chart_view)
-                        .mark_bar(cornerRadiusEnd=6)
-                        .encode(
-                            x=alt.X(
-                                "weighted_contrib:Q",
-                                title=t("col_weighted_contrib"),
-                            ),
-                            y=alt.Y("platform:N", sort="-x", title=None),
-                            color=alt.condition(
-                                alt.datum.platform_score > 0.05,
-                                alt.value("#059669"),
-                                alt.condition(
-                                    alt.datum.platform_score < -0.05,
-                                    alt.value("#DC2626"),
-                                    alt.value("#94A3B8"),
-                                ),
-                            ),
-                            tooltip=[
-                                "platform",
-                                "platform_score",
-                                "config_weight",
-                                "weighted_contrib",
-                                "weight_pct",
-                                "observations",
-                            ],
-                        )
-                        .properties(title=t("platform_contribution"), height=280)
-                    )
-                    st.altair_chart(bar, use_container_width=True)
+                    chart_view = label_platform_column(chart_view, _ui_lang())
+                    chart_view["bar_color"] = chart_view["platform_score"].apply(lambda s: "bull" if s > 0.05 else "bear" if s < -0.05 else "flat")
+                    bar = alt.Chart(chart_view).mark_bar(cornerRadiusEnd=12).encode(
+                        x=alt.X("weighted_contrib:Q", title=t("col_weighted_contrib")),
+                        y=alt.Y("platform:N", sort="-x", title=None),
+                        color=alt.Color("bar_color:N", scale=_SENTIMENT_BAR_SCALE, title=t("col_direction")),
+                        tooltip=["platform", "platform_score", "config_weight", "weighted_contrib", "weight_pct", "observations"],
+                    ).properties(title=t("platform_contribution"), height=280)
+                    st.altair_chart(_configure_chart(bar), use_container_width=True)
+                    st.markdown("</div>", unsafe_allow_html=True)
 
-        _render_info_box(t("guide_snapshot_title"), t("guide_snapshot_body"))
-        st.markdown(f"#### {t('platform_snapshot')}")
+        st.markdown(
+            "<div class='panel-rail panel-rail--compact'>"
+            "<div class='panel-headbar'>"
+            "<div class='panel-headbar-left'>"
+            f"<div class='panel-section-title'>{t('platform_snapshot')}</div>"
+            f"<div class='panel-subtitle'>{t('guide_snapshot_body')}</div>"
+            "</div>"
+            "<div class='panel-headbar-right'>"
+            f"<span class='panel-headbar-chip'>{t('chip_snapshot')}</span>"
+            f"<span class='panel-headbar-chip'>{t('chip_ranked')}</span>"
+            "</div>"
+            "</div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
         pick_symbols = sorted(picks_df["symbol"].unique()) if not picks_df.empty else []
-        hist_symbols = (
-            sorted(sentiment_df["symbol"].unique()) if not sentiment_df.empty else []
-        )
+        hist_symbols = sorted(sentiment_df["symbol"].unique()) if not sentiment_df.empty else []
         snapshot_options = sorted(set(pick_symbols + hist_symbols))
-        snapshot_symbol = st.selectbox(
-            t("select_symbol_for_radar"),
-            snapshot_options if snapshot_options else [""],
-        )
+        snapshot_symbol = st.selectbox(t("select_symbol_for_radar"), snapshot_options if snapshot_options else [""])
         with st.container(border=True):
             if not snapshot_symbol:
                 st.info(t("no_radar_data"))
             else:
-                snap = build_pick_contribution(
-                    snapshot_symbol,
-                    picks_df,
-                    raw_df,
-                    sentiment_df,
-                    lookback_days=30,
-                )
+                snap = build_pick_contribution(snapshot_symbol, picks_df, raw_df, sentiment_df, lookback_days=30)
                 if snap.empty:
                     st.info(t("no_radar_data"))
                 else:
-                    snap_display = snap.copy()
-                    snap_display["sentiment_label"] = snap_display[
-                        "platform_score"
-                    ].apply(lambda s: f"{s:+.3f}")
-                    snap_display["bar_color"] = snap_display["platform_score"].apply(
-                        lambda s: "bull"
-                        if s > 0.05
-                        else "bear"
-                        if s < -0.05
-                        else "flat"
-                    )
-                    color_scale = alt.Scale(
-                        domain=["bull", "bear", "flat"],
-                        range=["#059669", "#DC2626", "#94A3B8"],
-                    )
-                    snap_chart = (
-                        alt.Chart(snap_display)
-                        .mark_bar(cornerRadiusEnd=4)
-                        .encode(
-                            x=alt.X(
-                                "platform_score:Q", title=t("sentiment_score_label")
-                            ),
-                            y=alt.Y("platform:N", sort="-x", title=t("platform_label")),
-                            color=alt.Color(
-                                "bar_color:N",
-                                scale=color_scale,
-                                title=t("col_direction"),
-                            ),
-                            tooltip=[
-                                "platform",
-                                "platform_score",
-                                "observations",
-                                "weight_pct",
-                            ],
-                        )
-                        .properties(height=max(220, 36 * len(snap_display)))
-                    )
-                    st.altair_chart(snap_chart, use_container_width=True)
+                    snap_display = label_platform_column(snap, _ui_lang())
+                    snap_display["sentiment_label"] = snap_display["platform_score"].apply(lambda s: f"{s:+.3f}")
+                    snap_display["bar_color"] = snap_display["platform_score"].apply(lambda s: "bull" if s > 0.05 else "bear" if s < -0.05 else "flat")
+                    snap_chart = alt.Chart(snap_display).mark_bar(cornerRadiusEnd=12).encode(
+                        x=alt.X("platform_score:Q", title=t("sentiment_score_label")),
+                        y=alt.Y("platform:N", sort="-x", title=t("platform_label")),
+                        color=alt.Color("bar_color:N", scale=_SENTIMENT_BAR_SCALE, title=t("col_direction")),
+                        tooltip=["platform", "platform_score", "observations", "weight_pct"],
+                    ).properties(height=max(220, 36 * len(snap_display)))
+                    st.altair_chart(_configure_chart(snap_chart), use_container_width=True)
                     st.dataframe(
-                        snap_display[
-                            [
-                                "platform",
-                                "platform_score",
-                                "observations",
-                                "weight_pct",
-                                "direction",
-                            ]
-                        ].rename(
-                            columns={
-                                "platform": t("col_platform"),
-                                "platform_score": t("col_platform_score"),
-                                "observations": t("col_observations"),
-                                "weight_pct": t("col_weight_pct"),
-                                "direction": t("col_direction"),
-                            }
-                        ),
+                        snap_display[["platform", "platform_score", "observations", "weight_pct", "direction"]].rename(columns={"platform": t("col_platform"), "platform_score": t("col_platform_score"), "observations": t("col_observations"), "weight_pct": t("col_weight_pct"), "direction": t("col_direction")}),
                         use_container_width=True,
                         hide_index=True,
                     )
+                    st.markdown("</div>", unsafe_allow_html=True)
 
     with tab_comments:
         _render_info_box(t("guide_comments_title"), t("guide_comments_body"))
@@ -1334,56 +4074,62 @@ def main() -> None:
             sel_symbol = st.selectbox(
                 t("select_symbol"), sorted(raw_df["symbol"].unique())
             )
+            _render_symbol_sentiment_card(raw_df, sel_symbol)
             stats = evidence_stats(raw_df, sel_symbol)
-            st.caption(
-                t("evidence_summary").format(
-                    valid=stats["valid"],
-                    total=stats["total"],
-                    platforms=stats["platforms"],
-                    fallback=stats["fallback"],
-                )
-            )
+            st.caption(_evidence_caption(stats))
             if stats["valid"] < 5:
                 st.warning(t("sample_low_warning"))
+            if stats["valid"] < 3:
+                st.info(t("comments_few_hint"))
 
-            top_rows = top_comment_rows(raw_df, sel_symbol, top_n=10)
+            top_rows = top_comment_rows(
+                raw_df, sel_symbol, top_n=10, include_reference=True, ref_n=4
+            )
             comment_cols = st.columns(2)
             with comment_cols[0]:
                 st.markdown(
-                    f"**{t('positive_highlight')}** ({len(top_rows['positive'])})"
+                    f"<div class='comment-panel'><div class='comment-panel-title'>"
+                    f"{t('positive_highlight')} ({len(top_rows['positive'])})</div>",
+                    unsafe_allow_html=True,
+                )
+                _render_comment_highlights(
+                    top_rows["positive"],
+                    key_prefix=f"tab_pos_{sel_symbol}",
+                    empty_message=None,
                 )
                 if top_rows["positive"].empty:
                     st.info(t("no_valid_comments"))
-                else:
-                    for _, row in top_rows["positive"].iterrows():
-                        text = row.get("display_text", "")
-                        platform = row.get("platform", "")
-                        score = float(row.get("ai_score", 0))
-                        url = str(row.get("url", "") or "")
-                        label = text if len(text) <= 36 else f"{text[:36]}…"
-                        with st.expander(f"{platform} · {score:+.2f} · {label}"):
-                            st.write(text)
-                            if url and url.startswith("http"):
-                                st.markdown(f"[{t('col_url')}]({url})")
+                st.markdown("</div>", unsafe_allow_html=True)
             with comment_cols[1]:
                 st.markdown(
-                    f"**{t('negative_highlight')}** ({len(top_rows['negative'])})"
+                    f"<div class='comment-panel'><div class='comment-panel-title'>"
+                    f"{t('negative_highlight')} ({len(top_rows['negative'])})</div>",
+                    unsafe_allow_html=True,
+                )
+                _render_comment_highlights(
+                    top_rows["negative"],
+                    key_prefix=f"tab_neg_{sel_symbol}",
+                    empty_message=None,
                 )
                 if top_rows["negative"].empty:
                     st.info(t("no_valid_comments"))
-                else:
-                    for _, row in top_rows["negative"].iterrows():
-                        text = row.get("display_text", "")
-                        platform = row.get("platform", "")
-                        score = float(row.get("ai_score", 0))
-                        url = str(row.get("url", "") or "")
-                        label = text if len(text) <= 36 else f"{text[:36]}…"
-                        with st.expander(f"{platform} · {score:+.2f} · {label}"):
-                            st.write(text)
-                            if url and url.startswith("http"):
-                                st.markdown(f"[{t('col_url')}]({url})")
+                st.markdown("</div>", unsafe_allow_html=True)
+            if not top_rows["reference"].empty:
+                with st.expander(
+                    f"{t('reference_expand_hint')} ({len(top_rows['reference'])})",
+                    expanded=False,
+                ):
+                    _render_comment_highlights(
+                        top_rows["reference"],
+                        key_prefix=f"tab_ref_{sel_symbol}",
+                        empty_message=None,
+                        use_expanders=False,
+                    )
 
     with tab_eval:
+        _render_paper_account_panel(memory_dir)
+        _render_quality_gate_history_chart(memory_dir)
+        _render_event_log_panel(memory_dir)
         st.markdown(f"#### {t('evaluation')}")
         price_source_mode = st.radio(
             t("price_source"),
@@ -1453,6 +4199,12 @@ def main() -> None:
                     f"**{t('eval_accuracy')}**: {summary.accuracy:.2%} | **{t('eval_avg_return')}**: {summary.avg_return:.4%} | "
                     f"**{t('eval_win_rate')}**: {summary.win_rate:.2%} | **{t('eval_sharpe_like')}**: {summary.sharpe_like:.4f}"
                 )
+                st.caption(
+                    f"Max DD {summary.max_drawdown:.2%} | "
+                    f"Profit factor {summary.profit_factor:.3f} | "
+                    f"Payoff {summary.payoff_ratio:.3f} | "
+                    f"Calmar-like {summary.calmar_like:.4f}"
+                )
                 if not merged.empty:
                     st.dataframe(
                         merged[
@@ -1461,8 +4213,17 @@ def main() -> None:
                         use_container_width=True,
                         hide_index=True,
                     )
+                st.session_state["eval_price_df"] = price_df
             except Exception as e:
                 st.error(t("evaluation_failed").format(error=e))
+
+        wf_price = st.session_state.get("eval_price_df")
+        if wf_price is None or (isinstance(wf_price, pd.DataFrame) and wf_price.empty):
+            try:
+                wf_price = load_prices(price_csv)
+            except Exception:
+                wf_price = pd.DataFrame()
+        _render_walk_forward_panel(memory_dir, report_dir, wf_price)
 
         st.markdown(f"#### {t('monthly_training')}")
         lang = st.session_state.get("lang", "zh")
@@ -1645,24 +4406,28 @@ def main() -> None:
                             y=alt.Y("value:Q", title=t("rate")),
                             color=alt.Color(
                                 "metric:N",
-                                scale=alt.Scale(scheme="tableau10"),
+                                scale=alt.Scale(range=_DASH_COLORS[:2]),
                                 title=t("metric_forecast_direction"),
                             ),
                             tooltip=["month", "metric", "value"],
                         )
                         .properties(title=t("monthly_metrics_title"), height=260)
                     )
-                    st.altair_chart(monthly_line, use_container_width=True)
+                    st.altair_chart(
+                        _configure_chart(monthly_line), use_container_width=True
+                    )
 
                     monthly_bar = (
                         alt.Chart(monthly_df)
-                        .mark_bar()
+                        .mark_bar(cornerRadiusEnd=12)
                         .encode(
                             x=alt.X("month:N", title=t("month")),
                             y=alt.Y("signals:Q", title=t("signal_count")),
                             color=alt.Color(
                                 "accuracy:Q",
-                                scale=alt.Scale(scheme="tealblues"),
+                                scale=alt.Scale(
+                                    range=["#CCFBF1", "#0D9488", "#115E59"]
+                                ),
                                 title=t("eval_accuracy"),
                             ),
                             tooltip=[
@@ -1675,7 +4440,9 @@ def main() -> None:
                         )
                         .properties(title=t("monthly_metrics_title"), height=250)
                     )
-                    st.altair_chart(monthly_bar, use_container_width=True)
+                    st.altair_chart(
+                        _configure_chart(monthly_bar), use_container_width=True
+                    )
 
                     monthly_display = monthly_df[
                         [
@@ -1703,6 +4470,9 @@ def main() -> None:
                         use_container_width=True,
                         hide_index=True,
                     )
+
+    with tab_analyst:
+        _render_analyst_tab(memory_dir, report_dir)
 
 
 if __name__ == "__main__":

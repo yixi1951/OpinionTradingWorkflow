@@ -54,6 +54,7 @@ def compute_performance_metrics(equity_curve: List[float]) -> Dict[str, float]:
         std = math.sqrt(var)
         sharpe = (mean_ret / std) * math.sqrt(252) if std > 0 else 0.0
     else:
+        mean_ret = 0.0
         sharpe = 0.0
 
     return {
@@ -61,4 +62,6 @@ def compute_performance_metrics(equity_curve: List[float]) -> Dict[str, float]:
         "max_drawdown": max_drawdown,
         "sharpe": sharpe,
         "final_equity": end,
+        "n_periods": float(n_days),
+        "avg_daily_return": mean_ret,
     }

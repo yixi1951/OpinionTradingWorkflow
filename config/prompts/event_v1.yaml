@@ -1,0 +1,10 @@
+name: event
+version: v1
+scenario: event
+active: true
+template: |
+  从文本中抽取事件类型，只输出 JSON：
+  {{"events":[{{"type":"earnings|policy|mna|risk|rumor|technical|general","confidence":0.0}}]}}。
+  输入：
+  {texts}
+few_shot: []

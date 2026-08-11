@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional
 
 import requests
 
@@ -22,7 +22,10 @@ class OpenClawClient:
         timeout: int | None = None,
     ) -> None:
         if base_url is _MISSING:
-            self.base_url = os.environ.get("OPENCLAW_URL")
+            # Prefer dedicated inference service, then legacy OpenClaw proxy
+            self.base_url = os.environ.get("INFERENCE_URL") or os.environ.get(
+                "OPENCLAW_URL"
+            )
         else:
             self.base_url = base_url
         if token is _MISSING:
@@ -62,3 +65,52 @@ class OpenClawClient:
             return None
 
         return None
+
+    def probe(self) -> Dict[str, object]:
+        """Lightweight connectivity check (single short text + optional /ready)."""
+        if not self.is_configured():
+            return {
+                "connected": False,
+                "url": None,
+                "message": "OPENCLAW_URL not configured",
+            }
+        ready_info: Dict[str, object] = {}
+        try:
+            ready_url = self.base_url.rstrip("/") + "/ready"
+            ready_resp = requests.get(ready_url, timeout=5)
+            if ready_resp.ok:
+                ready_info = ready_resp.json() if ready_resp.content else {}
+        except Exception as exc:
+            ready_info = {"status": "unreachable", "detail": str(exc)[:80]}
+
+        url = self.base_url.rstrip("/") + "/api/v1/sentiment"
+        headers = {"Content-Type": "application/json"}
+        if self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+        try:
+            probe_timeout = int(os.environ.get("OPENCLAW_PROBE_TIMEOUT", "120"))
+            resp = requests.post(
+                url,
+                json={"texts": ["连接测试：今天市场偏多。"]},
+                headers=headers,
+                timeout=min(probe_timeout, self.timeout),
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            scores = data.get("scores")
+            ok = isinstance(scores, list) and len(scores) == 1
+            return {
+                "connected": ok,
+                "url": self.base_url,
+                "message": "OpenClaw gateway reachable",
+                "sample_score": float(scores[0]) if ok else None,
+                "ready": ready_info,
+                "score_source": data.get("source"),
+            }
+        except Exception as exc:
+            return {
+                "connected": False,
+                "url": self.base_url,
+                "message": str(exc)[:160],
+                "ready": ready_info,
+            }

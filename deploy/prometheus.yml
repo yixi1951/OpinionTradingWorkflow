@@ -1,0 +1,17 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: opinion-api
+    static_configs:
+      - targets: ["api:8000"]
+  - job_name: opinion-collector
+    static_configs:
+      - targets: ["collector:8001"]
+  - job_name: opinion-inference
+    static_configs:
+      - targets: ["inference:8002"]
+  - job_name: opinion-compute
+    static_configs:
+      - targets: ["compute:8003"]

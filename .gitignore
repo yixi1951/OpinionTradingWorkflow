@@ -12,6 +12,12 @@ __pycache__/
 .venv/
 venv/
 
+# CodeGraph local index (DB is machine-specific)
+.codegraph/*.db
+.codegraph/*.db-wal
+.codegraph/*.db-shm
+.codegraph/cache/
+
 # Editor and OS files
 .vscode/
 .idea/

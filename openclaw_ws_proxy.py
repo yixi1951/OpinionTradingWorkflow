@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import datetime
 import json
 import os
 import re
 import uuid
-from typing import Any, Iterable, List, Optional
+from contextlib import asynccontextmanager
+from typing import Any, AsyncIterator, Iterable, List, Optional
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -20,7 +22,59 @@ class SentimentRequest(BaseModel):
     texts: List[str]
 
 
-app = FastAPI(title="OpenClaw WS -> REST Proxy")
+_started_at: str | None = None
+_request_count: int = 0
+_error_count: int = 0
+_last_score_latency_ms: float | None = None
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    global _started_at
+    _started_at = datetime.datetime.utcnow().isoformat() + "Z"
+    yield
+
+
+app = FastAPI(title="OpenClaw WS -> REST Proxy", lifespan=_lifespan)
+
+
+@app.get("/health")
+async def health() -> dict:
+    """Liveness: process is up."""
+    return {
+        "status": "ok",
+        "service": "openclaw-ws-proxy",
+        "started_at": _started_at,
+        "now": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+        "requests": _request_count,
+        "errors": _error_count,
+        "last_score_latency_ms": _last_score_latency_ms,
+    }
+
+
+@app.get("/ready")
+async def ready() -> dict:
+    """Readiness: keyword fallback always ready; WS mode needs token when not keyword-only."""
+    keyword_only = str(os.getenv("OPENCLAW_PROXY_KEYWORD_ONLY", "0")).lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    has_token = bool(os.getenv("WS_GATEWAY_TOKEN"))
+    ws_ok = keyword_only or has_token
+    status = "ready" if ws_ok else "not_ready"
+    code_ok = ws_ok
+    payload = {
+        "status": status,
+        "service": "openclaw-ws-proxy",
+        "keyword_only": keyword_only,
+        "gateway_token_configured": has_token,
+        "websockets_installed": websockets is not None,
+        "started_at": _started_at,
+    }
+    if not code_ok:
+        raise HTTPException(status_code=503, detail=payload)
+    return payload
 
 
 def _env_int(name: str, default: int) -> int:
@@ -273,12 +327,28 @@ async def score_texts(req: SentimentRequest):
     - {{id}}: request correlation id
     - {{texts_json}}: JSON-encoded texts array
     """
+    global _request_count, _error_count, _last_score_latency_ms
+    _request_count += 1
+    t0 = asyncio.get_running_loop().time()
 
     if websockets is None:
+        _error_count += 1
         raise HTTPException(
             status_code=500,
             detail="websockets package not installed; run `pip install -r requirements.txt`",
         )
+
+    # CI / outage: keyword heuristic only (no Gateway WebSocket).
+    if str(os.getenv("OPENCLAW_PROXY_KEYWORD_ONLY", "0")).lower() in (
+        "1",
+        "true",
+        "yes",
+    ):
+        scores = _fallback_scores(req.texts)
+        _last_score_latency_ms = round(
+            (asyncio.get_running_loop().time() - t0) * 1000, 2
+        )
+        return {"scores": scores, "source": "keyword_fallback"}
 
     ws_url = os.getenv("WS_GATEWAY_URL", "ws://localhost:18789")
     ws_token = os.getenv("WS_GATEWAY_TOKEN")
@@ -290,8 +360,9 @@ async def score_texts(req: SentimentRequest):
     request_id = str(uuid.uuid4())
     auth_template = os.getenv("WS_GATEWAY_AUTH_TEMPLATE")
     request_template = os.getenv("WS_GATEWAY_REQUEST_TEMPLATE")
-    auth_timeout = _env_int("WS_GATEWAY_AUTH_TIMEOUT", 1)
-    response_timeout = _env_int("WS_GATEWAY_RESPONSE_TIMEOUT", 30)
+    auth_timeout = _env_int("WS_GATEWAY_AUTH_TIMEOUT", 30)
+    response_timeout = _env_int("WS_GATEWAY_RESPONSE_TIMEOUT", 180)
+    open_timeout = _env_int("WS_GATEWAY_OPEN_TIMEOUT", 60)
     model_name = os.getenv("WS_GATEWAY_MODEL", "qwen2.5:0.5b")
     connect_scopes = [
         scope.strip()
@@ -321,7 +392,9 @@ async def score_texts(req: SentimentRequest):
         except Exception:
             origin = None
 
-        async with websockets.connect(ws_url, origin=origin) as ws:
+        async with websockets.connect(
+            ws_url, origin=origin, open_timeout=open_timeout, close_timeout=10
+        ) as ws:
             # If user provided an explicit auth template, send it first
             if auth_template:
                 await ws.send(auth_msg)
@@ -505,13 +578,20 @@ async def score_texts(req: SentimentRequest):
                     break
 
             prompt = [
-                "你是一个情绪评分引擎。",
+                "你是 A 股中文舆情情绪评分引擎。",
                 "必须只输出严格 JSON，禁止 markdown、解释、前后缀。",
                 '唯一允许格式：{"scores":[n1,n2,...]}。',
                 "scores 中每个元素必须是 number，不是 string，不是 object。",
                 "scores 长度必须等于输入文本数量。",
                 "每个分数范围在 -1 到 1 之间，越大越正面，越小越负面。",
                 "若不确定，使用 0.0，不要新增其它字段。",
+                "",
+                "Few-shot 示例（仅供对齐尺度，不要在输出中复述）：",
+                '输入: ["茅台今天放量突破，看好后市"] → {"scores":[0.72]}',
+                '输入: ["利空落地，担心继续阴跌"] → {"scores":[-0.65]}',
+                '输入: ["今天天气不错"] → {"scores":[0.0]}',
+                '输入: ["业绩超预期但估值偏高，谨慎看好"] → {"scores":[0.25]}',
+                "",
                 "输入文本如下：",
             ] + [f"{index + 1}. {text}" for index, text in enumerate(req.texts)]
 

@@ -91,6 +91,7 @@ def workflow(monkeypatch, tmp_path):
         memory_dir=str(tmp_path / "memory"),
         report_dir=str(tmp_path / "reports"),
         raw_dir=str(tmp_path / "raw"),
+        analysis=None,
     )
     monkeypatch.setattr(
         "opinion_trading.agents.workflow.load_runtime_config", lambda _: fake_config

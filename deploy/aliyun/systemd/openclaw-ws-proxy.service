@@ -1,0 +1,17 @@
+[Unit]
+Description=OpenClaw sentiment REST proxy (WS gateway to /api/v1/sentiment)
+After=network.target openclaw-gateway.service
+Wants=openclaw-gateway.service
+
+[Service]
+Type=simple
+User=openclaw
+Group=openclaw
+EnvironmentFile=/etc/openclaw-picks.env
+WorkingDirectory=/opt/openclaw-picks
+ExecStart=/opt/openclaw-picks/.venv/bin/python -m uvicorn openclaw_ws_proxy:app --host 127.0.0.1 --port 18790
+Restart=on-failure
+RestartSec=8
+
+[Install]
+WantedBy=multi-user.target

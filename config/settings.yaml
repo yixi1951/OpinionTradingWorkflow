@@ -1,36 +1,127 @@
 project:
   name: opinion-trading-openclaw
   timezone: Asia/Shanghai
-
+  explanation_lang: zh
 strategy:
   platforms:
-    - guba
-    - sina_finance
-    - weibo
-    - eastmoney
-    - xueqiu
-    - douyin
+  # UGC 舆情（落地采集）
+  - guba
+  - xueqiu
+  - weibo
+  - eastmoney
+  - sina_finance
+  - douyin
+  # 权威信源扩展位（adapter 可渐进接入，不强制爬取）
+  # - zhihu
+  # - cninfo
+  # - broker_report
   platform_weights:
-    guba: 1.40
-    eastmoney: 1.30
+    guba: 1.4
+    eastmoney: 1.3
     sina_finance: 1.15
-    xueqiu: 1.10
+    xueqiu: 1.2
     weibo: 0.95
     douyin: 1.05
+    zhihu: 1.05
+    cninfo: 1.5
+    broker_report: 1.45
   bearish_threshold: -0.6
   bullish_threshold: 0.7
   min_platforms_for_signal: 2
   reversal_min_delta: 0.1
   initial_cash: 100000
   position_size_ratio: 0.2
-
 universe:
+  # 聚焦覆盖：沪深300 流动子集（可用 --mode sync_universe 刷新）
+  source: hs300
+  max_symbols: 30
   symbols:
-    - 600519.SH
-    - 000001.SZ
-    - 601318.SH
-
+  - 600519.SH
+  - 000858.SZ
+  - 600036.SH
+  - 601318.SH
+  - 000001.SZ
+  - 601166.SH
+  - 600276.SH
+  - 000333.SZ
+  - 000651.SZ
+  - 002415.SZ
+  - 300750.SZ
+  - 601012.SH
+  - 600900.SH
+  - 600030.SH
+  - 000568.SZ
 storage:
   memory_dir: data/memory
   report_dir: data/reports
   raw_dir: data/raw
+  # file | mysql | mongo | redis | multi （默认 file，DB 未配置时自动回退）
+  backend: file
+scoring:
+  mode: ai
+  row_level_llm: true
+  max_posts: 20
+browser:
+  enabled: true
+  platforms:
+  - xueqiu
+  - weibo
+  - douyin
+ai_pipeline:
+  screen_enabled: true
+  score_enabled: true
+  max_screen_batch: 12
+analysis:
+  enabled: false
+  sentiment_weight: 0.4
+  technical_weight: 0.35
+  fundamental_weight: 0.25
+  min_analysts: 2
+  bullish_threshold: 0.2
+  bearish_threshold: -0.2
+  max_kelly_fraction: 0.25
+  min_confidence: 0.3
+  technical_lookback_days: 365
+quality:
+  enabled: true
+  max_fallback_rate: 0.35
+  max_noise_rate: 0.10
+  fail_confidence_multiplier: 0.55
+  block_signals_on_severe_failure: true
+  entity_match_rate_min: 0.70
+platform_taxonomy:
+  guba: forum
+  eastmoney: portal
+  sina_finance: news
+  weibo: social
+  xueqiu: investor_community
+  douyin: short_video
+  zhihu: qa_community
+  cninfo: disclosure
+  broker_report: research
+scoring_fusion:
+  hybrid_llm_weight: 0.72
+  hybrid_keyword_weight: 0.28
+  min_llm_confidence: 0.35
+factor_backtest:
+  horizons: [1, 3, 5]
+  neutralize: true
+  n_groups: 5
+  benchmark: hs300
+risk:
+  max_daily_loss_pct: 0.05
+  max_single_symbol_notional_pct: 0.25
+  max_open_positions: 10
+execution:
+  mode: paper
+  export_intents: true
+  dry_run: true
+  simulation_slippage_bps: 5.0
+sentiment_recency:
+  enabled: true
+  half_life_hours: 24.0
+walk_forward:
+  enabled_in_evaluate: true
+  n_folds: 3
+  train_days: 60
+  test_days: 20

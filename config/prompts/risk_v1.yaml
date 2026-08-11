@@ -1,0 +1,10 @@
+name: risk
+version: v1
+scenario: risk
+active: true
+template: |
+  识别文本风险信号，只输出 JSON：
+  {{"risks":[{{"level":"high|medium|low","score":0.0}}]}}。
+  输入：
+  {texts}
+few_shot: []
