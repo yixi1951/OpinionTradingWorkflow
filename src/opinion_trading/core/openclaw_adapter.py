@@ -66,8 +66,60 @@ class OpenClawClient:
 
         return None
 
+    def health_check(self, timeout: float = 2.0) -> Dict[str, object]:
+        """Fast liveness/readiness probe — no LLM call (safe for UI first paint)."""
+        if not self.is_configured():
+            return {
+                "connected": False,
+                "url": None,
+                "message": "OPENCLAW_URL not configured",
+                "mode": "health",
+            }
+        base = self.base_url.rstrip("/")
+        ready_info: Dict[str, object] = {}
+        try:
+            ready_resp = requests.get(f"{base}/ready", timeout=timeout)
+            if ready_resp.ok:
+                ready_info = ready_resp.json() if ready_resp.content else {"status": "ready"}
+            else:
+                ready_info = {"status": "not_ready", "http": ready_resp.status_code}
+        except Exception as exc:
+            ready_info = {"status": "unreachable", "detail": str(exc)[:80]}
+        try:
+            health_resp = requests.get(f"{base}/health", timeout=timeout)
+            health_ok = health_resp.ok
+            health_body = health_resp.json() if health_resp.content else {}
+        except Exception as exc:
+            return {
+                "connected": False,
+                "url": self.base_url,
+                "message": str(exc)[:160],
+                "ready": ready_info,
+                "mode": "health",
+            }
+        connected = bool(health_ok) and str(ready_info.get("status", "")).lower() in {
+            "ready",
+            "ok",
+            "",
+        }
+        # If /ready is missing (404) but /health is ok, still treat as up.
+        if health_ok and ready_info.get("status") in {"unreachable", "not_ready"}:
+            # try health alone when ready endpoint absent
+            if isinstance(ready_info.get("http"), int) and int(ready_info["http"]) == 404:
+                connected = True
+            elif ready_info.get("status") == "unreachable":
+                connected = health_ok
+        return {
+            "connected": connected,
+            "url": self.base_url,
+            "message": "OpenClaw proxy healthy" if connected else "OpenClaw proxy not ready",
+            "ready": ready_info,
+            "health": health_body if health_ok else {},
+            "mode": "health",
+        }
+
     def probe(self) -> Dict[str, object]:
-        """Lightweight connectivity check (single short text + optional /ready)."""
+        """Connectivity check including a live sentiment score (slow — LLM path)."""
         if not self.is_configured():
             return {
                 "connected": False,
@@ -106,6 +158,7 @@ class OpenClawClient:
                 "sample_score": float(scores[0]) if ok else None,
                 "ready": ready_info,
                 "score_source": data.get("source"),
+                "mode": "llm",
             }
         except Exception as exc:
             return {
@@ -113,4 +166,5 @@ class OpenClawClient:
                 "url": self.base_url,
                 "message": str(exc)[:160],
                 "ready": ready_info,
+                "mode": "llm",
             }

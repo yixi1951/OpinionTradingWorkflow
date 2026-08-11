@@ -45,6 +45,7 @@ from opinion_trading.ui_helpers import (  # noqa: E402
     monthly_methodology_text,
     parse_platform_scores,
     platform_label,
+    prepare_customer_raw,
     symbol_display,
     top_comment_rows,
 )
@@ -187,8 +188,12 @@ LANG = {
         "hero_kpi_alerts": "Score alerts",
         "hero_kpi_platforms": "Platforms",
         "hero_kpi_report": "Last report",
-        "hero_kpi_fallback": "Fallback rate",
+        "hero_kpi_fallback": "Low-quality share",
         "hero_kpi_none": "—",
+        "hero_top_picks": "Today's top picks",
+        "hero_no_picks": "No picks yet — run a daily or realtime refresh.",
+        "data_clean_fmt": "Showing {kept} clean posts (filtered {dropped} low-quality).",
+        "data_status_fmt": "{picks} picks · {posts} posts · {platforms} platforms · {sent} sentiment points",
         "wf_export_csv": "Download walk-forward folds (CSV)",
         "user_guide_title": "What you can do here",
         "user_guide_body": """
@@ -243,10 +248,10 @@ Connect OpenClaw via `OPENCLAW_URL` (see `scripts/run_demo_openclaw.ps1`). Sideb
         "col_config_weight": "config weight",
         "col_weighted_contrib": "weighted contrib",
         "col_direction": "direction",
-        "hero_kpi_ai_coverage": "AI-scored posts",
-        "hero_kpi_sentiment_bias": "Sentiment bias",
+        "hero_kpi_ai_coverage": "AI scored",
+        "hero_kpi_sentiment_bias": "Bull / Bear",
         "sentiment_engine_title": "AI sentiment engine",
-        "sentiment_engine_body": "Scores flow **OpenClaw / DeepSeek** when connected, else expanded **keyword lexicon** on Guba, Xueqiu, Weibo, etc. Range **-1 (bearish) ~ +1 (bullish)**.",
+        "sentiment_engine_body": "OpenClaw scores social posts from -1 (bearish) to +1 (bullish). Low-quality spam is filtered before you see results.",
         "filter_controls": "Filter controls",
         "min_samples_platform": "Min samples per platform",
         "include_zero_scores": "Include zero scores (treat 0 as valid)",
@@ -486,9 +491,13 @@ Connect OpenClaw via `OPENCLAW_URL` (see `scripts/run_demo_openclaw.ps1`). Sideb
         "hero_kpi_picks": "实时选股",
         "hero_kpi_alerts": "评分告警",
         "hero_kpi_platforms": "监测平台",
-        "hero_kpi_report": "最新报告",
-        "hero_kpi_fallback": "采集 fallback 率",
+        "hero_kpi_report": "更新时间",
+        "hero_kpi_fallback": "低质占比",
         "hero_kpi_none": "—",
+        "hero_top_picks": "今日推荐",
+        "hero_no_picks": "暂无推荐，请先刷新日批或实时选股。",
+        "data_clean_fmt": "已展示 {kept} 条有效帖文（已过滤 {dropped} 条低质/灌水）。",
+        "data_status_fmt": "推荐 {picks} 只 · 有效帖 {posts} 条 · 平台 {platforms} 个 · 舆情点 {sent} 条",
         "wf_export_csv": "下载 walk-forward 折表 (CSV)",
         "user_guide_title": "你可以这样使用本页",
         "user_guide_body": """
@@ -542,10 +551,10 @@ Connect OpenClaw via `OPENCLAW_URL` (see `scripts/run_demo_openclaw.ps1`). Sideb
         "col_config_weight": "配置权重",
         "col_weighted_contrib": "加权贡献",
         "col_direction": "方向",
-        "hero_kpi_ai_coverage": "AI 打分覆盖",
-        "hero_kpi_sentiment_bias": "舆情多空比",
+        "hero_kpi_ai_coverage": "AI 已评分",
+        "hero_kpi_sentiment_bias": "多空倾向",
         "sentiment_engine_title": "AI 情感分析引擎",
-        "sentiment_engine_body": "连接 OpenClaw 时走 **DeepSeek 批量情感接口**；离线时使用扩展 **中文关键词词典** 兜底。分数区间 **-1（偏空）~ +1（偏多）**.",
+        "sentiment_engine_body": "OpenClaw 将社交媒体帖文评为 -1（偏空）到 +1（偏多）。展示前会自动过滤灌水、广告等低质内容。",
         "filter_controls": "筛选条件",
         "min_samples_platform": "每平台最少样本数",
         "include_zero_scores": "包含零分（将 0 视为有效信号）",
@@ -712,23 +721,44 @@ def _evidence_caption(stats: dict) -> str:
 
 
 def _openclaw_client() -> OpenClawClient:
-    if "_openclaw_client" not in st.session_state:
+    """Return a fresh OpenClawClient; drop stale session objects after code reload."""
+    client = st.session_state.get("_openclaw_client")
+    # Hot-reload can leave an old instance without health_check / probe signature.
+    if client is None or not callable(getattr(client, "health_check", None)):
         st.session_state["_openclaw_client"] = OpenClawClient()
     return st.session_state["_openclaw_client"]
 
 
-def _openclaw_probe(force: bool = False) -> Dict[str, object]:
+def _openclaw_probe(force: bool = False, *, llm: bool = False) -> Dict[str, object]:
+    """UI status probe. Default = fast /health (no LLM). Set llm=True for full score test."""
     client = _openclaw_client()
     if not client.is_configured():
         return {
             "connected": False,
             "url": None,
             "message": "OPENCLAW_URL not set",
+            "mode": "health",
         }
-    if not force and "_openclaw_probe" in st.session_state:
-        return st.session_state["_openclaw_probe"]
-    result = client.probe()
-    st.session_state["_openclaw_probe"] = result
+    cache_key = "_openclaw_probe_llm" if llm else "_openclaw_probe_health"
+    if not force and cache_key in st.session_state:
+        return st.session_state[cache_key]
+    if llm:
+        # Cap LLM probe for interactive button use
+        os.environ.setdefault("OPENCLAW_PROBE_TIMEOUT", "45")
+        result = client.probe()
+    else:
+        health_fn = getattr(client, "health_check", None)
+        if callable(health_fn):
+            result = health_fn(timeout=2.0)
+        else:
+            # Very old adapter: avoid blocking LLM probe on first paint
+            result = {
+                "connected": bool(client.base_url),
+                "url": client.base_url,
+                "message": "health_check unavailable; restart Streamlit to reload adapter",
+                "mode": "health",
+            }
+    st.session_state[cache_key] = result
     return result
 
 
@@ -745,11 +775,12 @@ def _bootstrap_openclaw_env() -> None:
             os.environ.setdefault(key.strip(), val.strip())
     os.environ.setdefault("OPENCLAW_URL", "http://127.0.0.1:18790")
     os.environ.setdefault("OPENCLAW_TIMEOUT", "120")
-    os.environ.setdefault("OPENCLAW_PROBE_TIMEOUT", "120")
+    # UI must not block first paint on a 120s LLM probe
+    os.environ.setdefault("OPENCLAW_PROBE_TIMEOUT", "45")
 
 
 def _render_openclaw_sidebar() -> None:
-    probe = _openclaw_probe()
+    probe = _openclaw_probe(llm=False)
     connected = bool(probe.get("connected"))
     status_text = t("openclaw_connected") if connected else t("openclaw_disconnected")
     css = "openclaw-on" if connected else "openclaw-off"
@@ -766,11 +797,19 @@ def _render_openclaw_sidebar() -> None:
         unsafe_allow_html=True,
     )
     if probe.get("url"):
-        st.caption(str(probe.get("url")))
-    if st.button(t("openclaw_probe_btn"), use_container_width=True, key="oc_probe_btn"):
-        st.session_state.pop("_openclaw_probe", None)
-        _openclaw_probe(force=True)
-        st.rerun()
+        st.caption("分析服务已连接" if connected else "分析服务未连接")
+    col_a, col_b = st.columns(2)
+    with col_a:
+        if st.button("刷新状态", use_container_width=True, key="oc_health_btn"):
+            st.session_state.pop("_openclaw_probe_health", None)
+            _openclaw_probe(force=True, llm=False)
+            st.rerun()
+    with col_b:
+        if st.button(t("openclaw_probe_btn"), use_container_width=True, key="oc_probe_btn"):
+            st.session_state.pop("_openclaw_probe_llm", None)
+            with st.spinner("DeepSeek 打分探测中…"):
+                _openclaw_probe(force=True, llm=True)
+            st.rerun()
     if not connected:
         with st.expander(t("openclaw_setup_expander"), expanded=False):
             st.caption(t("openclaw_not_connected_hint"))
@@ -836,7 +875,7 @@ def _apply_openclaw_rescore(comments_df: pd.DataFrame) -> pd.DataFrame:
 def _render_openclaw_tab(
     raw_df: pd.DataFrame, picks_df: pd.DataFrame, report_dir: str
 ) -> None:
-    probe = _openclaw_probe()
+    probe = _openclaw_probe(llm=False)
     _render_info_box(t("openclaw_pipeline_title"), t("openclaw_pipeline_body"))
     _render_openclaw_pipeline_banner()
 
@@ -989,31 +1028,393 @@ def _latest_file(pattern: str) -> str:
     return files[-1] if files else ""
 
 
-def _load_latest_realtime_picks(report_dir: str) -> pd.DataFrame:
+@st.cache_data(ttl=60, show_spinner=False)
+def _load_latest_realtime_picks_cached(report_dir: str) -> pd.DataFrame:
     path = _latest_file(str(Path(report_dir) / "realtime_picks_*.csv"))
     if not path:
         return pd.DataFrame()
-    return pd.read_csv(path)
+    df = pd.read_csv(path)
+    df["_source_path"] = path
+    return df
 
 
-def _load_latest_alerts(report_dir: str) -> pd.DataFrame:
+def _picks_from_sentiment(sentiment_df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
+    """Build a picks-like table from sentiment history when realtime CSV is thin/stale."""
+    if sentiment_df is None or sentiment_df.empty:
+        return pd.DataFrame()
+    view = sentiment_df.copy()
+    view["sentiment_score"] = pd.to_numeric(view.get("sentiment_score"), errors="coerce")
+    view["trade_date"] = pd.to_datetime(view.get("trade_date"), errors="coerce")
+    view = view.dropna(subset=["symbol", "sentiment_score"])
+    if view.empty:
+        return pd.DataFrame()
+    # Prefer latest trade_date window (wider — thin history often spans months)
+    latest = view["trade_date"].max()
+    if pd.notna(latest):
+        window = view[view["trade_date"] >= (latest - pd.Timedelta(days=120))]
+        if not window.empty:
+            view = window
+    grouped = (
+        view.groupby("symbol", as_index=False)
+        .agg(
+            avg_score=("sentiment_score", "mean"),
+            platforms=("platform", lambda s: ", ".join(sorted({str(x) for x in s if str(x)}))),
+            samples=("sentiment_score", "size"),
+        )
+        .sort_values("avg_score", ascending=False)
+        .head(int(top_n))
+    )
+    grouped["platform_scores"] = grouped["platforms"]
+    grouped["_source_path"] = "derived:sentiment_history"
+    return grouped.reset_index(drop=True)
+
+
+def _picks_from_raw(raw_df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
+    """Aggregate symbol scores from merged raw posts (ai_score preferred)."""
+    if raw_df is None or raw_df.empty:
+        return pd.DataFrame()
+    view = raw_df.copy()
+    score_col = None
+    for cand in ("ai_score", "sentiment_score", "score"):
+        if cand in view.columns:
+            score_col = cand
+            break
+    if score_col is None:
+        return pd.DataFrame()
+    view[score_col] = pd.to_numeric(view[score_col], errors="coerce")
+    view = view.dropna(subset=["symbol", score_col])
+    if view.empty:
+        return pd.DataFrame()
+    plat = (
+        view.groupby(["symbol", "platform"], as_index=False)[score_col]
+        .mean()
+        if "platform" in view.columns
+        else view.groupby(["symbol"], as_index=False)[score_col].mean()
+    )
+    rows = []
+    if "platform" in plat.columns:
+        for symbol, g in plat.groupby("symbol"):
+            ps = ", ".join(
+                f"{r.platform}:{float(getattr(r, score_col)):.3f}"
+                for _, r in g.sort_values("platform").iterrows()
+            )
+            rows.append(
+                {
+                    "symbol": symbol,
+                    "avg_score": round(float(g[score_col].mean()), 4),
+                    "platform_scores": ps,
+                    "samples": int(len(view[view["symbol"] == symbol])),
+                }
+            )
+    else:
+        for _, r in plat.iterrows():
+            rows.append(
+                {
+                    "symbol": r["symbol"],
+                    "avg_score": round(float(r[score_col]), 4),
+                    "platform_scores": "",
+                    "samples": int(len(view[view["symbol"] == r["symbol"]])),
+                }
+            )
+    if not rows:
+        return pd.DataFrame()
+    out = (
+        pd.DataFrame(rows)
+        .sort_values("avg_score", ascending=False)
+        .head(int(top_n))
+        .reset_index(drop=True)
+    )
+    out["_source_path"] = "derived:raw_posts"
+    return out
+
+
+def _load_latest_realtime_picks(report_dir: str) -> pd.DataFrame:
+    candidates = [
+        report_dir,
+        "data/reports",
+        "data/reports_landing",
+    ]
+    best = pd.DataFrame()
+    best_mtime = -1.0
+    for d in candidates:
+        if not d or not Path(d).exists():
+            continue
+        df = _load_latest_realtime_picks_cached(d)
+        if df.empty:
+            continue
+        src = ""
+        if "_source_path" in df.columns and len(df):
+            src = str(df["_source_path"].iloc[0])
+        mtime = Path(src).stat().st_mtime if src and Path(src).exists() else 0.0
+        if mtime >= best_mtime:
+            best = df
+            best_mtime = mtime
+    return best
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _load_latest_alerts_cached(report_dir: str) -> pd.DataFrame:
     path = _latest_file(str(Path(report_dir) / "realtime_alerts_*.jsonl"))
     if not path:
         return pd.DataFrame()
     return pd.read_json(path, lines=True)
 
 
-def _load_latest_raw_posts(raw_dir: str) -> pd.DataFrame:
-    path = _latest_file(str(Path(raw_dir) / "raw_posts_*.csv"))
-    if not path:
+def _load_latest_alerts(report_dir: str) -> pd.DataFrame:
+    for d in (report_dir, "data/reports", "data/reports_landing"):
+        if not d or not Path(d).exists():
+            continue
+        df = _load_latest_alerts_cached(d)
+        if not df.empty:
+            return df
+    return pd.DataFrame()
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _load_raw_posts_merged_cached(raw_dir: str, max_files: int = 12) -> pd.DataFrame:
+    """Merge recent raw_posts_*.csv — latest-only misses older dense crawls."""
+    root = Path(raw_dir)
+    if not root.exists():
         return pd.DataFrame()
-    return pd.read_csv(path)
+    files = sorted(root.glob("raw_posts_*.csv"), key=lambda p: p.name)
+    if not files:
+        return pd.DataFrame()
+    files = files[-max(1, int(max_files)) :]
+    frames: List[pd.DataFrame] = []
+    for path in files:
+        try:
+            df = pd.read_csv(path)
+        except Exception:
+            continue
+        if df.empty:
+            continue
+        df["_source_file"] = path.name
+        frames.append(df)
+    if not frames:
+        return pd.DataFrame()
+    out = pd.concat(frames, ignore_index=True)
+    # Prefer newest file when the same post URL appears twice
+    if "url" in out.columns:
+        out = out.drop_duplicates(subset=["url"], keep="last")
+    elif {"symbol", "platform", "text"}.issubset(out.columns):
+        out = out.drop_duplicates(
+            subset=["symbol", "platform", "text"], keep="last"
+        )
+    out["_source_path"] = f"merged:{raw_dir}:{len(files)}files"
+    return out
 
 
-def _load_sentiment_history(path: str) -> pd.DataFrame:
+def _load_latest_raw_posts(raw_dir: str) -> pd.DataFrame:
+    best = pd.DataFrame()
+    best_n = -1
+    for d in (raw_dir, "data/raw"):
+        if not d or not Path(d).exists():
+            continue
+        df = _load_raw_posts_merged_cached(d)
+        if len(df) > best_n:
+            best = df
+            best_n = len(df)
+    return best
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _load_sentiment_history_cached(path: str) -> pd.DataFrame:
     if not Path(path).exists():
         return pd.DataFrame()
     return pd.read_json(path, lines=True)
+
+
+def _load_sentiment_history(path: str) -> pd.DataFrame:
+    frames: List[pd.DataFrame] = []
+    for p in (
+        path,
+        "data/memory/sentiment_history.jsonl",
+        "data/memory_landing/sentiment_history.jsonl",
+    ):
+        if not p:
+            continue
+        df = _load_sentiment_history_cached(p)
+        if not df.empty:
+            frames.append(df)
+    if not frames:
+        return pd.DataFrame()
+    out = pd.concat(frames, ignore_index=True)
+    if "trade_date" in out.columns and "symbol" in out.columns and "platform" in out.columns:
+        out = out.drop_duplicates(
+            subset=["trade_date", "symbol", "platform"], keep="last"
+        )
+    return out
+
+
+def _data_freshness_caption(
+    picks_df: pd.DataFrame,
+    raw_df: pd.DataFrame,
+    sentiment_df: pd.DataFrame,
+    *,
+    clean_stats: Dict[str, int] | None = None,
+) -> str:
+    n_plat_raw = (
+        int(raw_df["platform"].nunique())
+        if raw_df is not None and not raw_df.empty and "platform" in raw_df.columns
+        else 0
+    )
+    plat = (
+        int(sentiment_df["platform"].nunique())
+        if sentiment_df is not None and not sentiment_df.empty and "platform" in sentiment_df.columns
+        else 0
+    )
+    base = t("data_status_fmt").format(
+        picks=len(picks_df) if picks_df is not None else 0,
+        posts=len(raw_df) if raw_df is not None else 0,
+        platforms=plat or n_plat_raw,
+        sent=len(sentiment_df) if sentiment_df is not None else 0,
+    )
+    if clean_stats and int(clean_stats.get("dropped_total", 0) or 0) > 0:
+        base += " · " + t("data_clean_fmt").format(
+            kept=int(clean_stats.get("kept", 0) or 0),
+            dropped=int(clean_stats.get("dropped_total", 0) or 0),
+        )
+    return base
+
+
+def _hero_picks_html(picks_df: pd.DataFrame) -> str:
+    if picks_df is None or picks_df.empty or "avg_score" not in picks_df.columns:
+        return f"<div class='hero-pick-empty'>{t('hero_no_picks')}</div>"
+    view = picks_df.copy()
+    view["avg_score"] = pd.to_numeric(view["avg_score"], errors="coerce").fillna(0.0)
+    view = view.sort_values("avg_score", ascending=False).head(3)
+    rows = []
+    for i, (_, row) in enumerate(view.iterrows(), start=1):
+        symbol = str(row.get("symbol", ""))
+        score = float(row.get("avg_score", 0.0))
+        tone = "pos" if score > 0.05 else "neg" if score < -0.05 else "neu"
+        rows.append(
+            "<div class='hero-pick-row'>"
+            f"<span class='hero-pick-rank'>#{i}</span>"
+            f"<span class='hero-pick-sym'>{html.escape(_symbol_label(symbol))}</span>"
+            f"<span class='hero-pick-score {tone}'>{score:+.3f}</span>"
+            "</div>"
+        )
+    return (
+        f"<div class='hero-picks-title'>{t('hero_top_picks')}</div>"
+        f"<div class='hero-picks-list'>{''.join(rows)}</div>"
+    )
+
+
+def _render_dashboard_hero(
+    picks_count: int,
+    alerts_count: int,
+    platform_count: int,
+    report_dir: str,
+    *,
+    picks_df: pd.DataFrame | None = None,
+    engine_stats: Dict[str, object] | None = None,
+    capture_rates: Dict[str, float] | None = None,
+    clean_stats: Dict[str, int] | None = None,
+) -> None:
+    _, report_time = _latest_report_meta(report_dir)
+    report_display = report_time or t("hero_kpi_none")
+    stats = engine_stats or {}
+    cap = capture_rates or {}
+    ai_pct = stats.get("openclaw_pct", 0.0)
+    bull = stats.get("bullish_pct", 0.0)
+    bear = stats.get("bearish_pct", 0.0)
+    bias_label = f"+{bull:.0f}% / -{bear:.0f}%"
+    # Prefer explicit clean drop rate over engineer "fallback" jargon
+    if clean_stats and int(clean_stats.get("input", 0) or 0) > 0:
+        dropped = int(clean_stats.get("dropped_total", 0) or 0)
+        total = int(clean_stats.get("input", 0) or 0)
+        fb_display = f"{(dropped / total) * 100:.0f}%"
+        fb_warn = (dropped / total) > 0.35
+    else:
+        fb_rate = float(cap.get("fallback_rate", 0.0) or 0.0)
+        fb_display = f"{fb_rate * 100:.0f}%" if cap.get("total_rows", 0) else "—"
+        fb_warn = bool(cap.get("total_rows", 0) and fb_rate > 0.35)
+    fb_value_cls = (
+        "hero-kpi-value mono hero-kpi-value--warn" if fb_warn else "hero-kpi-value mono"
+    )
+    picks_html = _hero_picks_html(picks_df if picks_df is not None else pd.DataFrame())
+    st.markdown(
+        f"""
+        <div class="dashboard-hero dashboard-hero--terminal">
+            <div class="hero-top">
+                <div class="hero-copy">
+                    <div class="dashboard-kicker">OpenClaw</div>
+                    <div class="dashboard-title">{t('header_title')}</div>
+                    <div class="dashboard-subtitle">{t('hero_tagline')}</div>
+                    <div class="hero-picks-panel">{picks_html}</div>
+                </div>
+                <div class="hero-kpi-grid hero-kpi-grid--4">
+                    <div class="hero-kpi">
+                        <div class="hero-kpi-label">{t('hero_kpi_picks')}</div>
+                        <div class="hero-kpi-value mono">{picks_count}</div>
+                    </div>
+                    <div class="hero-kpi">
+                        <div class="hero-kpi-label">{t('hero_kpi_platforms')}</div>
+                        <div class="hero-kpi-value mono">{platform_count}</div>
+                    </div>
+                    <div class="hero-kpi">
+                        <div class="hero-kpi-label">{t('hero_kpi_ai_coverage')}</div>
+                        <div class="hero-kpi-value mono">{ai_pct}%</div>
+                    </div>
+                    <div class="hero-kpi">
+                        <div class="hero-kpi-label">{t('hero_kpi_sentiment_bias')}</div>
+                        <div class="hero-kpi-value small mono">{bias_label}</div>
+                    </div>
+                    <div class="hero-kpi">
+                        <div class="hero-kpi-label">{t('hero_kpi_fallback')}</div>
+                        <div class="{fb_value_cls}">{fb_display}</div>
+                    </div>
+                    <div class="hero-kpi">
+                        <div class="hero-kpi-label">{t('hero_kpi_report')}</div>
+                        <div class="hero-kpi-value small">{report_display}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_sentiment_engine_strip(
+    engine_stats: Dict[str, object],
+    *,
+    capture_rates: Dict[str, float] | None = None,
+    clean_stats: Dict[str, int] | None = None,
+) -> None:
+    usable = int(engine_stats.get("usable_rows", 0) or 0)
+    oc = int(engine_stats.get("openclaw_rows", 0) or 0)
+    avg = float(engine_stats.get("avg_ai_score", 0.0) or 0.0)
+    tone = sentiment_intensity_label(avg, _ui_lang())
+    dropped = int((clean_stats or {}).get("dropped_total", 0) or 0)
+    zh = _ui_lang() == "zh"
+    metrics = [
+        ( "有效帖文" if zh else "Clean posts", usable),
+        ( "AI 评分" if zh else "AI scored", oc),
+        ( "平均情感" if zh else "Avg sentiment", f"{avg:+.2f}"),
+        ( "整体倾向" if zh else "Tone", tone),
+    ]
+    if dropped:
+        metrics.append(("已过滤" if zh else "Filtered", dropped))
+    metrics_html = "".join(
+        f"<span class='engine-metric'><span class='engine-metric-label'>{html.escape(str(k))}</span>"
+        f"{html.escape(str(v))}</span>"
+        for k, v in metrics
+    )
+    st.markdown(
+        f"""
+        <div class="panel-card panel-card--accent sentiment-engine-strip">
+            <div class="section-kicker">{t('chip_ai_engine')}</div>
+            <div class="sentiment-engine-title">{t('sentiment_engine_title')}</div>
+            <p class="sentiment-engine-body">{t('sentiment_engine_body')}</p>
+            <div class="sentiment-engine-metrics">
+                {metrics_html}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def _load_uploaded_price_frame(uploaded_file) -> pd.DataFrame:
@@ -1244,125 +1645,6 @@ def _latest_report_meta(report_dir: str) -> tuple[str, str]:
     return path, display
 
 
-def _render_dashboard_hero(
-    picks_count: int,
-    alerts_count: int,
-    platform_count: int,
-    report_dir: str,
-    *,
-    engine_stats: Dict[str, object] | None = None,
-    capture_rates: Dict[str, float] | None = None,
-) -> None:
-    _, report_time = _latest_report_meta(report_dir)
-    report_display = report_time or t("hero_kpi_none")
-    stats = engine_stats or {}
-    cap = capture_rates or {}
-    ai_pct = stats.get("openclaw_pct", 0.0)
-    bull = stats.get("bullish_pct", 0.0)
-    bear = stats.get("bearish_pct", 0.0)
-    bias_label = f"+{bull:.0f}% / -{bear:.0f}%"
-    fb_rate = float(cap.get("fallback_rate", 0.0) or 0.0)
-    fb_pct = fb_rate * 100.0
-    fb_display = f"{fb_pct:.1f}%" if cap.get("total_rows", 0) else "—"
-    fb_warn_thr = 0.35
-    try:
-        from opinion_trading.core.config_loader import load_runtime_config
-
-        q = load_runtime_config("config/settings.yaml").quality
-        if q:
-            fb_warn_thr = float(q.max_fallback_rate)
-    except Exception:
-        pass
-    fb_value_cls = "hero-kpi-value mono hero-kpi-value--warn" if (
-        cap.get("total_rows", 0) and fb_rate > fb_warn_thr
-    ) else "hero-kpi-value mono"
-    st.markdown(
-        f"""
-        <div class="dashboard-hero dashboard-hero--terminal">
-            <div class="hero-top">
-                <div class="hero-copy">
-                    <div class="dashboard-kicker">OpenClaw</div>
-                    <div class="dashboard-title">{t('header_title')}</div>
-                    <div class="dashboard-subtitle">{t('hero_tagline')}</div>
-                </div>
-                <div class="hero-kpi-grid hero-kpi-grid--7">
-                    <div class="hero-kpi">
-                        <div class="hero-kpi-label">{t('hero_kpi_picks')}</div>
-                        <div class="hero-kpi-value mono">{picks_count}</div>
-                    </div>
-                    <div class="hero-kpi">
-                        <div class="hero-kpi-label">{t('hero_kpi_alerts')}</div>
-                        <div class="hero-kpi-value mono">{alerts_count}</div>
-                    </div>
-                    <div class="hero-kpi">
-                        <div class="hero-kpi-label">{t('hero_kpi_platforms')}</div>
-                        <div class="hero-kpi-value mono">{platform_count}</div>
-                    </div>
-                    <div class="hero-kpi">
-                        <div class="hero-kpi-label">{t('hero_kpi_fallback')}</div>
-                        <div class="{fb_value_cls}">{fb_display}</div>
-                    </div>
-                    <div class="hero-kpi">
-                        <div class="hero-kpi-label">{t('hero_kpi_ai_coverage')}</div>
-                        <div class="hero-kpi-value mono">{ai_pct}%</div>
-                    </div>
-                    <div class="hero-kpi">
-                        <div class="hero-kpi-label">{t('hero_kpi_sentiment_bias')}</div>
-                        <div class="hero-kpi-value small mono">{bias_label}</div>
-                    </div>
-                    <div class="hero-kpi">
-                        <div class="hero-kpi-label">{t('hero_kpi_report')}</div>
-                        <div class="hero-kpi-value small">{report_display}</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def _render_sentiment_engine_strip(
-    engine_stats: Dict[str, object],
-    *,
-    capture_rates: Dict[str, float] | None = None,
-) -> None:
-    usable = int(engine_stats.get("usable_rows", 0) or 0)
-    oc = int(engine_stats.get("openclaw_rows", 0) or 0)
-    kw = int(engine_stats.get("keyword_rows", 0) or 0)
-    avg = float(engine_stats.get("avg_ai_score", 0.0) or 0.0)
-    tone = sentiment_intensity_label(avg, _ui_lang())
-    cap = capture_rates or {}
-    fb = float(cap.get("fallback_rate", 0.0) or 0.0) * 100.0
-    noise = float(cap.get("noise_rate", 0.0) or 0.0) * 100.0
-    quality_extra = ""
-    if cap.get("total_rows", 0):
-        quality_extra = (
-            f"<span class='engine-metric'><span class='engine-metric-label'>"
-            f"fallback</span>{fb:.1f}%</span>"
-            f"<span class='engine-metric'><span class='engine-metric-label'>"
-            f"noise</span>{noise:.1f}%</span>"
-        )
-    st.markdown(
-        f"""
-        <div class="panel-card panel-card--accent sentiment-engine-strip">
-            <div class="section-kicker">{t('chip_ai_engine')}</div>
-            <div class="sentiment-engine-title">{t('sentiment_engine_title')}</div>
-            <p class="sentiment-engine-body">{t('sentiment_engine_body')}</p>
-            <div class="sentiment-engine-metrics">
-                <span class="engine-metric"><span class="engine-metric-label">n</span>{usable}</span>
-                <span class="engine-metric"><span class="engine-metric-label">OpenClaw</span>{oc}</span>
-                <span class="engine-metric"><span class="engine-metric-label">KW</span>{kw}</span>
-                <span class="engine-metric"><span class="engine-metric-label">μ</span>{avg:+.3f}</span>
-                <span class="engine-metric"><span class="engine-metric-label">tone</span>{tone}</span>
-                {quality_extra}
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
 def _render_status_strip(
     report_dir: str,
     picks_count: int,
@@ -1414,6 +1696,9 @@ def _render_pick_leaderboard(picks_df: pd.DataFrame) -> None:
         return
 
     view = picks_df.copy()
+    drop_cols = [c for c in ("_source_path", "_source_file") if c in view.columns]
+    if drop_cols:
+        view = view.drop(columns=drop_cols)
     if "avg_score" not in view.columns:
         st.dataframe(view, use_container_width=True)
         return
@@ -2090,7 +2375,7 @@ def _render_paper_account_panel(
     try:
         from opinion_trading.skills.trade_simulation import PaperTradingSkill
 
-        skill = PaperTradingSkill(100_000.0, 0.2, use_market_prices=True)
+        skill = PaperTradingSkill(100_000.0, 0.2, use_market_prices=False)
         total_val = skill.portfolio_value(today_aggregated or {}, state)
     except Exception:
         total_val = None
@@ -2343,21 +2628,28 @@ def _render_collect_progress_expander(report_dir: str) -> None:
 
 
 def _render_export_zip_button(report_dir: str, memory_dir: str, raw_dir: str) -> None:
-    from opinion_trading.core.export_bundle import build_dashboard_export_zip
+    """Build ZIP only when clicked — avoid packing data on every Streamlit rerun."""
+    if st.button(t("export_zip"), use_container_width=True, help=t("export_zip_hint"), key="export_zip_btn"):
+        from opinion_trading.core.export_bundle import build_dashboard_export_zip
 
-    try:
-        payload = build_dashboard_export_zip(report_dir, memory_dir, raw_dir)
-    except Exception as exc:
-        st.caption(f"ZIP: {exc}")
-        return
-    st.download_button(
-        label=t("export_zip"),
-        data=payload,
-        file_name="openclaw_export.zip",
-        mime="application/zip",
-        use_container_width=True,
-        help=t("export_zip_hint"),
-    )
+        try:
+            with st.spinner("打包中…"):
+                payload = build_dashboard_export_zip(report_dir, memory_dir, raw_dir)
+            st.session_state["_export_zip_bytes"] = payload
+            st.success(f"已生成 ZIP（{len(payload):,} bytes）")
+        except Exception as exc:
+            st.caption(f"ZIP: {exc}")
+            return
+    payload = st.session_state.get("_export_zip_bytes")
+    if isinstance(payload, (bytes, bytearray)) and payload:
+        st.download_button(
+            label="下载 export.zip",
+            data=payload,
+            file_name="openclaw_export.zip",
+            mime="application/zip",
+            use_container_width=True,
+            key="export_zip_download",
+        )
 
 
 def _render_event_log_panel(memory_dir: str) -> None:
@@ -2466,6 +2758,13 @@ def main() -> None:
             _persist_theme_query(str(theme_cur))
 
         if st.button(t("refresh_data"), use_container_width=True):
+            try:
+                st.cache_data.clear()
+            except Exception:
+                pass
+            for k in list(st.session_state.keys()):
+                if str(k).startswith("_openclaw_probe_"):
+                    st.session_state.pop(k, None)
             st.rerun()
 
         st.markdown(f"<div class='panel-rail panel-rail--compact'><div class='panel-section-title'>{t('sidebar_paths')}</div>", unsafe_allow_html=True)
@@ -2550,23 +2849,66 @@ def main() -> None:
     sentiment_df = _load_sentiment_history(
         str(Path(memory_dir) / "sentiment_history.jsonl")
     )
-    raw_df = _load_latest_raw_posts(raw_dir)
+    raw_raw = _load_latest_raw_posts(raw_dir)
+    raw_df, clean_stats = prepare_customer_raw(raw_raw)
+    picks_derived = False
+    # Prefer denser derived picks when CSV is thin (<5 symbols) — local demo often
+    # has only 1–2 rows in the newest realtime_picks while merged raw has more.
+    if picks_df.empty or len(picks_df) < 5:
+        from_raw = _picks_from_raw(raw_df, top_n=10)
+        from_sent = _picks_from_sentiment(sentiment_df, top_n=10)
+        candidates = [c for c in (from_raw, from_sent, picks_df) if c is not None and not c.empty]
+        if candidates:
+            picks_df = max(candidates, key=lambda d: len(d))
+            src = (
+                str(picks_df["_source_path"].iloc[0])
+                if "_source_path" in picks_df.columns and len(picks_df)
+                else ""
+            )
+            picks_derived = src.startswith("derived")
     platform_count = 0 if sentiment_df.empty else sentiment_df["platform"].nunique()
     engine_stats = build_sentiment_engine_stats(raw_df)
     capture_rates = compute_raw_capture_rates(raw_df)
+
+    st.caption(
+        _data_freshness_caption(
+            picks_df, raw_df, sentiment_df, clean_stats=clean_stats
+        )
+    )
+    if picks_derived:
+        st.info(
+            "推荐列表已根据有效帖文自动汇总。"
+            "完整刷新可运行日批 / 实时选股。"
+        )
+    elif picks_df.empty and raw_df.empty and sentiment_df.empty:
+        st.warning(
+            "本地几乎没有展示数据。请先运行日批采集，"
+            "或把侧边栏路径指到 data/reports、data/raw、data/memory。"
+        )
+    elif int(clean_stats.get("dropped_total", 0) or 0) > 0:
+        st.caption(
+            t("data_clean_fmt").format(
+                kept=int(clean_stats.get("kept", 0) or 0),
+                dropped=int(clean_stats.get("dropped_total", 0) or 0),
+            )
+        )
 
     _render_dashboard_hero(
         len(picks_df),
         len(alerts_df),
         platform_count,
         report_dir,
+        picks_df=picks_df,
         engine_stats=engine_stats,
         capture_rates=capture_rates,
+        clean_stats=clean_stats,
     )
-    _render_sentiment_engine_strip(engine_stats, capture_rates=capture_rates)
+    _render_sentiment_engine_strip(
+        engine_stats, capture_rates=capture_rates, clean_stats=clean_stats
+    )
     with st.expander(t("user_guide_title"), expanded=False):
         st.markdown(t("user_guide_body"))
-    oc_probe = _openclaw_probe()
+    oc_probe = _openclaw_probe(llm=False)
     _render_status_strip(
         report_dir,
         len(picks_df),
@@ -3020,7 +3362,7 @@ def main() -> None:
                 wf_price = load_prices(price_csv)
             except Exception:
                 wf_price = pd.DataFrame()
-        _render_walk_forward_panel(memory_dir, report_dir, wf_price)
+        _render_walk_forward_panel(memory_dir, report_dir, wf_price, auto_run=False)
 
         st.markdown(f"#### {t('monthly_training')}")
         lang = st.session_state.get("lang", "zh")

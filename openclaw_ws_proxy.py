@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Iterable, List, Optional
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 try:
@@ -36,6 +37,38 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="OpenClaw WS -> REST Proxy", lifespan=_lifespan)
+
+
+@app.get("/", response_class=HTMLResponse)
+async def root() -> str:
+    """Browser-friendly landing — this service is an API, not a website."""
+    return """<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>OpenClaw 分析代理</title>
+  <style>
+    body{font-family:system-ui,-apple-system,sans-serif;max-width:40rem;margin:3rem auto;padding:0 1.25rem;color:#2c2824;line-height:1.55;background:#f7f4ef}
+    h1{font-size:1.35rem;font-weight:600;margin:0 0 .5rem}
+    p{color:#6e6760}
+    code{background:#efeae3;padding:.1rem .35rem;border-radius:4px}
+    a{color:#8b7355}
+    ul{padding-left:1.2rem}
+  </style>
+</head>
+<body>
+  <h1>OpenClaw 分析代理（API）</h1>
+  <p>这是舆情情感打分服务，不是网页应用。请打开仪表盘 <code>http://localhost:8501</code> 查看选股结果。</p>
+  <ul>
+    <li><a href="/health">/health</a> — 服务是否存活</li>
+    <li><a href="/ready">/ready</a> — 是否可打分</li>
+    <li><a href="/docs">/docs</a> — API 文档</li>
+    <li><code>POST /api/v1/sentiment</code> — 批量情感打分</li>
+  </ul>
+</body>
+</html>
+"""
 
 
 @app.get("/health")

@@ -1127,22 +1127,103 @@ hr {{
 }}
 
 .disclaimer-banner {{
-    padding: 0.7rem 1rem;
-    margin: 0 0 1rem 0;
+    padding: 0.45rem 0.85rem;
+    margin: 0 0 0.75rem 0;
     border: 1px solid var(--dash-border);
-    border-radius: var(--radius-md);
-    background: var(--dash-surface);
+    border-radius: var(--radius-sm);
+    background: var(--dash-surface-muted);
     color: var(--dash-muted);
-    font-size: 0.875rem;
+    font-size: 0.78rem;
     font-weight: 300;
-    backdrop-filter: blur(var(--glass-blur));
-    -webkit-backdrop-filter: blur(var(--glass-blur));
-    box-shadow: inset 0 0 0 1px var(--dash-border-glow);
+    line-height: 1.45;
+    box-shadow: none;
+    position: relative;
+    z-index: 1;
+}}
+
+.disclaimer-banner--compact {{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 0.65rem;
+    align-items: baseline;
+}}
+
+.disclaimer-banner-text {{
+    flex: 1 1 240px;
+    min-width: 0;
 }}
 
 .disclaimer-banner strong {{
     color: var(--dash-ink);
     font-weight: 500;
+    white-space: nowrap;
+}}
+
+.hero-picks-panel {{
+    margin-top: 1rem;
+    padding: 0.85rem 1rem;
+    border: 1px solid var(--dash-border);
+    border-radius: var(--radius-md);
+    background: var(--dash-surface-muted);
+    max-width: 28rem;
+}}
+
+.hero-picks-title {{
+    font-size: 0.75rem;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--dash-accent);
+    margin-bottom: 0.55rem;
+}}
+
+.hero-pick-row {{
+    display: flex;
+    align-items: baseline;
+    gap: 0.65rem;
+    padding: 0.28rem 0;
+    border-bottom: 1px solid var(--dash-border);
+}}
+
+.hero-pick-row:last-child {{
+    border-bottom: none;
+}}
+
+.hero-pick-rank {{
+    font-size: 0.72rem;
+    color: var(--dash-muted);
+    width: 1.6rem;
+}}
+
+.hero-pick-sym {{
+    flex: 1;
+    font-weight: 500;
+    color: var(--dash-ink);
+}}
+
+.hero-pick-score {{
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+}}
+
+.hero-pick-score.pos {{ color: var(--dash-positive); }}
+.hero-pick-score.neg {{ color: var(--dash-negative); }}
+.hero-pick-score.neu {{ color: var(--dash-subtle); }}
+
+.hero-pick-empty {{
+    color: var(--dash-muted);
+    font-size: 0.85rem;
+}}
+
+.hero-kpi-grid--4 {{
+    grid-template-columns: repeat(2, minmax(96px, 1fr));
+    flex: 1 1 340px;
+}}
+
+@media (min-width: 900px) {{
+    .hero-kpi-grid--4 {{
+        grid-template-columns: repeat(3, minmax(100px, 1fr));
+    }}
 }}
 
 @media (prefers-reduced-motion: reduce) {{

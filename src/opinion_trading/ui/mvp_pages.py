@@ -22,8 +22,9 @@ DISCLAIMER_ZH = (
 
 def render_disclaimer_banner() -> None:
     st.markdown(
-        f"<div class='disclaimer-banner'>"
-        f"<strong>免责声明</strong>：{DISCLAIMER_ZH}</div>",
+        f"<div class='disclaimer-banner disclaimer-banner--compact'>"
+        f"<strong>免责声明</strong>"
+        f"<span class='disclaimer-banner-text'>{DISCLAIMER_ZH}</span></div>",
         unsafe_allow_html=True,
     )
 
@@ -87,7 +88,11 @@ def _symbol_daily_sentiment(sentiment_df: pd.DataFrame, symbol: str) -> pd.DataF
     return daily.sort_values("trade_date")
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def _load_price_series(symbol: str, lookback_days: int = 90) -> pd.DataFrame:
+    """Cached OHLCV — review tab runs on every Streamlit rerun, so uncached
+    akshare/yfinance calls (~10s) make the whole dashboard feel stuck on RUNNING.
+    """
     try:
         from opinion_trading.core.market_data import fetch_ohlcv
 
@@ -275,13 +280,22 @@ def render_review_tab(
     symbols = profile.watchlist or ["600519.SH"]
     symbol = st.selectbox("复盘标的", symbols, key="mvp_review_sym")
     lookback = st.slider("回看天数", 30, 180, 90, key="mvp_review_lb")
+    load_prices = st.checkbox(
+        "叠加股价（首次约需几秒拉取行情）",
+        value=False,
+        key="mvp_review_load_prices",
+    )
 
     daily = _symbol_daily_sentiment(sentiment_df, symbol)
-    prices = _load_price_series(symbol, lookback_days=lookback)
+    prices = (
+        _load_price_series(symbol, lookback_days=lookback)
+        if load_prices
+        else pd.DataFrame(columns=["date", "close"])
+    )
     expl = explain_symbol_sentiment(symbol, sentiment_df=sentiment_df, raw_df=raw_df)
 
     if daily.empty and prices.empty:
-        st.warning("缺少舆情或行情数据。")
+        st.warning("缺少舆情或行情数据。" + ("" if load_prices else " 可勾选上方选项叠加股价。"))
         return
 
     frames = []

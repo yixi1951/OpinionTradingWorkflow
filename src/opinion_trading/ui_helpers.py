@@ -170,6 +170,75 @@ def filter_usable_raw(raw_df: pd.DataFrame) -> pd.DataFrame:
     return view
 
 
+def prepare_customer_raw(raw_df: pd.DataFrame) -> tuple[pd.DataFrame, Dict[str, int]]:
+    """Drop fallback / spam / water / irrelevant rows for customer-facing views.
+
+    OpenClaw relevance (`ai_relevant`) is honored when present; otherwise local
+    noise heuristics still remove stub and garbage posts that pollute the UI.
+    """
+    from opinion_trading.core.noise_filter import classify_noise
+
+    empty_stats = {
+        "input": 0,
+        "kept": 0,
+        "dropped_fallback": 0,
+        "dropped_noise": 0,
+        "dropped_irrelevant": 0,
+        "dropped_empty": 0,
+        "dropped_total": 0,
+    }
+    if raw_df is None or raw_df.empty:
+        return pd.DataFrame() if raw_df is None else raw_df.copy(), empty_stats
+
+    view = raw_df.copy()
+    stats = dict(empty_stats)
+    stats["input"] = int(len(view))
+
+    # Fresh noise pass (do not trust stale is_noise alone)
+    seen: set[str] = set()
+    noise_flags: List[bool] = []
+    for _, row in view.iterrows():
+        noisy, _reason = classify_noise(
+            {
+                "title": row.get("title", ""),
+                "content": row.get("content", row.get("text", "")),
+                "is_noise": False,
+            },
+            seen,
+        )
+        noise_flags.append(bool(noisy))
+    view["_noise_now"] = noise_flags
+
+    status = (
+        view["capture_status"].astype(str).str.lower()
+        if "capture_status" in view.columns
+        else pd.Series([""] * len(view), index=view.index)
+    )
+    stub_mask = view.apply(is_fallback_row, axis=1) | status.isin(
+        {"fallback", "stub", "failed", "error"}
+    )
+    # Separate stub/fallback from pure spam/water for customer messaging
+    noise_only = view["_noise_now"] & ~stub_mask
+    stats["dropped_fallback"] = int(stub_mask.sum())
+    stats["dropped_noise"] = int(noise_only.sum())
+    view = view[~(stub_mask | view["_noise_now"])].copy()
+
+    if "ai_relevant" in view.columns:
+        irr = view["ai_relevant"].fillna(True).astype(bool) == False  # noqa: E712
+        stats["dropped_irrelevant"] = int(irr.sum())
+        view = view[~irr].copy()
+
+    texts = view.apply(full_comment_text, axis=1)
+    empty = texts.astype(str).str.strip().str.len() < 6
+    stats["dropped_empty"] = int(empty.sum())
+    view = view[~empty].copy()
+    if "_noise_now" in view.columns:
+        view = view.drop(columns=["_noise_now"])
+    stats["kept"] = int(len(view))
+    stats["dropped_total"] = max(0, stats["input"] - stats["kept"])
+    return view.reset_index(drop=True), stats
+
+
 def filter_comment_evidence(raw_df: pd.DataFrame) -> pd.DataFrame:
     """Keep rows that look like user opinions, excluding news headlines."""
     view = filter_usable_raw(raw_df)

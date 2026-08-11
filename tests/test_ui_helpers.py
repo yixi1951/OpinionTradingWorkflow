@@ -63,6 +63,46 @@ def test_filter_usable_raw_drops_fallback():
     assert usable.iloc[0]["platform"] == "guba"
 
 
+def test_prepare_customer_raw_drops_spam_and_fallback():
+    from opinion_trading.ui_helpers import prepare_customer_raw
+
+    df = pd.DataFrame(
+        [
+            {
+                "symbol": "600519.SH",
+                "platform": "weibo",
+                "title": "加微信稳赚不赔",
+                "summary": "免费荐股",
+                "content": "加微信稳赚不赔 免费荐股",
+                "capture_status": "success",
+                "ai_score": 0.9,
+            },
+            {
+                "symbol": "600519.SH",
+                "platform": "guba",
+                "title": "stub",
+                "summary": "Stub fallback summary",
+                "content": "fallback record",
+                "capture_status": "fallback",
+                "ai_score": 0.0,
+            },
+            {
+                "symbol": "600519.SH",
+                "platform": "guba",
+                "title": "今天继续加仓，长期看好基本面",
+                "summary": "今天继续加仓，长期看好基本面",
+                "content": "今天继续加仓，长期看好基本面",
+                "capture_status": "success",
+                "ai_score": 0.28,
+            },
+        ]
+    )
+    clean, stats = prepare_customer_raw(df)
+    assert stats["kept"] == 1
+    assert stats["dropped_total"] >= 2
+    assert clean.iloc[0]["platform"] == "guba"
+
+
 def test_filter_comment_evidence_drops_news():
     df = pd.DataFrame(
         [
