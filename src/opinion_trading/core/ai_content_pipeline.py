@@ -138,7 +138,7 @@ def screen_relevance(
                     code = symbol.split(".")[0]
                     relevant = True
                     reason = ""
-                    low = t.lower()
+                    t.lower()
                     if any(
                         x in t
                         for x in ("加微信", "加V", "免费荐股", "稳赚", "扫码进群")

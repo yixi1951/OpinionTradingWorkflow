@@ -2,10 +2,9 @@
 from __future__ import annotations
 
 import json
-import os
 from datetime import date
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 
 # ── Platform Sentiment Stub ───────────────────────────────────────────────
@@ -162,7 +161,6 @@ def test_raw_store_save_failure_logs(tmp_path, monkeypatch):
 
 def test_config_loader_load_runtime_config(tmp_path):
     """load_runtime_config reads platform list correctly."""
-    import yaml
     from opinion_trading.core.config_loader import load_runtime_config
 
     config_yaml = """

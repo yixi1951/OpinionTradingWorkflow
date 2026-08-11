@@ -39,7 +39,6 @@ _TYPE_AUTHORITY: Dict[str, float] = {
 }
 
 # Re-export seed aliases for backward compatibility
-from opinion_trading.core.symbol_map import SEED_ALIAS_MAP as DEFAULT_SYMBOL_ALIASES  # noqa: E402
 
 _EVENT_RULES: List[tuple[str, tuple[str, ...]]] = [
     ("earnings", ("业绩", "财报", "净利", "营收", "季报", "年报", "超预期", "低于预期")),
