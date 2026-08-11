@@ -883,30 +883,30 @@ def _render_openclaw_tab(
             _render_comment_highlights(cached, key_prefix=f"oc_live_{sym}")
 
 
-# Dashboard design tokens — modular layout + original teal palette
-_DASH_ACCENT = "#0D9488"
+# Dashboard design tokens — warm-neutral soft-futurism palette
+_DASH_ACCENT = "#8B7355"
 _DASH_COLORS = [
-    "#0D9488",
-    "#047857",
-    "#115E59",
-    "#134E4A",
-    "#B45309",
-    "#5C6B63",
-    "#0F766E",
-    "#6B7280",
+    "#8B7355",
+    "#3D6B4F",
+    "#A89070",
+    "#6E6760",
+    "#A24B45",
+    "#8A827A",
+    "#C4A882",
+    "#5C534A",
 ]
 _SENTIMENT_BAR_SCALE = alt.Scale(
     domain=["bull", "bear", "flat"],
-    range=["#047857", "#B91C1C", "#5C6B63"],
+    range=["#3D6B4F", "#A24B45", "#8A827A"],
 )
 
 
 def _sentiment_color(score: float) -> str:
     if score > 0.05:
-        return "#047857"
+        return "#3D6B4F"
     if score < -0.05:
-        return "#B91C1C"
-    return "#5C6B63"
+        return "#A24B45"
+    return "#8A827A"
 
 
 def _platform_chip_html(platform: str, score: float, *, suffix: str = "") -> str:
@@ -920,43 +920,37 @@ def _platform_chip_html(platform: str, score: float, *, suffix: str = "") -> str
 
 
 def _configure_chart(chart: alt.Chart) -> alt.Chart:
+    from opinion_trading.ui.dashboard_styles import chart_theme_colors
+
     theme = "light"
     try:
         theme = str(st.session_state.get("ui_theme", "light"))
     except Exception:
         pass
-    if theme == "dark":
-        ink = "#E8EDEA"
-        muted = "#A8B4AC"
-        grid = "rgba(168, 180, 172, 0.14)"
-        view_fill = "#141A22"
-    else:
-        ink = "#121820"
-        muted = "#4A5750"
-        grid = "rgba(120, 132, 124, 0.16)"
-        view_fill = "#FFFFFF"
+    colors = chart_theme_colors(theme)
+    font = colors["font"]
     return (
         chart.configure_axis(
-            labelFont="Nunito Sans",
-            titleFont="Nunito Sans",
-            labelColor=muted,
-            titleColor=ink,
-            gridColor=grid,
-            domainColor=grid,
-            tickColor=grid,
+            labelFont=font,
+            titleFont=font,
+            labelColor=colors["muted"],
+            titleColor=colors["ink"],
+            gridColor=colors["grid"],
+            domainColor=colors["grid"],
+            tickColor=colors["grid"],
         )
-        .configure_view(strokeWidth=0, fill=view_fill)
+        .configure_view(strokeWidth=0, fill=colors["view_fill"])
         .configure_title(
-            font="Nunito Sans",
+            font=font,
             fontSize=14,
-            fontWeight=600,
-            color=ink,
+            fontWeight=500,
+            color=colors["ink"],
         )
         .configure_legend(
-            labelFont="Nunito Sans",
-            titleFont="Nunito Sans",
-            labelColor=muted,
-            titleColor=ink,
+            labelFont=font,
+            titleFont=font,
+            labelColor=colors["muted"],
+            titleColor=colors["ink"],
             symbolType="circle",
             orient="top",
             padding=8,
@@ -965,1217 +959,29 @@ def _configure_chart(chart: alt.Chart) -> alt.Chart:
 
 
 def _inject_dashboard_styles(theme: str = "light") -> None:
-    is_dark = theme == "dark"
-    if is_dark:
-        tokens = """
-            --dash-bg: #0B0F14;
-            --dash-surface: #141A22;
-            --dash-surface-raised: #1A222C;
-            --dash-surface-muted: #1A222C;
-            --dash-ink: #E8EDEA;
-            --dash-muted: #A8B4AC;
-            --dash-subtle: #7A8A82;
-            --dash-border: rgba(168, 180, 172, 0.16);
-            --dash-accent: #14B8A6;
-            --dash-accent-soft: rgba(13, 148, 136, 0.14);
-            --dash-positive: #34D399;
-            --dash-negative: #F87171;
-            --dash-sidebar: #0E1218;
-            --dash-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
-            --dash-shadow-sm: 0 4px 14px rgba(0, 0, 0, 0.22);
-        """
-        hero_title = "#F3F5F4"
-        hero_sub = "#A8B4AC"
-        kicker = "#14B8A6"
-        pick_bg = "#141A22"
-        metric_bg = "#141A22"
-        openclaw_on_color = "#5EEAD4"
-        sidebar_block = """
-            --sidebar-bg: linear-gradient(180deg, #0E1218 0%, #141A22 100%);
-            --sidebar-bg-solid: #0E1218;
-            --sidebar-border: rgba(168, 180, 172, 0.14);
-            --sidebar-ink: #E8EDEA;
-            --sidebar-muted: #A8B4AC;
-            --sidebar-label: #F3F5F4;
-            --sidebar-input-bg: #1A222C;
-            --sidebar-input-border: rgba(168, 180, 172, 0.22);
-            --sidebar-alert-bg: #141A22;
-            --sidebar-expander-bg: #141A22;
-            --sidebar-toolbar-bg: linear-gradient(180deg, rgba(26,34,44,0.98) 0%, rgba(20,26,34,0.92) 100%);
-            --sidebar-hr: rgba(168, 180, 172, 0.14);
-        """
-    else:
-        tokens = """
-            --dash-bg: #F3F5F4;
-            --dash-surface: #FFFFFF;
-            --dash-surface-raised: #FAFBFA;
-            --dash-surface-muted: #F4F6F5;
-            --dash-ink: #121820;
-            --dash-muted: #4A5750;
-            --dash-subtle: #5C6B63;
-            --dash-border: rgba(120, 132, 124, 0.18);
-            --dash-accent: #0D9488;
-            --dash-accent-soft: rgba(13, 148, 136, 0.1);
-            --dash-positive: #047857;
-            --dash-negative: #B91C1C;
-            --dash-sidebar: #121820;
-            --dash-shadow: 0 8px 32px rgba(18, 24, 32, 0.07);
-            --dash-shadow-sm: 0 2px 16px rgba(18, 24, 32, 0.05);
-            --dash-shadow-hover: 0 12px 40px rgba(18, 24, 32, 0.09);
-        """
-        hero_title = "#121820"
-        hero_sub = "#4A5750"
-        kicker = "#0D9488"
-        pick_bg = "#FFFFFF"
-        metric_bg = "#FAFBFA"
-        openclaw_on_color = "#115E59"
-        sidebar_block = """
-            --sidebar-bg: linear-gradient(180deg, #FBFCFB 0%, #F3F5F4 100%);
-            --sidebar-bg-solid: #F3F5F4;
-            --sidebar-border: rgba(120, 132, 124, 0.14);
-            --sidebar-ink: #1F2937;
-            --sidebar-muted: #6B7280;
-            --sidebar-label: #111827;
-            --sidebar-input-bg: #FFFFFF;
-            --sidebar-input-border: rgba(148, 163, 184, 0.30);
-            --sidebar-alert-bg: #FFFFFF;
-            --sidebar-expander-bg: #FFFFFF;
-            --sidebar-toolbar-bg: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(247,249,248,0.92) 100%);
-            --sidebar-hr: rgba(148, 163, 184, 0.18);
-        """
+    from opinion_trading.ui.dashboard_styles import inject_dashboard_styles
 
-    st.markdown(
-        f"""
-        <style>
-        :root {{
-            {tokens}
-            {sidebar_block}
-            --space-xs: 0.25rem;
-            --space-sm: 0.5rem;
-            --space-md: 1rem;
-            --space-lg: 1.5rem;
-            --radius-sm: 12px;
-            --radius-md: 20px;
-            --radius-lg: 28px;
-            --radius-xl: 32px;
-            --font-display: 'Varela Round', 'Segoe UI', sans-serif;
-            --font-sans: 'Nunito Sans', 'Segoe UI', sans-serif;
-            --font-mono: 'Fira Code', ui-monospace, monospace;
-            --panel-gap: 1.25rem;
-        }}
-        @import url('https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@300;400;500;600;700&family=Varela+Round&display=swap');
-        html, body, [class*="css"] {{
-            font-family: var(--font-sans);
-            font-size: 0.9375rem;
-            line-height: 1.55;
-            color: var(--dash-ink);
-        }}
-        .stApp {{
-            background: var(--dash-bg);
-        }}
-        [data-testid="stSidebar"],
-        [data-testid="stSidebar"] > div:first-child,
-        [data-testid="stSidebarContent"] {{
-            background: var(--sidebar-bg) !important;
-            background-color: var(--sidebar-bg-solid) !important;
-            border-right: 1px solid var(--sidebar-border) !important;
-            border-radius: 0 28px 28px 0;
-            margin: 0.75rem 0 0.75rem 0.75rem;
-            box-shadow: var(--dash-shadow-sm);
-        }}
-        [data-testid="stSidebar"] p,
-        [data-testid="stSidebar"] span,
-        [data-testid="stSidebar"] label,
-        [data-testid="stSidebar"] h1,
-        [data-testid="stSidebar"] h2,
-        [data-testid="stSidebar"] h3,
-        [data-testid="stSidebar"] h4,
-        [data-testid="stSidebar"] h5,
-        [data-testid="stSidebar"] h6,
-        [data-testid="stSidebar"] .stMarkdown,
-        [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] {{
-            color: var(--sidebar-ink) !important;
-            line-height: 1.62;
-        }}
-        [data-testid="stSidebar"] .stCaption,
-        [data-testid="stSidebar"] small {{
-            color: var(--sidebar-muted) !important;
-        }}
-        [data-testid="stSidebar"] .stTextInput label,
-        [data-testid="stSidebar"] .stSelectbox label,
-        [data-testid="stSidebar"] .stRadio label {{
-            color: var(--sidebar-label) !important;
-            font-size: 0.8125rem !important;
-            font-weight: 800 !important;
-            letter-spacing: 0.02em;
-            margin-bottom: 0.28rem !important;
-        }}
-        [data-testid="stSidebar"] input,
-        [data-testid="stSidebar"] textarea {{
-            background: var(--sidebar-input-bg) !important;
-            color: var(--sidebar-label) !important;
-            border: 1px solid var(--sidebar-input-border) !important;
-            border-radius: 16px !important;
-        }}
-        [data-testid="stSidebar"] [data-baseweb="select"] > div,
-        [data-testid="stSidebar"] [data-baseweb="input"] > div {{
-            background: var(--sidebar-input-bg) !important;
-            color: var(--sidebar-label) !important;
-            border-color: var(--sidebar-input-border) !important;
-            border-radius: 16px !important;
-        }}
-        [data-testid="stSidebar"] [data-baseweb="select"] svg,
-        [data-testid="stSidebar"] [data-baseweb="input"] svg,
-        [data-testid="stSidebar"] [data-baseweb="select"] path {{
-            color: var(--sidebar-muted) !important;
-            fill: var(--sidebar-muted) !important;
-        }}
-        [data-testid="stSidebar"] [data-testid="stAlert"] {{
-            background: var(--sidebar-alert-bg) !important;
-            color: var(--sidebar-label) !important;
-            border: 1px solid rgba(20, 184, 166, 0.16) !important;
-            border-radius: var(--radius-lg) !important;
-            box-shadow: var(--dash-shadow-sm);
-        }}
-        [data-testid="stSidebar"] [data-testid="stAlert"] * {{
-            color: var(--sidebar-label) !important;
-        }}
-        [data-testid="stSidebar"] .status-pill.openclaw-off {{
-            background: #FFF7F7 !important;
-            color: #B91C1C !important;
-            border-color: rgba(248, 113, 113, 0.3) !important;
-        }}
-        [data-testid="stSidebar"] .status-pill.openclaw-on {{
-            background: rgba(13, 148, 136, 0.12) !important;
-            color: #115E59 !important;
-            border-color: rgba(13, 148, 136, 0.25) !important;
-        }}
-        [data-testid="stSidebar"] .stButton > button {{
-            background: linear-gradient(180deg, #14B8A6 0%, #0D9488 100%) !important;
-            color: #F0FDFA !important;
-            border: 1px solid rgba(13, 148, 136, 0.35) !important;
-            border-radius: 999px !important;
-            font-weight: 700 !important;
-            padding: 0.5rem 1.1rem !important;
-            transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 180ms cubic-bezier(0.22, 1, 0.36, 1), background 180ms ease-out;
-            cursor: pointer;
-            box-shadow: 0 4px 14px rgba(13, 148, 136, 0.14);
-        }}
-        [data-testid="stSidebar"] .stButton > button:hover {{
-            background: linear-gradient(180deg, #0F766E 0%, #0D9488 100%) !important;
-            transform: translateY(-1px);
-            box-shadow: 0 8px 18px rgba(13, 148, 136, 0.2);
-        }}
-        [data-testid="stSidebar"] .stButton > button:focus-visible {{
-            outline: 2px solid #0D9488;
-            outline-offset: 2px;
-        }}
-        [data-testid="stSidebar"] hr {{
-            border-color: var(--sidebar-hr) !important;
-            margin: 1rem 0 !important;
-        }}
-        [data-testid="stSidebar"] [data-testid="stExpander"] {{
-            background: var(--sidebar-expander-bg) !important;
-            border: 1px solid var(--sidebar-border) !important;
-            border-radius: var(--radius-lg) !important;
-            box-shadow: var(--dash-shadow-sm);
-            overflow: hidden;
-        }}
-        [data-testid="stSidebar"] [data-testid="stExpander"] summary {{
-            font-weight: 800 !important;
-            color: var(--sidebar-label) !important;
-            padding: 0.15rem 0.1rem;
-        }}
-        [data-testid="stSidebar"] [data-testid="stExpander"] .streamlit-expanderContent {{
-            padding-top: 0.2rem;
-        }}
-        .sidebar-toolbar {{
-            display: grid;
-            grid-template-columns: 1fr;
-            gap: 0.4rem;
-            margin: 0.35rem 0 0.85rem;
-            padding: 0.7rem 0.75rem;
-            border: 1px solid var(--sidebar-border);
-            border-radius: 18px;
-            background: var(--sidebar-toolbar-bg);
-            box-shadow: var(--dash-shadow-sm);
-        }}
-        .symbol-sentiment-card {{
-            margin-bottom: 0.85rem;
-        }}
-        .symbol-sentiment-head {{
-            display: flex;
-            align-items: baseline;
-            justify-content: space-between;
-            gap: 1rem;
-            flex-wrap: wrap;
-            margin-top: 0.35rem;
-        }}
-        .symbol-sentiment-title {{
-            font-family: var(--font-display);
-            font-size: 1.25rem;
-            font-weight: 700;
-            color: var(--dash-ink);
-        }}
-        .symbol-sentiment-meta {{
-            display: flex;
-            align-items: center;
-            gap: 0.65rem;
-            flex-wrap: wrap;
-            margin: 0.5rem 0;
-        }}
-        .symbol-sentiment-platforms {{
-            margin: 0.5rem 0;
-        }}
-        .symbol-quote {{
-            font-size: 0.8125rem;
-            line-height: 1.55;
-            padding: 0.55rem 0.65rem;
-            border-radius: var(--radius-sm);
-            margin-top: 0.45rem;
-            color: var(--dash-muted);
-        }}
-        .symbol-quote-label {{
-            display: block;
-            font-size: 0.65rem;
-            font-weight: 800;
-            letter-spacing: 0.06em;
-            text-transform: uppercase;
-            margin-bottom: 0.25rem;
-            color: var(--dash-subtle);
-        }}
-        .symbol-quote--pos {{
-            background: rgba(4, 120, 87, 0.08);
-            border-left: 3px solid var(--dash-positive);
-        }}
-        .symbol-quote--neg {{
-            background: rgba(185, 28, 28, 0.06);
-            border-left: 3px solid var(--dash-negative);
-        }}
-        .sidebar-toolbar-label {{
-            font-size: 0.68rem;
-            letter-spacing: 0.08em;
-            text-transform: uppercase;
-            color: var(--dash-subtle);
-            font-weight: 800;
-        }}
-        .sidebar-toolbar-actions {{
-            display: flex;
-            gap: 0.45rem;
-            flex-wrap: wrap;
-        }}
-        .sidebar-toolbar-chip {{
-            display: inline-flex;
-            align-items: center;
-            padding: 0.2rem 0.55rem;
-            border-radius: 999px;
-            border: 1px solid rgba(13, 148, 136, 0.18);
-            background: rgba(13, 148, 136, 0.08);
-            color: #115E59;
-            font-size: 0.72rem;
-            font-weight: 700;
-        }}
-        .sidebar-status-fixed {{
-            position: sticky;
-            top: 0.5rem;
-            z-index: 4;
-            background: linear-gradient(180deg, rgba(243,245,244,0.98) 0%, rgba(243,245,244,0.88) 100%);
-            backdrop-filter: blur(8px);
-            padding-bottom: 0.35rem;
-        }}
-        .sidebar-status-fixed .openclaw-status-card {{
-            margin-bottom: 0.6rem;
-        }}
-        .sidebar-brand {{
-            font-family: var(--font-display);
-            font-size: 0.72rem;
-            letter-spacing: 0.10em;
-            text-transform: uppercase;
-            color: #0D9488 !important;
-            margin-bottom: 0.12rem;
-            font-weight: 800;
-        }}
-        .sidebar-title {{
-            font-family: var(--font-display);
-            font-size: 1.22rem;
-            font-weight: 700;
-            color: #111827 !important;
-            margin-bottom: var(--space-sm);
-            line-height: 1.15;
-        }}
-        [data-testid="stSidebar"] section[data-testid="stSidebarContent"] > div {{
-            padding-top: 0.2rem;
-            padding-bottom: 0.2rem;
-        }}
-        [data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"] {{
-            background: #FFFFFF !important;
-            border: 1px solid rgba(148, 163, 184, 0.14) !important;
-            border-radius: 22px !important;
-            box-shadow: 0 2px 10px rgba(18, 24, 32, 0.04);
-            padding: 0.6rem 0.75rem;
-        }}
-        [data-testid="stSidebar"] .stTextInput,
-        [data-testid="stSidebar"] .stSelectbox,
-        [data-testid="stSidebar"] .stRadio {{
-            margin-bottom: 0.8rem;
-        }}
-        [data-testid="stSidebar"] .stButton {{
-            margin-top: 0.35rem;
-            margin-bottom: 0.9rem;
-        }}
-        .block-container {{
-            padding: 1.25rem 1.75rem 3rem;
-            max-width: 1320px;
-        }}
-        .main .block-container {{
-            gap: var(--panel-gap);
-            animation: page-enter 200ms cubic-bezier(0.22, 1, 0.36, 1);
-            transform-origin: top center;
-            will-change: transform, opacity;
-        }}
-        .main .stTabs {{
-            background: var(--dash-surface);
-            border: 1px solid var(--dash-border);
-            border-radius: var(--radius-xl);
-            padding: 0.75rem 0.85rem 0.35rem;
-            box-shadow: var(--dash-shadow-sm);
-        }}
-        @keyframes page-enter {{
-            from {{
-                opacity: 0;
-                transform: translateY(8px);
-            }}
-            to {{
-                opacity: 1;
-                transform: translateY(0);
-            }}
-        }}
-        [data-testid="stVerticalBlockBorderWrapper"] {{
-            border-color: var(--dash-border) !important;
-            border-radius: var(--radius-xl) !important;
-            background: var(--dash-surface) !important;
-            box-shadow: var(--dash-shadow-sm);
-            padding: 0.35rem 0.65rem;
-        }}
-        .panel-card {{
-            background: var(--dash-surface);
-            border: 1px solid var(--dash-border);
-            border-radius: var(--radius-xl);
-            padding: 1.35rem 1.5rem;
-            margin-bottom: var(--panel-gap);
-            box-shadow: var(--dash-shadow-sm);
-        }}
-        .panel-card--compact {{
-            padding: 0.85rem 1.15rem;
-            margin-bottom: 0.85rem;
-        }}
-        .panel-card--accent {{
-            background: rgba(13, 148, 136, 0.12);
-            border-color: rgba(13, 148, 136, 0.2);
-            color: var(--dash-ink);
-        }}
-        .panel-card--dark {{
-            background: #121820;
-            border-color: transparent;
-            color: #E8EDEA;
-        }}
-        .comment-panel {{
-            background: var(--dash-surface-muted);
-            border: 1px solid var(--dash-border);
-            border-radius: var(--radius-lg);
-            padding: 1rem 1.1rem;
-            min-height: 120px;
-        }}
-        .comment-panel-title {{
-            font-size: 0.8125rem;
-            font-weight: 700;
-            color: var(--dash-ink);
-            margin-bottom: 0.65rem;
-            letter-spacing: 0.02em;
-        }}
-        h1, h2, h3, h4, h5, h6 {{
-            color: var(--dash-ink) !important;
-            font-family: var(--font-display) !important;
-            font-weight: 600 !important;
-            letter-spacing: -0.02em;
-        }}
-        .section-kicker {{
-            font-family: var(--font-sans);
-            font-size: 0.75rem;
-            letter-spacing: 0.08em;
-            text-transform: uppercase;
-            color: var(--dash-accent);
-            font-weight: 700;
-            margin-bottom: 0.25rem;
-        }}
-        div[data-testid="stDataFrame"] {{
-            border: 1px solid var(--dash-border);
-            border-radius: var(--radius-lg);
-            overflow: hidden;
-        }}
-        div[data-testid="stDataFrame"] tbody tr:hover {{
-            background: var(--dash-accent-soft);
-        }}
-        [data-testid="stAlert"] {{
-            border-radius: var(--radius-md);
-        }}
-        hr {{
-            border-color: var(--dash-border) !important;
-            margin: var(--space-md) 0 !important;
-        }}
-        .dashboard-hero {{
-            border: 1px solid var(--dash-border);
-            border-radius: var(--radius-xl);
-            padding: 1.5rem 1.65rem;
-            background: var(--dash-surface);
-            box-shadow: var(--dash-shadow);
-            margin-bottom: var(--panel-gap);
-        }}
-        .dashboard-hero--terminal {{
-            position: relative;
-            overflow: hidden;
-            background:
-                linear-gradient(135deg, rgba(13, 148, 136, 0.06) 0%, transparent 42%),
-                var(--dash-surface);
-            border-color: rgba(13, 148, 136, 0.22);
-        }}
-        .hero-scanline {{
-            position: absolute;
-            inset: 0;
-            pointer-events: none;
-            background: repeating-linear-gradient(
-                0deg,
-                transparent,
-                transparent 2px,
-                rgba(13, 148, 136, 0.03) 2px,
-                rgba(13, 148, 136, 0.03) 4px
-            );
-            opacity: 0.5;
-        }}
-        .hero-kpi-grid--6,
-        .hero-kpi-grid--7 {{
-            grid-template-columns: repeat(2, minmax(96px, 1fr));
-        }}
-        @media (min-width: 720px) {{
-            .hero-kpi-grid--7 {{
-                grid-template-columns: repeat(4, minmax(88px, 1fr));
-            }}
-        }}
-        @media (min-width: 1100px) {{
-            .hero-kpi-grid--6 {{
-                grid-template-columns: repeat(6, minmax(88px, 1fr));
-            }}
-            .hero-kpi-grid--7 {{
-                grid-template-columns: repeat(7, minmax(80px, 1fr));
-            }}
-        }}
-        .hero-kpi-value--warn {{
-            color: var(--dash-negative) !important;
-            font-weight: 800;
-        }}
-        .hero-kpi-value.mono {{
-            font-family: var(--font-mono);
-            font-variant-numeric: tabular-nums;
-        }}
-        .sentiment-engine-strip {{
-            margin-bottom: var(--panel-gap);
-        }}
-        .sentiment-engine-title {{
-            font-family: var(--font-display);
-            font-size: 1.05rem;
-            font-weight: 600;
-            color: var(--dash-ink);
-            margin-bottom: 0.35rem;
-        }}
-        .sentiment-engine-body {{
-            font-size: 0.8125rem;
-            color: var(--dash-muted);
-            line-height: 1.55;
-            margin: 0 0 0.75rem 0;
-            max-width: 72ch;
-        }}
-        .sentiment-engine-metrics {{
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.5rem;
-        }}
-        .engine-metric {{
-            display: inline-flex;
-            align-items: baseline;
-            gap: 0.35rem;
-            padding: 0.28rem 0.65rem;
-            border-radius: 999px;
-            border: 1px solid var(--dash-border);
-            background: var(--dash-surface-muted);
-            font-family: var(--font-mono);
-            font-size: 0.8125rem;
-            font-weight: 600;
-            color: var(--dash-ink);
-        }}
-        .engine-metric-label {{
-            font-size: 0.65rem;
-            font-weight: 700;
-            letter-spacing: 0.06em;
-            text-transform: uppercase;
-            color: var(--dash-accent);
-        }}
-        .hero-top {{
-            display: flex;
-            flex-wrap: wrap;
-            gap: var(--space-lg);
-            align-items: flex-start;
-            justify-content: space-between;
-        }}
-        .hero-copy {{
-            flex: 1 1 320px;
-            min-width: 0;
-        }}
-        .dashboard-kicker {{
-            font-family: var(--font-sans);
-            font-size: 0.75rem;
-            letter-spacing: 0.06em;
-            text-transform: uppercase;
-            color: {kicker};
-            margin-bottom: 0.35rem;
-            font-weight: 700;
-        }}
-        .dashboard-title {{
-            font-family: var(--font-display);
-            font-size: 1.75rem;
-            font-weight: 600;
-            line-height: 1.2;
-            color: {hero_title};
-        }}
-        .dashboard-subtitle {{
-            font-size: 0.875rem;
-            color: {hero_sub};
-            margin-top: 0.45rem;
-            max-width: 58ch;
-            line-height: 1.55;
-        }}
-        .hero-kpi-grid {{
-            display: grid;
-            grid-template-columns: repeat(2, minmax(120px, 1fr));
-            gap: 0.55rem;
-            flex: 0 1 280px;
-        }}
-        .hero-kpi {{
-            border: 1px solid var(--dash-border);
-            border-radius: var(--radius-lg);
-            padding: 0.9rem 1.05rem;
-            background: var(--dash-surface-muted);
-            box-shadow: none;
-        }}
-        .hero-kpi-label {{
-            font-size: 0.6875rem;
-            font-weight: 600;
-            letter-spacing: 0.05em;
-            text-transform: uppercase;
-            color: var(--dash-muted);
-            margin-bottom: 0.35rem;
-        }}
-        .hero-kpi-value {{
-            font-family: var(--font-display);
-            font-size: 1.375rem;
-            font-weight: 600;
-            color: var(--dash-ink);
-            line-height: 1.2;
-        }}
-        .hero-kpi-value.small {{
-            font-size: 0.8125rem;
-            font-weight: 500;
-        }}
-        .status-strip {{
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.5rem;
-            margin: 0.75rem 0 0.15rem 0;
-        }}
-        .status-pill {{
-            display: inline-flex;
-            align-items: center;
-            gap: 0.4rem;
-            padding: 0.32rem 0.7rem;
-            border-radius: 999px;
-            font-size: 0.8125rem;
-            font-weight: 600;
-            border: 1px solid var(--dash-border);
-            background: var(--dash-surface);
-            color: var(--dash-muted);
-        }}
-        .status-dot {{
-            width: 0.45rem;
-            height: 0.45rem;
-            border-radius: 50%;
-            background: var(--dash-subtle);
-            flex-shrink: 0;
-        }}
-        .status-pill.live .status-dot {{
-            background: var(--dash-accent);
-            box-shadow: 0 0 0 3px var(--dash-accent-soft);
-        }}
-        .status-pill.live {{
-            border-color: rgba(13, 148, 136, 0.32);
-            background: rgba(236, 253, 249, 0.96);
-            color: var(--dash-accent);
-        }}
-        .status-pill.openclaw-on {{
-            border-color: rgba(13, 148, 136, 0.32);
-            background: rgba(236, 253, 249, 0.96);
-            color: {openclaw_on_color};
-        }}
-        .status-pill.openclaw-on .status-dot {{
-            background: #047857;
-        }}
-        .status-pill.openclaw-off {{
-            border-color: rgba(120, 132, 124, 0.28);
-            background: var(--dash-surface);
-            color: var(--dash-subtle);
-        }}
-        .status-pill.openclaw-off .status-dot {{
-            background: #B91C1C;
-        }}
-        .openclaw-status-card {{
-            border: 1px solid rgba(13, 148, 136, 0.14);
-            border-radius: 22px;
-            padding: 0.8rem 0.9rem;
-            background: linear-gradient(180deg, #FFFFFF 0%, #F7FAF9 100%);
-            box-shadow: 0 4px 14px rgba(18, 24, 32, 0.05);
-            margin-bottom: 0.55rem;
-        }}
-        .openclaw-status-meta {{
-            font-size: 0.6875rem;
-            font-weight: 800;
-            letter-spacing: 0.11em;
-            text-transform: uppercase;
-            color: var(--dash-accent);
-            margin-bottom: 0.45rem;
-        }}
-        .status-pill--dashboard {{
-            width: 100%;
-            justify-content: space-between;
-            padding: 0.52rem 0.8rem;
-            border-radius: 16px;
-            background: rgba(236, 253, 249, 0.92);
-            border-color: rgba(13, 148, 136, 0.24);
-            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
-        }}
-        .status-pill--dashboard span:last-child {{
-            flex: 1;
-            text-align: right;
-        }}
-        @media (prefers-reduced-motion: reduce) {{
-            .status-pill.live .status-dot {{
-                box-shadow: none;
-            }}
-        }}
-        .oc-badge {{
-            display: inline-block;
-            margin-right: 0.35rem;
-            padding: 0.12rem 0.45rem;
-            border-radius: 6px;
-            font-size: 0.6875rem;
-            font-weight: 600;
-            letter-spacing: 0.03em;
-        }}
-        .oc-badge.ai {{ background: #0D9488; color: #F0FDFA; border-radius: 999px; }}
-        .oc-badge.kw {{ background: #5C6B63; color: #F3F5F4; border-radius: 999px; }}
-        .oc-badge.user {{ background: #D1FAE5; color: #047857; border-radius: 999px; }}
-        .oc-badge.news {{ background: #FEF3C7; color: #B45309; border-radius: 999px; }}
-        .oc-badge.ref {{ background: #F3F4F6; color: #6B7280; border-radius: 999px; }}
-        .ref-snippet {{
-            border: 1px solid var(--dash-border);
-            border-radius: var(--radius-lg);
-            padding: 0.85rem 1rem;
-            margin: 0.5rem 0;
-            background: var(--dash-surface);
-            box-shadow: var(--dash-shadow-sm);
-            transition: box-shadow 0.2s ease-out, border-color 0.2s ease-out;
-            cursor: default;
-        }}
-        .ref-snippet:hover {{
-            border-color: rgba(13, 148, 136, 0.35);
-            box-shadow: var(--dash-shadow);
-        }}
-        .ref-snippet-head {{
-            font-size: 0.8125rem;
-            font-weight: 600;
-            color: var(--dash-muted);
-            margin-bottom: 0.35rem;
-        }}
-        .ref-snippet-body {{
-            font-size: 0.875rem;
-            color: var(--dash-ink);
-            line-height: 1.5;
-        }}
-        .pipeline-flow {{
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.5rem;
-            margin: 0.5rem 0 0.75rem;
-        }}
-        .pipeline-step {{
-            flex: 1 1 140px;
-            padding: 0.65rem 0.75rem;
-            border-radius: var(--radius-md);
-            border: 1px solid rgba(13, 148, 136, 0.16);
-            background: var(--dash-accent-soft);
-            font-size: 0.8125rem;
-            font-weight: 600;
-            color: var(--dash-accent);
-        }}
-        .pick-card {{
-            position: relative;
-            overflow: hidden;
-            border: 1px solid var(--dash-border);
-            border-top-left-radius: 14px;
-            border-top-right-radius: 14px;
-            border-bottom-left-radius: 28px;
-            border-bottom-right-radius: 28px;
-            padding: 1.15rem 1.25rem 1.2rem;
-            background:
-                linear-gradient(180deg, rgba(255, 255, 255, 0.88) 0%, rgba(255, 255, 255, 0.98) 100%),
-                {pick_bg};
-            box-shadow:
-                0 1px 0 rgba(255, 255, 255, 0.75) inset,
-                0 6px 16px rgba(18, 24, 32, 0.04),
-                0 14px 28px rgba(18, 24, 32, 0.06);
-            min-height: 168px;
-            transform: translateY(0) perspective(1000px) rotateX(0deg);
-            transition:
-                transform 180ms cubic-bezier(0.22, 1, 0.36, 1),
-                box-shadow 180ms cubic-bezier(0.22, 1, 0.36, 1),
-                border-color 180ms ease-out,
-                background 180ms ease-out;
-            will-change: transform, box-shadow;
-        }}
-        .pick-card::before {{
-            content: "";
-            position: absolute;
-            inset: 0;
-            pointer-events: none;
-            background: linear-gradient(180deg, rgba(255, 255, 255, 0.48) 0%, rgba(255, 255, 255, 0) 36%);
-            opacity: 0.7;
-        }}
-        .pick-card::after {{
-            content: "";
-            position: absolute;
-            inset: auto 10% 0.1rem 10%;
-            height: 0.85rem;
-            border-radius: 999px;
-            background: radial-gradient(ellipse at center, rgba(18, 24, 32, 0.18) 0%, rgba(18, 24, 32, 0.06) 45%, rgba(18, 24, 32, 0) 78%);
-            filter: blur(10px);
-            opacity: 0.32;
-            pointer-events: none;
-            transform: translateY(0.1rem);
-        }}
-        .pick-card.rank-1 {{
-            background:
-                linear-gradient(180deg, rgba(255, 255, 255, 0.94) 0%, rgba(255, 255, 255, 1) 100%),
-                #FFFFFF;
-            border-color: rgba(13, 148, 136, 0.34);
-            box-shadow:
-                0 1px 0 rgba(255, 255, 255, 0.82) inset,
-                0 8px 20px rgba(13, 148, 136, 0.09),
-                0 18px 36px rgba(18, 24, 32, 0.08);
-        }}
-        .pick-card.rank-2 {{
-            background:
-                linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(250, 251, 250, 1) 100%),
-                #FAFBFA;
-            box-shadow:
-                0 1px 0 rgba(255, 255, 255, 0.72) inset,
-                0 6px 16px rgba(18, 24, 32, 0.04),
-                0 14px 28px rgba(18, 24, 32, 0.06);
-        }}
-        .pick-card.rank-3 {{
-            background:
-                linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(255, 255, 255, 1) 100%),
-                #FFFFFF;
-            border-color: rgba(180, 132, 124, 0.22);
-            box-shadow:
-                0 1px 0 rgba(255, 255, 255, 0.72) inset,
-                0 6px 16px rgba(18, 24, 32, 0.04),
-                0 14px 28px rgba(18, 24, 32, 0.06);
-        }}
-        .pick-card:hover {{
-            transform: translateY(-4px) perspective(1000px) rotateX(1.5deg);
-            box-shadow:
-                0 1px 0 rgba(255, 255, 255, 0.84) inset,
-                0 14px 26px rgba(18, 24, 32, 0.08),
-                0 22px 46px rgba(18, 24, 32, 0.12);
-            border-color: rgba(13, 148, 136, 0.28);
-        }}
-        .pick-card:hover::after {{
-            opacity: 0.46;
-            transform: translateY(0.25rem) scale(1.02);
-        }}
-        @media (prefers-reduced-motion: reduce) {{
-            .main .block-container,
-            .pick-card,
-            .ref-snippet,
-            [data-testid="stSidebar"] .stButton > button,
-            .stTabs [data-baseweb="tab-panel"] {{
-                animation: none;
-                transition: none;
-            }}
-            .pick-card:hover {{
-                transform: none;
-            }}
-            .pick-card:hover::after {{
-                transform: translateY(0.1rem);
-            }}
-        }}
-        .pick-rank {{
-            display: inline-block;
-            font-size: 0.6875rem;
-            letter-spacing: 0.04em;
-            text-transform: uppercase;
-            color: var(--dash-muted);
-            font-weight: 700;
-            background: #F3F4F6;
-            padding: 0.2rem 0.55rem;
-            border-radius: 999px;
-            margin-bottom: 0.5rem;
-        }}
-        .pick-symbol {{
-            font-family: var(--font-display);
-            font-size: 1.15rem;
-            font-weight: 600;
-            color: var(--dash-ink);
-            margin: 0.12rem 0 0.35rem 0;
-        }}
-        .pick-score {{
-            font-family: var(--font-display);
-            font-size: 1.625rem;
-            font-weight: 600;
-            line-height: 1;
-        }}
-        .pick-score.pos {{ color: var(--dash-positive); }}
-        .pick-score.neg {{ color: var(--dash-negative); }}
-        .pick-score.neu {{ color: var(--dash-subtle); }}
-        .reason-card {{
-            border: 1px solid var(--dash-border);
-            border-radius: var(--radius-lg);
-            padding: 1rem;
-            background: var(--dash-surface);
-            box-shadow: var(--dash-shadow-sm);
-            min-height: 220px;
-        }}
-        .section-surface {{
-            border: 1px solid var(--dash-border);
-            border-radius: var(--radius-lg);
-            background: var(--dash-surface);
-            padding: 0.2rem 0.4rem;
-            box-shadow: var(--dash-shadow-sm);
-        }}
-        div[data-testid="stMetric"] {{
-            background: {metric_bg};
-            border: 1px solid var(--dash-border);
-            border-radius: var(--radius-lg);
-            padding: 0.85rem 1rem;
-            box-shadow: var(--dash-shadow-sm);
-        }}
-        div[data-testid="stMetric"] label {{
-            color: var(--dash-subtle) !important;
-            font-size: 0.75rem !important;
-            font-weight: 600 !important;
-            letter-spacing: 0.04em;
-            text-transform: uppercase;
-        }}
-        div[data-testid="stMetric"] [data-testid="stMetricValue"] {{
-            font-family: var(--font-mono);
-            color: var(--dash-ink) !important;
-            font-weight: 600 !important;
-        }}
-        .stTabs [data-baseweb="tab-list"] {{
-            gap: 0.4rem;
-            border-bottom: none;
-            background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(246, 248, 247, 1) 100%);
-            border-radius: 999px;
-            padding: 0.35rem;
-            width: fit-content;
-            max-width: 100%;
-            border: 1px solid var(--dash-border);
-            box-shadow:
-                0 1px 0 rgba(255, 255, 255, 0.85) inset,
-                var(--dash-shadow-sm);
-            position: relative;
-            isolation: isolate;
-        }}
-        .stTabs [data-baseweb="tab-list"]::before {{
-            content: "";
-            position: absolute;
-            inset: 0.35rem;
-            width: calc(25% - 0.275rem);
-            border-radius: 999px;
-            background: linear-gradient(180deg, rgba(13, 148, 136, 0.18) 0%, rgba(13, 148, 136, 0.24) 100%);
-            box-shadow:
-                0 1px 0 rgba(255, 255, 255, 0.5) inset,
-                0 8px 18px rgba(13, 148, 136, 0.16),
-                0 2px 6px rgba(18, 24, 32, 0.06);
-            transform: translateX(0);
-            transition: transform 340ms cubic-bezier(0.22, 1, 0.36, 1), width 340ms cubic-bezier(0.22, 1, 0.36, 1), opacity 220ms ease-out;
-            pointer-events: none;
-            opacity: 0.95;
-            z-index: 0;
-        }}
-        .stTabs [data-baseweb="tab"] {{
-            position: relative;
-            z-index: 1;
-            border-radius: 999px !important;
-            padding: 0.55rem 1.15rem !important;
-            font-weight: 700;
-            font-size: 0.8125rem;
-            color: var(--dash-muted);
-            cursor: pointer;
-            transition:
-                color 220ms cubic-bezier(0.22, 1, 0.36, 1),
-                background 220ms cubic-bezier(0.22, 1, 0.36, 1),
-                transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
-                box-shadow 220ms cubic-bezier(0.22, 1, 0.36, 1);
-            border: 1px solid transparent !important;
-            background: transparent !important;
-            will-change: transform;
-        }}
-        .stTabs [data-baseweb="tab"]:hover {{
-            color: var(--dash-ink);
-            background: rgba(255, 255, 255, 0.34) !important;
-            transform: translateY(-1px);
-        }}
-        .stTabs [aria-selected="true"] {{
-            color: #F0FDFA !important;
-            background: transparent !important;
-            border-bottom: none !important;
-            box-shadow: none;
-            transform: translateY(-1px) scale(1.01);
-        }}
-        .stTabs [aria-selected="true"]::after {{
-            content: "";
-            position: absolute;
-            inset: 0;
-            border-radius: 999px;
-            background: linear-gradient(180deg, rgba(13, 148, 136, 0.96) 0%, rgba(11, 118, 110, 1) 100%);
-            box-shadow:
-                0 1px 0 rgba(255, 255, 255, 0.22) inset,
-                0 6px 16px rgba(13, 148, 136, 0.24),
-                0 2px 6px rgba(18, 24, 32, 0.08);
-            z-index: -1;
-            animation: tab-pill-pop 300ms cubic-bezier(0.22, 1, 0.36, 1);
-        }}
-        .stTabs [data-baseweb="tab-panel"] {{
-            padding-top: 1.25rem;
-            animation: tab-panel-enter 360ms cubic-bezier(0.16, 1, 0.3, 1);
-            transform-origin: top center;
-        }}
-        @keyframes tab-panel-enter {{
-            from {{
-                opacity: 0;
-                transform: translateY(14px) scale(0.985);
-                filter: blur(1px);
-            }}
-            60% {{
-                opacity: 1;
-                transform: translateY(-1px) scale(1.002);
-                filter: blur(0);
-            }}
-            to {{
-                opacity: 1;
-                transform: translateY(0) scale(1);
-                filter: blur(0);
-            }}
-        }}
-        @keyframes tab-pill-pop {{
-            0% {{ transform: scale(0.96); opacity: 0.7; }}
-            60% {{ transform: scale(1.02); opacity: 1; }}
-            100% {{ transform: scale(1); opacity: 1; }}
-        }}
-        .main .stButton > button {{
-            border-radius: 999px !important;
-            font-weight: 700 !important;
-            border: 1px solid var(--dash-border) !important;
-            background: var(--dash-surface) !important;
-            color: var(--dash-ink) !important;
-            transition: background 0.2s ease-out, box-shadow 0.2s ease-out;
-            cursor: pointer;
-        }}
-        .main .stButton > button:hover {{
-            background: var(--dash-surface-muted) !important;
-            box-shadow: var(--dash-shadow-sm);
-        }}
-        .main .stButton > button[kind="primary"],
-        .main .stButton > button[data-testid="baseButton-primary"] {{
-            background: var(--dash-accent) !important;
-            color: #F0FDFA !important;
-            border: none !important;
-        }}
-        .guide-card {{
-            border: 1px solid var(--dash-border);
-            padding: 0.9rem 1rem;
-            margin: 0.35rem 0 0.8rem 0;
-            background: var(--dash-surface-muted);
-            border-radius: var(--radius-xl);
-            color: var(--dash-muted);
-            font-size: 0.875rem;
-            line-height: 1.65;
-            max-width: 72ch;
-            box-shadow: var(--dash-shadow-sm);
-        }}
-        .guide-card-title {{
-            font-family: var(--font-display);
-            font-weight: 700;
-            color: var(--dash-ink);
-            margin-bottom: 0.5rem;
-            font-size: 1rem;
-            letter-spacing: -0.01em;
-        }}
-        .panel-rail {{
-            border: 1px solid var(--dash-border);
-            border-radius: var(--radius-xl);
-            background: var(--dash-surface);
-            box-shadow: var(--dash-shadow-sm);
-            padding: 0.6rem 0.7rem 0.8rem;
-            margin: 0.35rem 0 1rem 0;
-        }}
-        .panel-rail--compact {{
-            padding: 0.55rem 0.65rem 0.7rem;
-        }}
-        .panel-section-title {{
-            font-family: var(--font-display);
-            font-size: 0.76rem;
-            font-weight: 800;
-            letter-spacing: 0.09em;
-            text-transform: uppercase;
-            color: var(--dash-ink);
-            margin-bottom: 0.25rem;
-        }}
-        .panel-subtitle {{
-            font-size: 0.74rem;
-            color: var(--dash-muted);
-            margin-bottom: 0.55rem;
-            line-height: 1.45;
-        }}
-        .panel-rail::before {{
-            content: "";
-            display: block;
-            height: 1px;
-            background: linear-gradient(90deg, rgba(20,184,166,0.0), rgba(20,184,166,0.32), rgba(20,184,166,0.0));
-            margin-bottom: 0.55rem;
-        }}
-        .panel-headbar {{
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 0.75rem;
-            margin-bottom: 0.65rem;
-        }}
-        .panel-headbar-left {{
-            min-width: 0;
-        }}
-        .panel-headbar-right {{
-            display: inline-flex;
-            align-items: center;
-            gap: 0.4rem;
-            flex-wrap: wrap;
-        }}
-        .panel-headbar-chip {{
-            display: inline-flex;
-            align-items: center;
-            gap: 0.35rem;
-            padding: 0.18rem 0.52rem;
-            border-radius: 999px;
-            border: 1px solid rgba(13, 148, 136, 0.22);
-            background: var(--dash-accent-soft);
-            color: var(--dash-accent);
-            font-size: 0.68rem;
-            font-weight: 800;
-            letter-spacing: 0.04em;
-            text-transform: uppercase;
-        }}
-        .chart-shell {{
-            border: 1px solid var(--dash-border);
-            border-radius: var(--radius-lg);
-            background: var(--dash-surface);
-            box-shadow: var(--dash-shadow-sm);
-            padding: 0.75rem;
-            margin-top: 0.5rem;
-        }}
-        .chart-shell .stDataFrame,
-        .chart-shell [data-testid="stDataFrame"] {{
-            background: var(--dash-surface) !important;
-        }}
-        .panel-control-grid {{
-            display: grid;
-            gap: 0.6rem;
-        }}
-        .panel-control-row {{
-            border: 1px solid rgba(120, 132, 124, 0.14);
-            background: #FFFFFF;
-            border-radius: var(--radius-lg);
-            padding: 0.75rem 0.8rem;
-        }}
-        .panel-control-row + .panel-control-row {{
-            margin-top: 0.5rem;
-        }}
-        .panel-control-label {{
-            font-size: 0.72rem;
-            font-weight: 700;
-            letter-spacing: 0.04em;
-            text-transform: uppercase;
-            color: var(--dash-subtle);
-            margin-bottom: 0.4rem;
-        }}
-        .panel-control-hint {{
-            font-size: 0.75rem;
-            color: var(--dash-subtle);
-            margin-top: 0.35rem;
-        }}
-        .panel-control-actions {{
-            display: grid;
-            gap: 0.55rem;
-            margin-top: 0.65rem;
-        }}
-        .trend-pill {{
-            display: inline-block;
-            padding: 0.2rem 0.55rem;
-            border-radius: 999px;
-            font-size: 0.75rem;
-            font-weight: 700;
-        }}
-        .trend-pill.pos {{ background: #D1FAE5; color: #047857; }}
-        .trend-pill.neg {{ background: #FEE2E2; color: #B91C1C; }}
-        .trend-pill.neu {{ background: #F3F4F6; color: #6B7280; }}
-        .score-badge {{
-            display: inline-block;
-            padding: 0.15rem 0.55rem;
-            border-radius: 6px;
-            font-size: 0.6875rem;
-            font-weight: 600;
-            letter-spacing: 0.04em;
-            font-family: var(--font-mono);
-        }}
-        .score-badge.strong {{ background: #047857; color: #ECFDF5; border-radius: 999px; }}
-        .score-badge.positive {{ background: #0D9488; color: #F0FDFA; border-radius: 999px; }}
-        .score-badge.risk {{ background: #B91C1C; color: #FEF2F2; border-radius: 999px; }}
-        .score-badge.weak {{ background: #B45309; color: #FFFBEB; border-radius: 999px; }}
-        .score-badge.neutral {{ background: #5C6B63; color: #F3F5F4; border-radius: 999px; }}
-        .platform-chip {{
-            display: inline-block;
-            margin: 0.15rem 0.35rem 0 0;
-            padding: 0.2rem 0.55rem;
-            border-radius: 999px;
-            background: #F3F4F6;
-            font-size: 0.75rem;
-            font-weight: 600;
-        }}
-        .platform-chip-label {{ font-weight: 500; }}
-        .trend-up {{ color: var(--dash-positive); font-size: 1rem; }}
-        .trend-down {{ color: var(--dash-negative); font-size: 1rem; }}
-        .trend-flat {{ color: var(--dash-subtle); font-size: 0.75rem; }}
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+    inject_dashboard_styles(theme)
+
+
+def _sync_theme_from_query() -> None:
+    """Restore theme from ?theme=light|dark when present."""
+    try:
+        qp = st.query_params
+        raw = qp.get("theme", None)
+        if isinstance(raw, list):
+            raw = raw[0] if raw else None
+        if raw in ("light", "dark"):
+            st.session_state["ui_theme"] = raw
+    except Exception:
+        pass
+
+
+def _persist_theme_query(theme: str) -> None:
+    try:
+        st.query_params["theme"] = theme
+    except Exception:
+        pass
 
 
 def _latest_file(pattern: str) -> str:
@@ -2473,10 +1279,9 @@ def _render_dashboard_hero(
     st.markdown(
         f"""
         <div class="dashboard-hero dashboard-hero--terminal">
-            <div class="hero-scanline" aria-hidden="true"></div>
             <div class="hero-top">
                 <div class="hero-copy">
-                    <div class="dashboard-kicker">OpenClaw · AI Research Terminal</div>
+                    <div class="dashboard-kicker">OpenClaw</div>
                     <div class="dashboard-title">{t('header_title')}</div>
                     <div class="dashboard-subtitle">{t('hero_tagline')}</div>
                 </div>
@@ -2635,7 +1440,7 @@ def _render_pick_leaderboard(picks_df: pd.DataFrame) -> None:
             platform_html = "".join(chips)
         else:
             platform_html = (
-                f"<span style='color:#5C6B63;font-size:0.8125rem;'>"
+                f"<span style='color:#8A827A;font-size:0.8125rem;'>"
                 f"{t('no_platform_scores')}</span>"
             )
 
@@ -3062,7 +1867,7 @@ def _render_analyst_detail_card(latest_row: Dict, symbol: str) -> None:
                 y=alt.Y(t("analyst_col_analyst") + ":N", sort="-x", title=None),
                 color=alt.Color(
                     "score_val:Q",
-                    scale=alt.Scale(scheme="tealblues"),
+                    scale=alt.Scale(range=_DASH_COLORS),
                     title=t("analyst_col_score"),
                 ),
                 tooltip=[t("analyst_col_analyst"), t("analyst_col_score"), t("analyst_col_confidence")],
@@ -3319,7 +2124,7 @@ def _render_paper_equity_chart(memory_dir: str) -> None:
     st.caption(t("paper_equity_hint"))
     chart = (
         alt.Chart(eq)
-        .mark_line(color="#0D9488", point=True)
+        .mark_line(color=_DASH_ACCENT, point=True)
         .encode(
             x=alt.X("trade_date:T", title=""),
             y=alt.Y("total_value:Q", title=""),
@@ -3385,7 +2190,7 @@ def _render_quality_gate_history_chart(memory_dir: str) -> None:
     )
     rule = (
         alt.Chart(pd.DataFrame({"y": [thr * 100]}))
-        .mark_rule(color="#B91C1C", strokeDash=[4, 4])
+        .mark_rule(color="#A24B45", strokeDash=[4, 4])
         .encode(y="y:Q")
     )
     st.altair_chart(_configure_chart(chart + rule), use_container_width=True)
@@ -3585,6 +2390,7 @@ def main() -> None:
         st.session_state["lang"] = "zh"
     if "ui_theme" not in st.session_state:
         st.session_state["ui_theme"] = "light"
+    _sync_theme_from_query()
     _inject_dashboard_styles(st.session_state.get("ui_theme", "light"))
     _require_dashboard_auth()
     render_disclaimer_banner()
@@ -3654,7 +2460,10 @@ def main() -> None:
         )
         if isinstance(theme_sel, tuple) and theme_sel[0] != theme_cur:
             st.session_state["ui_theme"] = theme_sel[0]
+            _persist_theme_query(theme_sel[0])
             st.rerun()
+        else:
+            _persist_theme_query(str(theme_cur))
 
         if st.button(t("refresh_data"), use_container_width=True):
             st.rerun()
@@ -4414,7 +3223,7 @@ def main() -> None:
                             color=alt.Color(
                                 "accuracy:Q",
                                 scale=alt.Scale(
-                                    range=["#CCFBF1", "#0D9488", "#115E59"]
+                                    range=["#EDE6DC", "#8B7355", "#5C534A"]
                                 ),
                                 title=t("eval_accuracy"),
                             ),

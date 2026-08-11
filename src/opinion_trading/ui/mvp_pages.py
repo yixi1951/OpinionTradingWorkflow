@@ -22,8 +22,7 @@ DISCLAIMER_ZH = (
 
 def render_disclaimer_banner() -> None:
     st.markdown(
-        f"<div style='padding:10px 14px;margin:0 0 12px 0;border:1px solid #CBD5E1;"
-        f"border-radius:8px;background:#F8FAFC;color:#334155;font-size:0.92rem;'>"
+        f"<div class='disclaimer-banner'>"
         f"<strong>免责声明</strong>：{DISCLAIMER_ZH}</div>",
         unsafe_allow_html=True,
     )
