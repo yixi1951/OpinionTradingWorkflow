@@ -19,21 +19,18 @@ from opinion_trading.agents.analyst_base import AnalystOpinion
 from opinion_trading.agents.consensus_engine import (
     ConsensusConfig,
     ConsensusEngine,
-    ConsensusSignal,
 )
 from opinion_trading.agents.fundamental_analyst import FundamentalAnalyst
 from opinion_trading.agents.sentiment_analyst import SentimentAnalyst
 from opinion_trading.agents.technical_analyst import TechnicalAnalyst
 from opinion_trading.core.config_loader import load_runtime_config
-from opinion_trading.core.evaluation import EvalSummary, evaluate_signals, load_prices
+from opinion_trading.core.evaluation import EvalSummary, evaluate_signals
 from opinion_trading.core.log_utils import get_logger
 from opinion_trading.core.models import (
     AggregatedSentiment,
     AnalysisConfig,
     OpinionSnapshot,
-    TradeSignal,
 )
-from opinion_trading.core.market_data import fetch_ohlcv
 
 logger = get_logger(__name__)
 
@@ -155,7 +152,7 @@ class MultiAgentBacktester:
                 if not sym:
                     continue
                 score = float(row.get("score", row.get("consensus_score", 0.0)))
-                conf = float(row.get("confidence", 0.0))
+                float(row.get("confidence", 0.0))
                 inner[sym] = AggregatedSentiment(
                     trade_date=d,
                     symbol=sym,
@@ -377,7 +374,7 @@ class MultiAgentBacktester:
             if not sym:
                 continue
             score = float(row.get("score", row.get("consensus_score", 0.0)))
-            conf = float(row.get("confidence", 0.0))
+            float(row.get("confidence", 0.0))
 
             snapshots.append(
                 OpinionSnapshot(

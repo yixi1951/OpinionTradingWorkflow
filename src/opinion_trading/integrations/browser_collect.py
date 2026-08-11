@@ -11,7 +11,7 @@ import json
 import os
 import re
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 from urllib.parse import urlparse
 
 from opinion_trading.core.log_utils import get_logger

@@ -15,12 +15,12 @@ from opinion_trading.core.env_bootstrap import load_dotenv_if_present
 
 load_dotenv_if_present(Path(__file__).resolve().parents[2])
 
-from opinion_trading.core.evaluation import (
+from opinion_trading.core.evaluation import (  # noqa: E402
     evaluate_signals,
     load_prices,
     normalize_price_frame,
 )
-from opinion_trading.core.monthly_training import (
+from opinion_trading.core.monthly_training import (  # noqa: E402
     build_monthly_training_frame,
     fetch_prices_with_timeout,
     load_latest_monthly_training,
@@ -28,9 +28,9 @@ from opinion_trading.core.monthly_training import (
     save_monthly_training_report,
 )
 
-from opinion_trading.core.openclaw_adapter import OpenClawClient
-from opinion_trading.core.ai_sentiment import sentiment_intensity_label
-from opinion_trading.ui_helpers import (
+from opinion_trading.core.openclaw_adapter import OpenClawClient  # noqa: E402
+from opinion_trading.core.ai_sentiment import sentiment_intensity_label  # noqa: E402
+from opinion_trading.ui_helpers import (  # noqa: E402
     build_openclaw_activity_feed,
     build_openclaw_summary,
     build_pick_contribution,
@@ -48,8 +48,8 @@ from opinion_trading.ui_helpers import (
     symbol_display,
     top_comment_rows,
 )
-from opinion_trading.core.user_workspace import UserWorkspace
-from opinion_trading.ui.mvp_pages import (
+from opinion_trading.core.user_workspace import UserWorkspace  # noqa: E402
+from opinion_trading.ui.mvp_pages import (  # noqa: E402
     render_alerts_tab,
     render_ai_pipeline_tab,
     render_disclaimer_banner,
@@ -69,9 +69,9 @@ LANG = {
         "memory_dir": "Memory directory",
         "quick_start": "Quick Start Tutorial",
         "tutorial_markdown": """
-**Step 1**: Run realtime mode to generate picks and alerts.  
-**Step 2**: Run daily mode to generate raw posts and explanations.  
-**Step 3**: Open this UI to see picks, platform drivers, and accuracy.  
+**Step 1**: Run realtime mode to generate picks and alerts.
+**Step 2**: Run daily mode to generate raw posts and explanations.
+**Step 3**: Open this UI to see picks, platform drivers, and accuracy.
 
 **Expected outputs**:
 - realtime picks CSV/MD in data/reports
@@ -165,7 +165,6 @@ LANG = {
         "tab_sentiment": "Sentiment",
         "tab_comments": "Evidence",
         "tab_eval": "Backtest",
-        "tab_openclaw": "OpenClaw",
         "ui_theme_label": "Theme",
         "ui_theme_light": "Light",
         "ui_theme_dark": "Dark",
@@ -173,7 +172,7 @@ LANG = {
         "openclaw_connected": "Connected",
         "openclaw_disconnected": "Not connected (keyword fallback)",
         "openclaw_probe_btn": "Test connection",
-        "openclaw_url_label": "Service URL",
+        "openclaw_status_title": "OpenClaw Engine",
         "openclaw_probe_hint": "First probe may take 30-60s (DeepSeek).",
         "openclaw_score_stats": "AI-scored rows in latest raw CSV: {ai}/{total}",
         "openclaw_score_metric": "AI-scored rows",
@@ -193,27 +192,23 @@ LANG = {
         "wf_export_csv": "Download walk-forward folds (CSV)",
         "user_guide_title": "What you can do here",
         "user_guide_body": """
-1. **Realtime Picks** — OpenClaw aggregates multi-platform sentiment into Top 3 rankings and reason cards.  
-2. **OpenClaw Live** — See the AI pipeline, analysis feed, and which texts were scored by OpenClaw vs keyword fallback.  
-3. **Sentiment** — Platform trends and contribution weights.  
-4. **Evidence** — User comments + reference texts that support each pick.  
+1. **Realtime Picks** — OpenClaw aggregates multi-platform sentiment into Top 3 rankings and reason cards.
+2. **OpenClaw Live** — See the AI pipeline, analysis feed, and which texts were scored by OpenClaw vs keyword fallback.
+3. **Sentiment** — Platform trends and contribution weights.
+4. **Evidence** — User comments + reference texts that support each pick.
 
 Connect OpenClaw via `OPENCLAW_URL` (see `scripts/run_demo_openclaw.ps1`). Sidebar shows live connection status.
 """,
         "tab_openclaw": "OpenClaw Live",
-        "openclaw_status_title": "OpenClaw Engine",
-        "openclaw_connected": "Connected",
-        "openclaw_disconnected": "Not connected (keyword fallback)",
         "openclaw_url_label": "Endpoint",
-        "openclaw_probe_btn": "Test connection",
         "openclaw_rescore_btn": "Re-score visible comments with OpenClaw",
         "openclaw_rescore_hint": "Requires OPENCLAW_URL. Scores update in this session only.",
         "openclaw_rescore_done": "OpenClaw re-scored {n} comments.",
         "openclaw_pipeline_title": "OpenClaw realtime pipeline",
         "openclaw_pipeline_body": """
-**Step 1 · Collect** — Crawl Guba, Xueqiu, Weibo, etc. for target symbols.  
-**Step 2 · OpenClaw score** — Batch sentiment via OpenClaw Gateway → DeepSeek (`/api/v1/sentiment`).  
-**Step 3 · Aggregate** — Platform-weighted composite score per symbol.  
+**Step 1 · Collect** — Crawl Guba, Xueqiu, Weibo, etc. for target symbols.
+**Step 2 · OpenClaw score** — Batch sentiment via OpenClaw Gateway → DeepSeek (`/api/v1/sentiment`).
+**Step 3 · Aggregate** — Platform-weighted composite score per symbol.
 **Step 4 · Recommend** — Rank Top N picks and generate explainable reason cards.
 """,
         "openclaw_summary_title": "This run at a glance",
@@ -373,9 +368,9 @@ Connect OpenClaw via `OPENCLAW_URL` (see `scripts/run_demo_openclaw.ps1`). Sideb
         "memory_dir": "内存目录",
         "quick_start": "快速开始教程",
         "tutorial_markdown": """
-**步骤 1**：运行实时模式以生成选股和告警。  
-**步骤 2**：运行日线模式以生成原始帖子与解释。  
-**步骤 3**：打开此界面查看选股、平台驱动和准确率。  
+**步骤 1**：运行实时模式以生成选股和告警。
+**步骤 2**：运行日线模式以生成原始帖子与解释。
+**步骤 3**：打开此界面查看选股、平台驱动和准确率。
 
 **期望输出**：
 - data/reports 下的实时选股 CSV/MD
@@ -497,27 +492,22 @@ Connect OpenClaw via `OPENCLAW_URL` (see `scripts/run_demo_openclaw.ps1`). Sideb
         "wf_export_csv": "下载 walk-forward 折表 (CSV)",
         "user_guide_title": "你可以这样使用本页",
         "user_guide_body": """
-1. **实时选股** — OpenClaw 汇总多平台情感分，输出 Top 3 排名与选股原因卡。  
-2. **OpenClaw 实时** — 查看 AI 分析流水线、逐条分析流水，以及 OpenClaw / 关键词 打分来源。  
-3. **舆情分析** — 各平台趋势与贡献权重。  
-4. **评论依据** — 用户观点 + 参考文本，支撑选股结论。  
+1. **实时选股** — OpenClaw 汇总多平台情感分，输出 Top 3 排名与选股原因卡。
+2. **OpenClaw 实时** — 查看 AI 分析流水线、逐条分析流水，以及 OpenClaw / 关键词 打分来源。
+3. **舆情分析** — 各平台趋势与贡献权重。
+4. **评论依据** — 用户观点 + 参考文本，支撑选股结论。
 
 连接 OpenClaw：设置 `OPENCLAW_URL` 或运行 `scripts/run_demo_openclaw.ps1`；侧边栏显示连接状态。
 """,
-        "tab_openclaw": "OpenClaw 实时",
         "openclaw_status_title": "OpenClaw 分析引擎",
-        "openclaw_connected": "已连接",
-        "openclaw_disconnected": "未连接（当前为关键词兜底）",
-        "openclaw_url_label": "服务地址",
-        "openclaw_probe_btn": "测试连接",
         "openclaw_rescore_btn": "用 OpenClaw 重新分析当前评论",
         "openclaw_rescore_hint": "需配置 OPENCLAW_URL；分数仅在本会话内更新。",
         "openclaw_rescore_done": "OpenClaw 已重新分析 {n} 条评论。",
         "openclaw_pipeline_title": "OpenClaw 实时分析流水线",
         "openclaw_pipeline_body": """
-**① 采集** — 从股吧、雪球、微博等平台抓取目标股票相关文本。  
-**② OpenClaw 打分** — 经 OpenClaw Gateway 调用 DeepSeek，批量输出情感分（`/api/v1/sentiment`）。  
-**③ 加权聚合** — 按平台权重汇总为综合舆情分。  
+**① 采集** — 从股吧、雪球、微博等平台抓取目标股票相关文本。
+**② OpenClaw 打分** — 经 OpenClaw Gateway 调用 DeepSeek，批量输出情感分（`/api/v1/sentiment`）。
+**③ 加权聚合** — 按平台权重汇总为综合舆情分。
 **④ 选股推荐** — 排名 Top N 并生成可解释的推荐原因卡。
 """,
         "openclaw_summary_title": "本轮分析概览",
@@ -999,7 +989,6 @@ def _inject_dashboard_styles(theme: str = "light") -> None:
         kicker = "#14B8A6"
         pick_bg = "#141A22"
         metric_bg = "#141A22"
-        tab_sel_bg = "rgba(13, 148, 136, 0.22)"
         openclaw_on_color = "#5EEAD4"
         sidebar_block = """
             --sidebar-bg: linear-gradient(180deg, #0E1218 0%, #141A22 100%);
@@ -1039,7 +1028,6 @@ def _inject_dashboard_styles(theme: str = "light") -> None:
         kicker = "#0D9488"
         pick_bg = "#FFFFFF"
         metric_bg = "#FAFBFA"
-        tab_sel_bg = "#0D9488"
         openclaw_on_color = "#115E59"
         sidebar_block = """
             --sidebar-bg: linear-gradient(180deg, #FBFCFB 0%, #F3F5F4 100%);
@@ -2629,7 +2617,7 @@ def _render_pick_leaderboard(picks_df: pd.DataFrame) -> None:
     view = view.sort_values("avg_score", ascending=False).reset_index(drop=True)
     st.markdown('<div class="panel-card">', unsafe_allow_html=True)
     st.markdown(f"#### {t('realtime_picks')}")
-    st.markdown(f"<div class='section-kicker'>Top 5</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-kicker'>Top 5</div>", unsafe_allow_html=True)
     cols = st.columns(min(5, len(view)))
 
     for idx, row in view.head(5).iterrows():

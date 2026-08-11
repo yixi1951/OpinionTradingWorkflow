@@ -9,9 +9,8 @@ from __future__ import annotations
 import os
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
-import pandas as pd
 
 from opinion_trading.core.log_utils import get_logger
 

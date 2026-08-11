@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 
 from opinion_trading.core.log_utils import configure_logging, get_logger, reset_logging
 

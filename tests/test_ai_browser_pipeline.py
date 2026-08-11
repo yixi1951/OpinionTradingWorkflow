@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import date
 from unittest.mock import MagicMock, patch
 
-import pandas as pd
 
 from opinion_trading.core.ai_content_pipeline import (
     run_ai_content_pipeline,
