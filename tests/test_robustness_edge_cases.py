@@ -4,16 +4,11 @@ These tests validate pure logic paths — no real HTTP calls.
 """
 from __future__ import annotations
 
-import hashlib
-import json
 import logging
-import os
-import tempfile
 import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 
 # ── HTML 缓存边缘情况 ──────────────────────────────────────────────────────
@@ -284,7 +279,7 @@ def test_openclaw_adapter_valid_response(monkeypatch):
 
 def test_schema_validation_all_fields():
     """Validate every field in SCHEMA_RULES has the expected type."""
-    from opinion_trading.core.raw_store import _SCHEMA_RULES, validate_row_schema
+    from opinion_trading.core.raw_store import validate_row_schema
 
     # A perfect row should have no violations
     row = {
@@ -401,5 +396,5 @@ def test_run_pipeline_sigterm_handler():
     assert is_shutdown_requested() is True
 
     # Reset for other tests (module-level state)
-    from run_pipeline import _shutdown_requested
-    _shutdown_requested = False
+    import run_pipeline as _rp
+    _rp._shutdown_requested = False

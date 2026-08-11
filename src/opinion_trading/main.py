@@ -11,16 +11,16 @@ from opinion_trading.core.env_bootstrap import load_dotenv_if_present
 from opinion_trading.core.log_utils import configure_logging, get_logger
 
 load_dotenv_if_present(Path(__file__).resolve().parents[2])
-from opinion_trading.agents.workflow import OpinionTradingWorkflow
-from opinion_trading.core.backtest import StrategyBacktester
-from opinion_trading.core.evaluation import load_prices, load_signals
-from opinion_trading.core.monthly_training import (
+from opinion_trading.agents.workflow import OpinionTradingWorkflow  # noqa: E402
+from opinion_trading.core.backtest import StrategyBacktester  # noqa: E402
+from opinion_trading.core.evaluation import load_prices, load_signals  # noqa: E402
+from opinion_trading.core.monthly_training import (  # noqa: E402
     build_monthly_training_frame,
     fetch_prices_with_timeout,
     load_training_history,
     save_monthly_training_report,
 )
-from opinion_trading.core.visualization import (
+from opinion_trading.core.visualization import (  # noqa: E402
     load_backtest_csv,
     plot_sharpe_vs_threshold,
     top_n_table,

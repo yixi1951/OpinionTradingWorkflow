@@ -73,9 +73,9 @@ class MultiAnalystAgent:
         self._sentiment_analyst = sentiment_analyst
         self._analysis_cfg = analysis_cfg or AnalysisConfig()
         self._explanation_lang = explanation_lang or "zh"
-        self._technical_analyst: Optional["TechnicalAnalyst"] = None  # type: ignore[name-defined]
-        self._fundamental_analyst: Optional["FundamentalAnalyst"] = None  # type: ignore[name-defined]
-        self._consensus_engine: Optional["ConsensusEngine"] = None  # type: ignore[name-defined]
+        self._technical_analyst: Optional["TechnicalAnalyst"] = None  # noqa: F821
+        self._fundamental_analyst: Optional["FundamentalAnalyst"] = None  # noqa: F821
+        self._consensus_engine: Optional["ConsensusEngine"] = None  # noqa: F821
 
     def _lazy_init(self) -> None:
         if self._technical_analyst is not None:
@@ -131,7 +131,7 @@ class MultiAnalystAgent:
         self._lazy_init()
 
         # Collect opinions from all analysts
-        today_aggregated = aggregated.get(trade_date, {})
+        aggregated.get(trade_date, {})
         opinions = []
 
         from opinion_trading.core.data_quality import apply_quality_to_sentiment_confidence

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import TYPE_CHECKING, Dict, List, Sequence, Optional
+from typing import TYPE_CHECKING, Dict, List, Sequence
 
 from opinion_trading.core.models import AggregatedSentiment
 

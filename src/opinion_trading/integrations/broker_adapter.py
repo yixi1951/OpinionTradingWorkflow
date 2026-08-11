@@ -5,11 +5,11 @@ from __future__ import annotations
 import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from opinion_trading.core.models import PaperTrade, TradeSignal
+from opinion_trading.core.models import TradeSignal
 
 
 @dataclass
