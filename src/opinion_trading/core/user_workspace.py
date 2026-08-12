@@ -17,7 +17,11 @@ def _now() -> str:
 
 def _hash_password(password: str, salt: str | None = None) -> tuple[str, str]:
     salt = salt or secrets.token_hex(8)
-    digest = hashlib.sha256(f"{salt}:{password}".encode("utf-8")).hexdigest()
+    # PBKDF2 keeps the existing two-field profile shape while making offline
+    # guessing materially more expensive than the former single SHA-256 pass.
+    digest = hashlib.pbkdf2_hmac(
+        "sha256", password.encode("utf-8"), salt.encode("utf-8"), 240_000
+    ).hex()
     return salt, digest
 
 
@@ -96,11 +100,18 @@ class UserWorkspace:
         )
 
     def register(self, username: str, password: str, email: str = "") -> UserProfile:
+        username = username.strip()
+        if len(username) < 3 or len(username) > 64:
+            raise ValueError("用户名长度需要在 3 到 64 个字符之间")
+        # Keep compatibility with existing local profiles; public web signup
+        # applies the stricter eight-character requirement in its form schema.
+        if len(password) < 6:
+            raise ValueError("密码至少需要 6 个字符")
         if self.load_profile(username):
             raise ValueError("user exists")
         salt, digest = _hash_password(password)
         profile = UserProfile(
-            username=username.strip(),
+            username=username,
             password_salt=salt,
             password_hash=digest,
             watchlist=[],
@@ -116,8 +127,15 @@ class UserWorkspace:
         if not profile:
             return None
         _, digest = _hash_password(password, profile.password_salt)
-        if digest != profile.password_hash:
+        legacy = hashlib.sha256(
+            f"{profile.password_salt}:{password}".encode("utf-8")
+        ).hexdigest()
+        if not secrets.compare_digest(digest, profile.password_hash) and not secrets.compare_digest(legacy, profile.password_hash):
             return None
+        # Transparently upgrade profiles created before PBKDF2 was introduced.
+        if secrets.compare_digest(legacy, profile.password_hash):
+            _, profile.password_hash = _hash_password(password, profile.password_salt)
+            self.save_profile(profile)
         return profile
 
     def add_watch(self, username: str, symbol: str) -> List[str]:

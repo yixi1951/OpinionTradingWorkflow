@@ -6,6 +6,15 @@ from typing import Dict
 import requests
 
 
+def ops_alerts_enabled() -> bool:
+    return os.environ.get("OPS_ALERTS_ENABLED", "0").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 class AlertNotifier:
     """Push alerts to DingTalk / WeCom / Telegram when configured via env vars."""
 
@@ -18,21 +27,56 @@ class AlertNotifier:
 
     def push_alert(self, alert: Dict) -> Dict:
         msg = self._format_message(alert)
-        result = {
+        return {
             "dingtalk": self._push_dingtalk(msg),
             "wecom": self._push_wecom(msg),
             "telegram": self._push_telegram(msg),
         }
-        return result
+
+    def push_ops_alert(
+        self,
+        kind: str,
+        *,
+        severity: str = "warning",
+        summary: str = "",
+        trade_date: str = "",
+        **extra: object,
+    ) -> Dict:
+        """Ops / risk alerts (kill switch, broker failure, etc.)."""
+        if not ops_alerts_enabled():
+            return {"skipped": True, "reason": "OPS_ALERTS_ENABLED=0"}
+        payload: Dict = {
+            "kind": kind,
+            "severity": severity,
+            "summary": summary,
+            "trade_date": trade_date,
+            "env": os.environ.get("APP_ENV", "dev"),
+        }
+        payload.update({k: v for k, v in extra.items() if v is not None})
+        return self.push_alert(payload)
 
     def _format_message(self, alert: Dict) -> str:
+        if alert.get("kind"):
+            lines = [
+                f"OPS/{str(alert.get('severity', 'info')).upper()}",
+                f"kind={alert.get('kind', '')}",
+                f"summary={alert.get('summary', '')}",
+                f"trade_date={alert.get('trade_date', '')}",
+                f"env={alert.get('env', '')}",
+            ]
+            for key, value in alert.items():
+                if key in {"kind", "severity", "summary", "trade_date", "env"}:
+                    continue
+                lines.append(f"{key}={value}")
+            return "\n".join(lines)
         return (
             "[OpinionTrading Alert]\n"
             f"symbol={alert.get('symbol', '')}\n"
             f"severity={alert.get('severity', '')}\n"
             f"direction={alert.get('direction', '')}\n"
             f"delta={float(alert.get('delta', 0.0)):.4f}\n"
-            f"score={float(alert.get('previous_score', 0.0)):.4f} -> {float(alert.get('current_score', 0.0)):.4f}\n"
+            f"score={float(alert.get('previous_score', 0.0)):.4f} -> "
+            f"{float(alert.get('current_score', 0.0)):.4f}\n"
             f"time={alert.get('time', '')}"
         )
 

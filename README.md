@@ -8,16 +8,16 @@
 
 **多平台舆情采集 · LLM 情感分析 · 多 Agent 评分 · 实时选股 · 可解释投研仪表盘**
 
-Python 个人项目：从股吧、新浪财经、微博、东方财富、雪球、抖音等渠道抓取舆情，经 OpenClaw + DeepSeek 打分后聚合为选股信号，并通过 **Multi-Agent 评分架构**（情绪 + 技术面 + 基本面 → 加权共识）综合研判，最终通过 Streamlit 展示 Top 排名、评论证据链与回测结果。
+Python 个人项目：从股吧、新浪财经、微博、东方财富、雪球、抖音等渠道抓取舆情，经 OpenClaw + DeepSeek 打分后聚合为研究信号，并通过 **Multi-Agent 评分架构**（情绪 + 技术面 + 基本面 → 加权共识）综合研判，最终通过同源 Web 研究工作台展示排名、评论证据链与回测结果。
 
 > 适合作为 **数据工程 / 量化研究 / AI 应用** 方向的个人作品展示。
 
-### Dashboard 预览
+### Web 研究工作台预览
 
 <!-- 将截图保存为 docs/assets/dashboard-hero.png 后取消下一行注释 -->
-<!-- ![OpenClaw Streamlit Dashboard](docs/assets/dashboard-hero.png) -->
+<!-- ![OpenClaw Web Research Desk](docs/assets/dashboard-hero.png) -->
 
-*占位：运行 `streamlit run src/opinion_trading/ui_dashboard.py` 后截取全屏，放入 `docs/assets/dashboard-hero.png` 并取消上方注释。*
+*正式入口：运行 `scripts/run_ui.ps1`，访问 `http://localhost:8000`。*
 
 ---
 
@@ -26,7 +26,7 @@ Python 个人项目：从股吧、新浪财经、微博、东方财富、雪球�
 | 指标 | 数值 |
 |------|------|
 | 测试用例 | **120+**（单元 + 集成 + 多 Agent 评分验证） |
-| 代码覆盖 | **44%**（核心模块 60-97%，排除 Streamlit UI 的静态代码） |
+| 代码覆盖 | **44%**（核心模块 60-97%，前端以独立构建和 API 合约验证） |
 | 分析师 Agent | **3 个**（情绪 / 技术 / 基本面）+ 共识引擎 |
 | 行情数据 | yfinance → akshare 双回退 + Parquet 缓存 |
 | CI pipeline | ruff lint → black 格式 → mypy 类型 → pytest + 覆盖率门槛 → 报告上传 |
@@ -53,7 +53,7 @@ Python 个人项目：从股吧、新浪财经、微博、东方财富、雪球�
 | 数据采集 | requests + 自定义 HTML 解析（6 平台） |
 | LLM | OpenClaw Gateway、DeepSeek API、自研 WS 代理 |
 | 数据处理 | pandas、NumPy、PyArrow (Parquet)、JSONL 持久化 |
-| 可视化 | Streamlit、Altair |
+| 可视化 | Vite、React、原生 CSS |
 | 行情 | yfinance、akshare（三级回退 + Parquet 缓存） |
 | 技术指标 | 纯 pandas 实现（RSI / MACD / 布林带 / ATR / 成交量分析） |
 | 基本面 | yfinance + akshare 东方财富接口（PE / ROE / 营收增长 / Beta） |
@@ -94,7 +94,7 @@ flowchart LR
     MD --> FD --> FUND
 
     CE --> PICK[Top-N 选股 + Kelly 仓位]
-    PICK --> UI[Streamlit 仪表盘]
+    PICK --> UI[Web 研究工作台]
     PICK --> REP[日报 / JSONL 历史]
 ```
 
@@ -130,9 +130,9 @@ $env:PYTHONPATH = "src"
 
 详细说明见 **[docs/DEV_SETUP.md](docs/DEV_SETUP.md)**（固定 venv、`PYTHONPATH`、CI 一致）。
 
-### 一键打开分析网页（推荐）
+### 一键打开 Web 研究工作台（推荐）
 
-自动检测是否有选股数据；若无则先跑 Stub 演示，再启动 Streamlit 并打开浏览器：
+可选先跑 Stub 演示，然后构建 React 前端并启动 FastAPI 同源服务：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\run_ui.ps1
@@ -144,7 +144,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\run_ui.ps1
 powershell -ExecutionPolicy Bypass -File .\scripts\run_ui.ps1 -NoBrowser
 ```
 
-浏览器访问 http://localhost:8501 ，四个 Tab：**实时选股 · 舆情分析 · 评论依据 · 回测评估**。
+浏览器访问 http://localhost:8000，包含研究总览、我的自选、舆情证据和系统状态四个工作区。
 
 ### 方式 A：Stub 演示（~2 分钟，无需 API）
 
@@ -227,7 +227,7 @@ pytest -q
 ├── openclaw_stub.py             # 本地 Stub（无 API 可演示）
 ├── config/settings.yaml         # 平台权重、股票池、阈值
 ├── scripts/
-│   ├── run_ui.ps1               # 一键打开 Streamlit 分析页
+│   ├── run_ui.ps1               # 一键构建并打开 Web 研究工作台
 │   ├── run_demo.ps1             # Stub 一键演示
 │   ├── run_demo_openclaw.ps1    # OpenClaw 一键演示
 │   └── text_quality.py          # 噪声/ boilerplate 过滤
@@ -245,7 +245,7 @@ pytest -q
 │   │   ├── technical_indicators.py # 技术指标计算 + 评分
 │   │   └── fundamentals.py      #   基本面获取 + 评分
 │   ├── integrations/            # 真实/Stub 平台采集
-│   └── ui_dashboard.py          # Streamlit 仪表盘
+│   └── ui_dashboard.py          # 迁移期 Streamlit 旧版（不作为部署入口）
 ├── data/reports/                # 日报、选股、质量报告（示例已提交）
 └── tests/                       # 单元测试
 ```
@@ -271,10 +271,10 @@ pytest -q
 | `OPENCLAW_SKIP_ROW_SCORE` | `1` = 跳过逐帖打分，仅聚合层调用 LLM |
 | `COLLECT_PARALLEL` / `COLLECT_MAX_WORKERS` | daily 并行采集（默认开，6 线程） |
 | `COLLECT_SHOW_PROGRESS` | `1` + `tqdm` 显示采集进度条 |
-| `STREAMLIT_DASHBOARD_PASSWORD` | 设置后 Streamlit 需密码进入 |
+| `APP_SESSION_SECRET` | Web 会话签名密钥，生产环境必填 |
 | `HTML_CACHE_TTL_SECONDS` | 爬虫 HTML 缓存 TTL（`0` = 禁用读缓存） |
 
-复制根目录 [`.env.example`](.env.example) 为 `.env`；`main` 与 Streamlit 启动时会自动加载（不覆盖已有环境变量）。
+复制根目录 [`.env.example`](.env.example) 为 `.env`；API 启动时会自动加载（不覆盖已有环境变量）。
 
 ---
 

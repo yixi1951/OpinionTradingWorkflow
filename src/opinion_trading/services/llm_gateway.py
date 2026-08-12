@@ -145,18 +145,36 @@ class MultiModelGateway:
     """Failover DeepSeek → Qwen → optional third → OpenClaw → keyword."""
 
     def __init__(self) -> None:
-        self.providers = _load_providers()
         self.prompts = PromptRegistry()
         self.cache = SentimentCache(
             ttl_seconds=int(os.environ.get("LLM_CACHE_TTL_SECONDS", "86400"))
         )
         self.fail_counts: Dict[str, int] = {}
         self.success_counts: Dict[str, int] = {}
-        self.circuits: Dict[str, CircuitState] = {
-            p.name: CircuitState() for p in self.providers
-        }
+        self.circuits: Dict[str, CircuitState] = {}
         self.circuit_threshold = int(os.environ.get("LLM_CIRCUIT_THRESHOLD", "3"))
         self.circuit_cooldown = float(os.environ.get("LLM_CIRCUIT_COOLDOWN_SEC", "60"))
+        self._provider_gen = -1
+        self._reload_providers(force=True)
+
+    def _reload_providers(self, *, force: bool = False) -> None:
+        """Refresh providers when encrypted API-key store generation changes."""
+        try:
+            from opinion_trading.core.api_key_store import (
+                apply_runtime_key_overlay,
+                runtime_key_generation,
+            )
+
+            apply_runtime_key_overlay()
+            gen = int(runtime_key_generation())
+        except Exception:
+            gen = self._provider_gen if self._provider_gen >= 0 else 0
+        if not force and gen == self._provider_gen:
+            return
+        self.providers = _load_providers()
+        self._provider_gen = gen
+        for p in self.providers:
+            self.circuits.setdefault(p.name, CircuitState())
 
     def score(
         self,
@@ -165,7 +183,9 @@ class MultiModelGateway:
         scenario: str = "sentiment",
         prompt_version: Optional[str] = None,
         use_cache: bool = True,
+        allow_keyword: Optional[bool] = None,
     ) -> Dict[str, Any]:
+        self._reload_providers()
         texts = [str(t or "") for t in texts]
         prompt = self.prompts.get(scenario, prompt_version)
         version = prompt.version
@@ -214,6 +234,19 @@ class MultiModelGateway:
                 errors.append(f"{provider.name}:{exc}")
                 logger.warning("Provider %s failed: %s", provider.name, exc)
                 continue
+
+        if allow_keyword is None:
+            allow_keyword = os.environ.get("ALLOW_KEYWORD_FALLBACK", "1").strip().lower() not in {
+                "0",
+                "false",
+                "no",
+                "off",
+            }
+        if not allow_keyword:
+            raise RuntimeError(
+                "all LLM providers failed and keyword fallback is disabled: "
+                + "; ".join(errors[:5])
+            )
 
         scores = _keyword_scores(texts)
         if use_cache:

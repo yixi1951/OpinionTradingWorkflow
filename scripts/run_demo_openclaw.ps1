@@ -147,8 +147,8 @@ Write-Host "  Model        = $model"
 Write-Host "  Reports      = data/reports/realtime_picks_*.md"
 
 if ($WithUI) {
-    Write-Host "`nUI: http://localhost:8501"
-    & $Python -m streamlit run src/opinion_trading/ui_dashboard.py --server.port 8501
+    Write-Host "`nWeb Research Desk: http://localhost:8000"
+    & powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run_ui.ps1") -NoBrowser
 }
 
 if ($GatewayProc) {

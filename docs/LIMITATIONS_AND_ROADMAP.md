@@ -62,8 +62,8 @@
 | 容器 | `Dockerfile` | **`docker-compose.yml`** 一键 UI |
 | UI 参数 | 侧边栏目录、Eval 价源 | 侧边栏改 `settings` 只读预览 |
 | 导出 | reports CSV/MD、execution intents | UI 一键下载 zip |
-| 移动端 | Streamlit 响应式一般 | 未专门适配 |
-| **认证** | 无（本地演示） | `STREAMLIT_PASSWORD` / 反代 |
+| 移动端 | Web 前端已提供紧凑布局 | 仍需真机可用性测试 |
+| **认证** | Web 会话登录已接入 | 生产需接入正式用户中心与限流 |
 
 ## 七、安全
 

@@ -22,16 +22,20 @@ def test_prompt_registry_versions_and_activate(tmp_path, monkeypatch):
         assert reg.get("sentiment").version == "v1"
 
 
-def test_gateway_keyword_fallback_and_cache(monkeypatch):
+def test_gateway_keyword_fallback_and_cache(tmp_path, monkeypatch):
+    monkeypatch.setenv("API_KEYS_STORE_PATH", str(tmp_path / "api_keys.json"))
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     monkeypatch.delenv("QWEN_API_KEY", raising=False)
     monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
     monkeypatch.delenv("OPENCLAW_URL", raising=False)
     monkeypatch.delenv("OPENCLAW_GATEWAY_URL", raising=False)
     monkeypatch.setenv("STORAGE_BACKEND", "file")
+    monkeypatch.setenv("ALLOW_KEYWORD_FALLBACK", "1")
 
+    from opinion_trading.core.api_key_store import reset_api_key_store_singleton
     from opinion_trading.services.llm_gateway import MultiModelGateway
 
+    reset_api_key_store_singleton()
     gw = MultiModelGateway()
     texts = ["强烈看好突破上涨", "暴跌利空风险"]
     r1 = gw.score(texts, use_cache=True)
@@ -61,13 +65,18 @@ def test_circuit_opens_after_failures(monkeypatch):
     assert c.allow()
 
 
-def test_inference_app_endpoints(monkeypatch):
+def test_inference_app_endpoints(tmp_path, monkeypatch):
+    monkeypatch.setenv("API_KEYS_STORE_PATH", str(tmp_path / "api_keys.json"))
+    monkeypatch.setenv("ALLOW_KEYWORD_FALLBACK", "1")
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     monkeypatch.delenv("QWEN_API_KEY", raising=False)
     monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
     monkeypatch.delenv("OPENCLAW_URL", raising=False)
+    monkeypatch.delenv("OPENCLAW_GATEWAY_URL", raising=False)
+    from opinion_trading.core.api_key_store import reset_api_key_store_singleton
     from opinion_trading.services import inference_app
 
+    reset_api_key_store_singleton()
     client = TestClient(inference_app.app)
     assert client.get("/health").json()["status"] == "ok"
     body = client.post(

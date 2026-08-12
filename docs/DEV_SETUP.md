@@ -27,16 +27,23 @@ python -m pytest tests/ -q
 
 ## 环境变量
 
-复制 [`.env.example`](../.env.example) 为 `.env` 并按需填写（OpenClaw、采集并行、`STREAMLIT_DASHBOARD_PASSWORD` 等）。
+复制 [`.env.example`](../.env.example) 为 `.env` 并按需填写（OpenClaw、采集并行、`APP_SESSION_SECRET` 等）。
 
 终端采集进度条（需 `pip install tqdm`）：`COLLECT_SHOW_PROGRESS=1`
 
-## Streamlit 仪表盘
+## Web 研究工作台
 
 ```powershell
 $env:PYTHONPATH = "src"
-streamlit run src/opinion_trading/ui_dashboard.py
+cd web
+npm install
+npm run build
+cd ..
+python -m opinion_trading.services.api_app
 ```
+
+浏览器访问 `http://localhost:8000`。正式入口是 `web/` 的同源前端，旧的
+`ui_dashboard.py` 仅作为迁移期参考，不再作为部署入口。
 
 ## 常用命令
 
@@ -47,7 +54,7 @@ streamlit run src/opinion_trading/ui_dashboard.py
 | `py -m opinion_trading.main --mode walk_forward` | 样本外 walk-forward 报告 |
 | `py -m opinion_trading.main --mode evaluate` | 单次信号评估 |
 
-`main.py` 与 Streamlit 启动时会自动加载项目根目录 **`.env`**（不覆盖已设置的环境变量）。
+`main.py` 与 API 启动时会自动加载项目根目录 **`.env`**（不覆盖已设置的环境变量）。
 
 Docker：`docker compose up --build`（见根目录 `docker-compose.yml`）。
 

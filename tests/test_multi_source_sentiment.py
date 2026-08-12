@@ -26,8 +26,13 @@ class MultiSourceSentimentTests(unittest.TestCase):
     def _provider_with_html(
         self, mapping: dict[str, str]
     ) -> RealPlatformSentimentProvider:
-        provider = RealPlatformSentimentProvider(fallback_to_stub=False)
+        provider = RealPlatformSentimentProvider(
+            fallback_to_stub=False, scoring_mode="keyword"
+        )
         provider.ai_analyzer = None
+        # Force HTML fixture path; browser collect would hit the live site.
+        provider._browser = None
+        provider.scoring_mode = "keyword"
 
         def fake_download_html(url: str) -> str:
             if "list,sh600519.html" in url or "list,600519.html" in url:

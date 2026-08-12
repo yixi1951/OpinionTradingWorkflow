@@ -75,8 +75,8 @@ Write-Host "  Latest picks : data/reports/realtime_picks_*.csv (newest file)"
 Write-Host "  Raw evidence : data/raw/raw_posts_$Date.csv"
 
 if ($WithUI) {
-    Write-Host "`nStarting Streamlit UI on http://localhost:8501 ..."
-    & $Python -m streamlit run src/opinion_trading/ui_dashboard.py --server.port 8501
+    Write-Host "`nStarting Web Research Desk on http://localhost:8000 ..."
+    & powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run_ui.ps1") -NoBrowser
 }
 
 if ($StubProc) {

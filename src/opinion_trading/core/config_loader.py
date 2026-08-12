@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Dict
+import json
 
 try:
     import yaml  # type: ignore[import-not-found]
@@ -27,6 +28,23 @@ def _load_yaml(path: Path) -> Dict[str, Any]:
         )
     with path.open("r", encoding="utf-8") as f:
         return yaml.safe_load(f)
+
+
+def _resolve_universe_symbols(universe: Dict[str, Any], settings_path: Path) -> list[str]:
+    base = [str(s).strip().upper() for s in universe.get("symbols") or [] if str(s).strip()]
+    source = universe.get("constituents_file")
+    if source:
+        path = Path(str(source))
+        if not path.is_absolute():
+            path = settings_path.parent / path
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            extra = data.get("symbols") if isinstance(data, dict) else data
+            base.extend(str(s).strip().upper() for s in extra or [] if str(s).strip())
+        except (OSError, ValueError, TypeError):
+            pass
+    max_symbols = max(1, int(universe.get("max_symbols", len(base) or 1)))
+    return list(dict.fromkeys(base))[:max_symbols]
 
 
 def load_runtime_config(config_path: str = "config/settings.yaml") -> RuntimeConfig:
