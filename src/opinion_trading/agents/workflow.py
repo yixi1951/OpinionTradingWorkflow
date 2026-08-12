@@ -100,8 +100,6 @@ class OpinionTradingWorkflow:
                 )
             logger.info("Fast daily: loaded %d rows from cache", len(raw_rows))
         else:
-            import os
-
             from opinion_trading.core.parallel_collect import collect_raw_posts_parallel
 
             parallel = os.environ.get("COLLECT_PARALLEL", "1").lower() not in (
@@ -307,9 +305,52 @@ class OpinionTradingWorkflow:
             "sentiment_history.jsonl", [x.to_dict() for x in snapshots]
         )
 
+        from opinion_trading.core.trading_memory import (
+            load_prior_from_raw_dir,
+            load_prior_snapshots,
+            merge_snapshots_with_memory,
+            prefer_history_then_raw,
+            prior_date_count,
+            update_symbol_memory,
+        )
+
+        memory_lookback = int(
+            os.environ.get(
+                "MEMORY_LOOKBACK_DAYS",
+                str(getattr(self.config, "memory_lookback_days", 60) or 60),
+            )
+        )
+        prior_from_hist = load_prior_snapshots(
+            self.store,
+            before=run_date,
+            symbols=self.config.symbols,
+            lookback_days=memory_lookback,
+        )
+        prior_from_raw = load_prior_from_raw_dir(
+            self.config.raw_dir,
+            before=run_date,
+            symbols=self.config.symbols,
+            lookback_days=memory_lookback,
+        )
+        prior_snapshots = prefer_history_then_raw(prior_from_hist, prior_from_raw)
+        analysis_snapshots = merge_snapshots_with_memory(snapshots, prior_snapshots)
+        prior_days = prior_date_count(prior_snapshots)
+        if prior_days:
+            logger.info(
+                "Trading memory loaded: %d prior snapshots across %d days "
+                "(hist=%d raw_fill=%d lookback=%d)",
+                len(prior_snapshots),
+                prior_days,
+                len(prior_from_hist),
+                len(prior_from_raw),
+                memory_lookback,
+            )
+        else:
+            logger.info("Trading memory empty — first day or no prior history")
+
         analyst_kwargs = {
             "trade_date": run_date,
-            "snapshots": snapshots,
+            "snapshots": analysis_snapshots,
             "platforms": self.config.strategy.platforms,
         }
         if isinstance(self.analyst, MultiAnalystAgent):
@@ -374,6 +415,16 @@ class OpinionTradingWorkflow:
 
         state = self.store.load_state()
         today_aggregated = aggregated.get(run_date, {})
+        try:
+            update_symbol_memory(
+                self.config.memory_dir,
+                trade_date=run_date,
+                aggregated_today=today_aggregated,
+                signals=signals,
+                prior_day_count=prior_days,
+            )
+        except Exception as exc:
+            logger.warning("Symbol memory update skipped: %s", exc)
         ref_prices: Dict[str, float] = {}
         if signals:
             from opinion_trading.core.market_data import fetch_closes_for_symbols
@@ -512,7 +563,7 @@ class OpinionTradingWorkflow:
             state=updated_state,
         )
 
-        return {
+        result = {
             "run_time": datetime.now().isoformat(),
             "run_date": run_date.isoformat(),
             "signals": len(signals),
@@ -539,7 +590,32 @@ class OpinionTradingWorkflow:
             },
             "execution_export": execution_export,
             "ai_pipeline": ai_pipe_stats,
+            "memory": {
+                "prior_snapshots": len(prior_snapshots),
+                "prior_days": prior_days,
+                "lookback_days": memory_lookback,
+            },
         }
+        try:
+            from opinion_trading.core.last_run import save_last_run
+
+            save_last_run(
+                self.config.report_dir,
+                mode="daily",
+                picks_path=None,
+                raw_rows=len(raw_rows),
+                symbols=len({r.get("symbol") for r in raw_rows if r.get("symbol")}),
+                trade_date=run_date.isoformat(),
+                note="Daily collect+score finished; open dashboard to view snapshot.",
+                extra={
+                    "report": str(report_path),
+                    "raw_csv": str(raw_csv_path),
+                    "signals": len(signals),
+                },
+            )
+        except Exception as exc:
+            logger.debug("last_run stamp skipped: %s", exc)
+        return result
 
     def run_realtime(
         self,

@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from opinion_trading.core.last_run import save_last_run
+
 
 def _load_merged_raw(raw_dir: Path) -> pd.DataFrame:
     files = sorted(raw_dir.glob("raw_posts_*.csv"), key=lambda p: p.name)
@@ -48,8 +50,10 @@ def main() -> None:
         )
     out = pd.DataFrame(rows).sort_values("avg_score", ascending=False)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    csv_path = Path(f"data/reports/realtime_picks_{ts}.csv")
-    md_path = Path(f"data/reports/realtime_picks_{ts}.md")
+    report_dir = Path("data/reports")
+    report_dir.mkdir(parents=True, exist_ok=True)
+    csv_path = report_dir / f"realtime_picks_{ts}.csv"
+    md_path = report_dir / f"realtime_picks_{ts}.md"
     out.to_csv(csv_path, index=False)
     lines = [
         "# Realtime AI Picks - merged raw_posts (OpenClaw)",
@@ -63,6 +67,14 @@ def main() -> None:
             f"- #{i} {r.symbol} | avg_score={r.avg_score} | samples={r.samples} | {r.platform_scores}"
         )
     md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    save_last_run(
+        report_dir,
+        mode="refresh_picks_from_raw",
+        picks_path=str(csv_path),
+        raw_rows=len(raw),
+        symbols=len(out),
+        note="Regenerated picks from existing raw CSVs (no crawl).",
+    )
     print("wrote", csv_path, "rows", len(out), "from_raw", len(raw))
     print(out.head(10).to_string(index=False))
 

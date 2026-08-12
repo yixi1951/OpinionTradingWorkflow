@@ -843,6 +843,116 @@ def evidence_stats(raw_df: pd.DataFrame, symbol: str) -> Dict[str, int]:
     }
 
 
+def build_time_series_from_raw(raw_df: pd.DataFrame) -> pd.DataFrame:
+    """Daily sentiment & heat from raw posts (uses post_time, falls back to trade_date)."""
+    if raw_df is None or raw_df.empty:
+        return pd.DataFrame(
+            columns=["date", "symbol", "platform", "avg_score", "post_count"]
+        )
+    view = raw_df.copy()
+    score_col = None
+    for cand in ("ai_score", "sentiment_score", "score"):
+        if cand in view.columns:
+            score_col = cand
+            break
+    if score_col is None or "symbol" not in view.columns:
+        return pd.DataFrame(
+            columns=["date", "symbol", "platform", "avg_score", "post_count"]
+        )
+
+    view[score_col] = pd.to_numeric(view[score_col], errors="coerce")
+    pt = pd.to_datetime(view.get("post_time"), errors="coerce")
+    if "trade_date" in view.columns:
+        td = pd.to_datetime(view["trade_date"], errors="coerce")
+        pt = pt.fillna(td)
+    view["date"] = pt.dt.floor("D")
+    view = view.dropna(subset=["date", "symbol", score_col])
+    if view.empty:
+        return pd.DataFrame(
+            columns=["date", "symbol", "platform", "avg_score", "post_count"]
+        )
+    if "platform" not in view.columns:
+        view["platform"] = "all"
+    grouped = (
+        view.groupby(["date", "symbol", "platform"], as_index=False)
+        .agg(avg_score=(score_col, "mean"), post_count=(score_col, "size"))
+        .sort_values("date")
+    )
+    return grouped.reset_index(drop=True)
+
+
+def build_daily_market_pulse(raw_df: pd.DataFrame) -> pd.DataFrame:
+    """Market-wide daily pulse: avg score + post volume across symbols."""
+    ts = build_time_series_from_raw(raw_df)
+    if ts.empty:
+        return pd.DataFrame(columns=["date", "avg_score", "post_count", "symbols"])
+    out = (
+        ts.groupby("date", as_index=False)
+        .agg(
+            avg_score=("avg_score", "mean"),
+            post_count=("post_count", "sum"),
+            symbols=("symbol", "nunique"),
+        )
+        .sort_values("date")
+    )
+    return out.reset_index(drop=True)
+
+
+def build_symbol_daily_series(
+    raw_df: pd.DataFrame, symbol: str, sentiment_df: pd.DataFrame | None = None
+) -> pd.DataFrame:
+    """Combine raw-derived daily scores with sentiment_history for one symbol."""
+    frames: List[pd.DataFrame] = []
+    ts = build_time_series_from_raw(raw_df)
+    if not ts.empty:
+        sub = ts[ts["symbol"].astype(str).str.upper() == str(symbol).upper()].copy()
+        if not sub.empty:
+            daily = (
+                sub.groupby("date", as_index=False)
+                .agg(avg_score=("avg_score", "mean"), post_count=("post_count", "sum"))
+            )
+            daily["source"] = "raw"
+            frames.append(daily)
+    if sentiment_df is not None and not sentiment_df.empty:
+        s = sentiment_df[
+            sentiment_df["symbol"].astype(str).str.upper() == str(symbol).upper()
+        ].copy()
+        if not s.empty and "sentiment_score" in s.columns:
+            s["date"] = pd.to_datetime(s.get("trade_date"), errors="coerce").dt.floor("D")
+            s["avg_score"] = pd.to_numeric(s["sentiment_score"], errors="coerce")
+            if "post_count" in s.columns:
+                s["post_count"] = pd.to_numeric(s["post_count"], errors="coerce").fillna(1)
+            else:
+                s["post_count"] = 1
+            s = s.dropna(subset=["date", "avg_score"])
+            if not s.empty:
+                daily_s = (
+                    s.groupby("date", as_index=False)
+                    .agg(avg_score=("avg_score", "mean"), post_count=("post_count", "sum"))
+                )
+                daily_s["source"] = "history"
+                frames.append(daily_s)
+    if not frames:
+        return pd.DataFrame(columns=["date", "avg_score", "post_count", "source"])
+    out = pd.concat(frames, ignore_index=True)
+    # Prefer raw denser days; keep history days not covered by raw
+    out = out.sort_values(["date", "source"]).drop_duplicates(subset=["date"], keep="last")
+    return out.sort_values("date").reset_index(drop=True)
+
+
+def filter_time_window(df: pd.DataFrame, date_col: str, lookback_days: int) -> pd.DataFrame:
+    if df is None or df.empty or date_col not in df.columns:
+        return df.copy() if df is not None else pd.DataFrame()
+    view = df.copy()
+    view[date_col] = pd.to_datetime(view[date_col], errors="coerce")
+    view = view.dropna(subset=[date_col])
+    if view.empty:
+        return view
+    latest = view[date_col].max()
+    start = latest - pd.Timedelta(days=max(1, int(lookback_days)))
+    return view[view[date_col] >= start].copy()
+
+
 def monthly_methodology_text(lang: str = "zh") -> Tuple[str, str]:
     if lang == "zh":
         title = "月度训练与预测说明"

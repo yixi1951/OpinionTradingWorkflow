@@ -39,7 +39,11 @@ from opinion_trading.ui_helpers import (  # noqa: E402
     build_sentiment_engine_stats,
     compute_raw_capture_rates,
     build_symbol_sentiment_summary,
+    build_daily_market_pulse,
+    build_symbol_daily_series,
+    build_time_series_from_raw,
     evidence_stats,
+    filter_time_window,
     infer_score_source,
     label_platform_column,
     monthly_methodology_text,
@@ -181,7 +185,18 @@ LANG = {
         "status_last_report": "Latest report",
         "status_running_hint": "Realtime job may still be running — refresh to update.",
         "rank_label": "Rank",
-        "refresh_data": "Refresh data",
+        "refresh_data": "Reload last results",
+        "view_only_title": "Viewing last run (no auto-collect)",
+        "regen_picks_btn": "Regenerate picks (from existing data)",
+        "regen_picks_hint": "Rebuild ranking from saved raw posts — does not crawl again.",
+        "regen_full_title": "Full re-collect + analyze",
+        "regen_full_hint": "Runs daily pipeline for the selected date. Only use when you intentionally want new crawl/scores.",
+        "regen_full_btn": "Start full regenerate",
+        "regen_full_confirm": "I confirm regenerate (crawl + OpenClaw)",
+        "regen_running": "Regenerating…",
+        "regen_done": "Regenerate finished. Reloading snapshot.",
+        "regen_failed": "Regenerate failed: {err}",
+        "openclaw_idle": "Not checked (open stays view-only)",
         "sidebar_paths": "Data paths",
         "hero_tagline": "OpenClaw monitors sentiment in real time · DeepSeek scoring · AI stock picks",
         "hero_kpi_picks": "Realtime picks",
@@ -485,7 +500,18 @@ Connect OpenClaw via `OPENCLAW_URL` (see `scripts/run_demo_openclaw.ps1`). Sideb
         "status_last_report": "最新报告",
         "status_running_hint": "选股任务可能仍在运行，点击刷新查看最新结果。",
         "rank_label": "排名",
-        "refresh_data": "刷新数据",
+        "refresh_data": "重新加载上次结果",
+        "view_only_title": "正在查看上次运行结果（打开不会自动采集）",
+        "regen_picks_btn": "重新生成选股（用已有数据）",
+        "regen_picks_hint": "根据已保存的帖文重算排名，不会重新爬取。",
+        "regen_full_title": "完整重新采集并分析",
+        "regen_full_hint": "会对所选日期重新跑 daily（采集+OpenClaw）。仅在你明确要更新数据时使用。",
+        "regen_full_btn": "开始完整重新生成",
+        "regen_full_confirm": "我确认要重新采集并分析",
+        "regen_running": "正在重新生成…",
+        "regen_done": "重新生成完成，已切换回只读上次结果。",
+        "regen_failed": "重新生成失败：{err}",
+        "openclaw_idle": "未检测（打开保持只读）",
         "sidebar_paths": "数据路径",
         "hero_tagline": "OpenClaw 实时监测舆情 · DeepSeek 情感分析 · AI 智能选股",
         "hero_kpi_picks": "实时选股",
@@ -730,7 +756,18 @@ def _openclaw_client() -> OpenClawClient:
 
 
 def _openclaw_probe(force: bool = False, *, llm: bool = False) -> Dict[str, object]:
-    """UI status probe. Default = fast /health (no LLM). Set llm=True for full score test."""
+    """UI status probe. Default = fast /health (no LLM). Set llm=True for full score test.
+
+    Snapshot-first: skip network checks on first paint unless force / LLM / auto flag.
+    """
+    if not force and not llm and not st.session_state.get("_oc_auto_probe", False):
+        return {
+            "connected": False,
+            "url": None,
+            "message": t("openclaw_idle"),
+            "mode": "idle",
+            "skipped": True,
+        }
     client = _openclaw_client()
     if not client.is_configured():
         return {
@@ -781,9 +818,14 @@ def _bootstrap_openclaw_env() -> None:
 
 def _render_openclaw_sidebar() -> None:
     probe = _openclaw_probe(llm=False)
+    skipped = bool(probe.get("skipped"))
     connected = bool(probe.get("connected"))
-    status_text = t("openclaw_connected") if connected else t("openclaw_disconnected")
-    css = "openclaw-on" if connected else "openclaw-off"
+    if skipped:
+        status_text = t("openclaw_idle")
+        css = "openclaw-off"
+    else:
+        status_text = t("openclaw_connected") if connected else t("openclaw_disconnected")
+        css = "openclaw-on" if connected else "openclaw-off"
     st.markdown(
         f"""
         <div class='openclaw-status-card'>
@@ -796,21 +838,23 @@ def _render_openclaw_sidebar() -> None:
         """,
         unsafe_allow_html=True,
     )
-    if probe.get("url"):
+    if probe.get("url") and not skipped:
         st.caption("分析服务已连接" if connected else "分析服务未连接")
     col_a, col_b = st.columns(2)
     with col_a:
         if st.button("刷新状态", use_container_width=True, key="oc_health_btn"):
+            st.session_state["_oc_auto_probe"] = True
             st.session_state.pop("_openclaw_probe_health", None)
             _openclaw_probe(force=True, llm=False)
             st.rerun()
     with col_b:
         if st.button(t("openclaw_probe_btn"), use_container_width=True, key="oc_probe_btn"):
+            st.session_state["_oc_auto_probe"] = True
             st.session_state.pop("_openclaw_probe_llm", None)
             with st.spinner("DeepSeek 打分探测中…"):
                 _openclaw_probe(force=True, llm=True)
             st.rerun()
-    if not connected:
+    if not connected and not skipped:
         with st.expander(t("openclaw_setup_expander"), expanded=False):
             st.caption(t("openclaw_not_connected_hint"))
             if probe.get("message"):
@@ -1028,14 +1072,40 @@ def _latest_file(pattern: str) -> str:
     return files[-1] if files else ""
 
 
-@st.cache_data(ttl=60, show_spinner=False)
-def _load_latest_realtime_picks_cached(report_dir: str) -> pd.DataFrame:
+def _dir_mtime_token(path: str, pattern: str, limit: int = 40) -> str:
+    """Cache-bust only when on-disk artifacts change (open = view last snapshot)."""
+    root = Path(path)
+    if not root.exists():
+        return "missing"
+    files = sorted(root.glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True)
+    parts = []
+    for p in files[: max(1, int(limit))]:
+        try:
+            parts.append(f"{p.name}:{int(p.stat().st_mtime)}:{p.stat().st_size}")
+        except OSError:
+            continue
+    return "|".join(parts) if parts else "empty"
+
+
+@st.cache_data(show_spinner=False)
+def _load_latest_realtime_picks_cached(report_dir: str, mtime_token: str) -> pd.DataFrame:
     path = _latest_file(str(Path(report_dir) / "realtime_picks_*.csv"))
     if not path:
         return pd.DataFrame()
     df = pd.read_csv(path)
     df["_source_path"] = path
     return df
+
+
+def _load_latest_realtime_picks(report_dir: str) -> pd.DataFrame:
+    for d in (report_dir, "data/reports", "data/reports_landing"):
+        if not d or not Path(d).exists():
+            continue
+        token = _dir_mtime_token(d, "realtime_picks_*.csv")
+        df = _load_latest_realtime_picks_cached(d, token)
+        if not df.empty:
+            return df
+    return pd.DataFrame()
 
 
 def _picks_from_sentiment(sentiment_df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
@@ -1128,32 +1198,8 @@ def _picks_from_raw(raw_df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
     return out
 
 
-def _load_latest_realtime_picks(report_dir: str) -> pd.DataFrame:
-    candidates = [
-        report_dir,
-        "data/reports",
-        "data/reports_landing",
-    ]
-    best = pd.DataFrame()
-    best_mtime = -1.0
-    for d in candidates:
-        if not d or not Path(d).exists():
-            continue
-        df = _load_latest_realtime_picks_cached(d)
-        if df.empty:
-            continue
-        src = ""
-        if "_source_path" in df.columns and len(df):
-            src = str(df["_source_path"].iloc[0])
-        mtime = Path(src).stat().st_mtime if src and Path(src).exists() else 0.0
-        if mtime >= best_mtime:
-            best = df
-            best_mtime = mtime
-    return best
-
-
-@st.cache_data(ttl=60, show_spinner=False)
-def _load_latest_alerts_cached(report_dir: str) -> pd.DataFrame:
+@st.cache_data(show_spinner=False)
+def _load_latest_alerts_cached(report_dir: str, mtime_token: str) -> pd.DataFrame:
     path = _latest_file(str(Path(report_dir) / "realtime_alerts_*.jsonl"))
     if not path:
         return pd.DataFrame()
@@ -1164,14 +1210,17 @@ def _load_latest_alerts(report_dir: str) -> pd.DataFrame:
     for d in (report_dir, "data/reports", "data/reports_landing"):
         if not d or not Path(d).exists():
             continue
-        df = _load_latest_alerts_cached(d)
+        token = _dir_mtime_token(d, "realtime_alerts_*.jsonl")
+        df = _load_latest_alerts_cached(d, token)
         if not df.empty:
             return df
     return pd.DataFrame()
 
 
-@st.cache_data(ttl=60, show_spinner=False)
-def _load_raw_posts_merged_cached(raw_dir: str, max_files: int = 12) -> pd.DataFrame:
+@st.cache_data(show_spinner=False)
+def _load_raw_posts_merged_cached(
+    raw_dir: str, mtime_token: str, max_files: int = 12
+) -> pd.DataFrame:
     """Merge recent raw_posts_*.csv — latest-only misses older dense crawls."""
     root = Path(raw_dir)
     if not root.exists():
@@ -1210,15 +1259,16 @@ def _load_latest_raw_posts(raw_dir: str) -> pd.DataFrame:
     for d in (raw_dir, "data/raw"):
         if not d or not Path(d).exists():
             continue
-        df = _load_raw_posts_merged_cached(d)
+        token = _dir_mtime_token(d, "raw_posts_*.csv")
+        df = _load_raw_posts_merged_cached(d, token)
         if len(df) > best_n:
             best = df
             best_n = len(df)
     return best
 
 
-@st.cache_data(ttl=60, show_spinner=False)
-def _load_sentiment_history_cached(path: str) -> pd.DataFrame:
+@st.cache_data(show_spinner=False)
+def _load_sentiment_history_cached(path: str, mtime_token: str) -> pd.DataFrame:
     if not Path(path).exists():
         return pd.DataFrame()
     return pd.read_json(path, lines=True)
@@ -1233,7 +1283,14 @@ def _load_sentiment_history(path: str) -> pd.DataFrame:
     ):
         if not p:
             continue
-        df = _load_sentiment_history_cached(p)
+        fp = Path(p)
+        if not fp.exists():
+            continue
+        try:
+            token = f"{fp.name}:{int(fp.stat().st_mtime)}:{fp.stat().st_size}"
+        except OSError:
+            token = "err"
+        df = _load_sentiment_history_cached(p, token)
         if not df.empty:
             frames.append(df)
     if not frames:
@@ -1244,6 +1301,117 @@ def _load_sentiment_history(path: str) -> pd.DataFrame:
             subset=["trade_date", "symbol", "platform"], keep="last"
         )
     return out
+
+
+def _clear_dashboard_caches() -> None:
+    try:
+        st.cache_data.clear()
+    except Exception:
+        pass
+    for k in list(st.session_state.keys()):
+        if str(k).startswith("_openclaw_probe_"):
+            st.session_state.pop(k, None)
+
+
+def _render_snapshot_and_regen_controls(report_dir: str, raw_dir: str) -> None:
+    """Default = view last snapshot; regenerate only on explicit click."""
+    from datetime import date as _date
+
+    from opinion_trading.core.last_run import format_last_run_caption, load_last_run
+
+    meta = load_last_run(report_dir)
+    st.info(format_last_run_caption(meta, lang=_ui_lang()))
+    st.caption(t("view_only_title"))
+
+    if st.button(t("regen_picks_btn"), use_container_width=True, key="regen_picks_btn"):
+        st.caption(t("regen_picks_hint"))
+        with st.spinner(t("regen_running")):
+            import subprocess
+            import sys
+
+            try:
+                proc = subprocess.run(
+                    [sys.executable, "scripts/refresh_picks_from_raw.py"],
+                    cwd=str(Path.cwd()),
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                    env={
+                        **{k: v for k, v in __import__("os").environ.items()},
+                        "PYTHONPATH": "src",
+                    },
+                )
+                if proc.returncode != 0:
+                    err = (proc.stderr or proc.stdout or "exit non-zero")[:400]
+                    st.error(t("regen_failed").format(err=err))
+                else:
+                    _clear_dashboard_caches()
+                    st.success(t("regen_done"))
+                    st.rerun()
+            except Exception as exc:
+                st.error(t("regen_failed").format(err=str(exc)[:400]))
+
+    with st.expander(t("regen_full_title"), expanded=False):
+        st.caption(t("regen_full_hint"))
+        run_date = st.date_input(
+            "trade_date",
+            value=_date.today(),
+            key="regen_full_date",
+        )
+        confirm = st.checkbox(t("regen_full_confirm"), key="regen_full_confirm")
+        if st.button(
+            t("regen_full_btn"),
+            use_container_width=True,
+            key="regen_full_btn",
+            disabled=not confirm,
+        ):
+            with st.spinner(t("regen_running")):
+                import subprocess
+                import sys
+
+                try:
+                    proc = subprocess.run(
+                        [
+                            sys.executable,
+                            "run_pipeline.py",
+                            "--mode",
+                            "daily",
+                            "--date",
+                            run_date.isoformat(),
+                            "--config",
+                            "config/settings.multi_date_ai.yaml",
+                        ],
+                        cwd=str(Path.cwd()),
+                        capture_output=True,
+                        text=True,
+                        timeout=7200,
+                        env={
+                            **{k: v for k, v in __import__("os").environ.items()},
+                            "PYTHONPATH": "src",
+                            "SCORING_MODE": "ai",
+                        },
+                    )
+                    # Always refresh picks stamp after daily
+                    subprocess.run(
+                        [sys.executable, "scripts/refresh_picks_from_raw.py"],
+                        cwd=str(Path.cwd()),
+                        capture_output=True,
+                        text=True,
+                        timeout=300,
+                        env={
+                            **{k: v for k, v in __import__("os").environ.items()},
+                            "PYTHONPATH": "src",
+                        },
+                    )
+                    if proc.returncode != 0:
+                        err = (proc.stderr or proc.stdout or "exit non-zero")[-600:]
+                        st.error(t("regen_failed").format(err=err))
+                    else:
+                        _clear_dashboard_caches()
+                        st.success(t("regen_done"))
+                        st.rerun()
+                except Exception as exc:
+                    st.error(t("regen_failed").format(err=str(exc)[:400]))
 
 
 def _data_freshness_caption(
@@ -1269,6 +1437,11 @@ def _data_freshness_caption(
         platforms=plat or n_plat_raw,
         sent=len(sentiment_df) if sentiment_df is not None else 0,
     )
+    # Time span from raw post_time
+    if raw_df is not None and not raw_df.empty and "post_time" in raw_df.columns:
+        pt = pd.to_datetime(raw_df["post_time"], errors="coerce").dropna()
+        if not pt.empty:
+            base += f" · 时间 {pt.min().date()} → {pt.max().date()}"
     if clean_stats and int(clean_stats.get("dropped_total", 0) or 0) > 0:
         base += " · " + t("data_clean_fmt").format(
             kept=int(clean_stats.get("kept", 0) or 0),
@@ -1277,144 +1450,507 @@ def _data_freshness_caption(
     return base
 
 
-def _hero_picks_html(picks_df: pd.DataFrame) -> str:
-    if picks_df is None or picks_df.empty or "avg_score" not in picks_df.columns:
-        return f"<div class='hero-pick-empty'>{t('hero_no_picks')}</div>"
-    view = picks_df.copy()
-    view["avg_score"] = pd.to_numeric(view["avg_score"], errors="coerce").fillna(0.0)
-    view = view.sort_values("avg_score", ascending=False).head(3)
-    rows = []
-    for i, (_, row) in enumerate(view.iterrows(), start=1):
-        symbol = str(row.get("symbol", ""))
-        score = float(row.get("avg_score", 0.0))
-        tone = "pos" if score > 0.05 else "neg" if score < -0.05 else "neu"
-        rows.append(
-            "<div class='hero-pick-row'>"
-            f"<span class='hero-pick-rank'>#{i}</span>"
-            f"<span class='hero-pick-sym'>{html.escape(_symbol_label(symbol))}</span>"
-            f"<span class='hero-pick-score {tone}'>{score:+.3f}</span>"
-            "</div>"
-        )
-    return (
-        f"<div class='hero-picks-title'>{t('hero_top_picks')}</div>"
-        f"<div class='hero-picks-list'>{''.join(rows)}</div>"
-    )
-
-
-def _render_dashboard_hero(
-    picks_count: int,
-    alerts_count: int,
+def _render_command_board(
+    picks_df: pd.DataFrame,
+    *,
     platform_count: int,
     report_dir: str,
-    *,
-    picks_df: pd.DataFrame | None = None,
     engine_stats: Dict[str, object] | None = None,
-    capture_rates: Dict[str, float] | None = None,
     clean_stats: Dict[str, int] | None = None,
+    openclaw_connected: bool = False,
 ) -> None:
+    """Single above-the-fold board: purpose + metrics + selectable top picks."""
     _, report_time = _latest_report_meta(report_dir)
-    report_display = report_time or t("hero_kpi_none")
     stats = engine_stats or {}
-    cap = capture_rates or {}
     ai_pct = stats.get("openclaw_pct", 0.0)
     bull = stats.get("bullish_pct", 0.0)
     bear = stats.get("bearish_pct", 0.0)
-    bias_label = f"+{bull:.0f}% / -{bear:.0f}%"
-    # Prefer explicit clean drop rate over engineer "fallback" jargon
-    if clean_stats and int(clean_stats.get("input", 0) or 0) > 0:
-        dropped = int(clean_stats.get("dropped_total", 0) or 0)
-        total = int(clean_stats.get("input", 0) or 0)
-        fb_display = f"{(dropped / total) * 100:.0f}%"
-        fb_warn = (dropped / total) > 0.35
-    else:
-        fb_rate = float(cap.get("fallback_rate", 0.0) or 0.0)
-        fb_display = f"{fb_rate * 100:.0f}%" if cap.get("total_rows", 0) else "—"
-        fb_warn = bool(cap.get("total_rows", 0) and fb_rate > 0.35)
-    fb_value_cls = (
-        "hero-kpi-value mono hero-kpi-value--warn" if fb_warn else "hero-kpi-value mono"
-    )
-    picks_html = _hero_picks_html(picks_df if picks_df is not None else pd.DataFrame())
-    st.markdown(
-        f"""
-        <div class="dashboard-hero dashboard-hero--terminal">
-            <div class="hero-top">
-                <div class="hero-copy">
-                    <div class="dashboard-kicker">OpenClaw</div>
-                    <div class="dashboard-title">{t('header_title')}</div>
-                    <div class="dashboard-subtitle">{t('hero_tagline')}</div>
-                    <div class="hero-picks-panel">{picks_html}</div>
-                </div>
-                <div class="hero-kpi-grid hero-kpi-grid--4">
-                    <div class="hero-kpi">
-                        <div class="hero-kpi-label">{t('hero_kpi_picks')}</div>
-                        <div class="hero-kpi-value mono">{picks_count}</div>
-                    </div>
-                    <div class="hero-kpi">
-                        <div class="hero-kpi-label">{t('hero_kpi_platforms')}</div>
-                        <div class="hero-kpi-value mono">{platform_count}</div>
-                    </div>
-                    <div class="hero-kpi">
-                        <div class="hero-kpi-label">{t('hero_kpi_ai_coverage')}</div>
-                        <div class="hero-kpi-value mono">{ai_pct}%</div>
-                    </div>
-                    <div class="hero-kpi">
-                        <div class="hero-kpi-label">{t('hero_kpi_sentiment_bias')}</div>
-                        <div class="hero-kpi-value small mono">{bias_label}</div>
-                    </div>
-                    <div class="hero-kpi">
-                        <div class="hero-kpi-label">{t('hero_kpi_fallback')}</div>
-                        <div class="{fb_value_cls}">{fb_display}</div>
-                    </div>
-                    <div class="hero-kpi">
-                        <div class="hero-kpi-label">{t('hero_kpi_report')}</div>
-                        <div class="hero-kpi-value small">{report_display}</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def _render_sentiment_engine_strip(
-    engine_stats: Dict[str, object],
-    *,
-    capture_rates: Dict[str, float] | None = None,
-    clean_stats: Dict[str, int] | None = None,
-) -> None:
-    usable = int(engine_stats.get("usable_rows", 0) or 0)
-    oc = int(engine_stats.get("openclaw_rows", 0) or 0)
-    avg = float(engine_stats.get("avg_ai_score", 0.0) or 0.0)
-    tone = sentiment_intensity_label(avg, _ui_lang())
+    kept = int((clean_stats or {}).get("kept", 0) or 0)
     dropped = int((clean_stats or {}).get("dropped_total", 0) or 0)
-    zh = _ui_lang() == "zh"
-    metrics = [
-        ( "有效帖文" if zh else "Clean posts", usable),
-        ( "AI 评分" if zh else "AI scored", oc),
-        ( "平均情感" if zh else "Avg sentiment", f"{avg:+.2f}"),
-        ( "整体倾向" if zh else "Tone", tone),
-    ]
-    if dropped:
-        metrics.append(("已过滤" if zh else "Filtered", dropped))
-    metrics_html = "".join(
-        f"<span class='engine-metric'><span class='engine-metric-label'>{html.escape(str(k))}</span>"
-        f"{html.escape(str(v))}</span>"
-        for k, v in metrics
+    oc_cls = "openclaw-on" if openclaw_connected else "openclaw-off"
+    oc_label = (
+        t("openclaw_connected")
+        if openclaw_connected
+        else (
+            t("openclaw_idle")
+            if not st.session_state.get("_oc_auto_probe", False)
+            else t("openclaw_disconnected")
+        )
+    )
+    purpose = (
+        "看懂市场在说什么：汇总股吧 / 雪球 / 微博等舆情，给出可解释的推荐与情绪分。"
+        if _ui_lang() == "zh"
+        else "Understand market chatter: multi-platform sentiment into explainable picks."
     )
     st.markdown(
         f"""
-        <div class="panel-card panel-card--accent sentiment-engine-strip">
-            <div class="section-kicker">{t('chip_ai_engine')}</div>
-            <div class="sentiment-engine-title">{t('sentiment_engine_title')}</div>
-            <p class="sentiment-engine-body">{t('sentiment_engine_body')}</p>
-            <div class="sentiment-engine-metrics">
-                {metrics_html}
+        <div class="command-board">
+          <div class="command-board-head">
+            <div>
+              <div class="dashboard-kicker">OpenClaw</div>
+              <div class="dashboard-title">{t('header_title')}</div>
+              <p class="command-board-purpose">{html.escape(purpose)}</p>
             </div>
+            <span class="status-pill {oc_cls} status-pill--dashboard">
+              <span class="status-dot" aria-hidden="true"></span>
+              <span>{oc_label}</span>
+            </span>
+          </div>
+          <div class="command-kpi-row">
+            <div class="command-kpi"><div class="hero-kpi-label">{t('hero_kpi_picks')}</div>
+              <div class="hero-kpi-value mono">{len(picks_df)}</div></div>
+            <div class="command-kpi"><div class="hero-kpi-label">{t('hero_kpi_platforms')}</div>
+              <div class="hero-kpi-value mono">{platform_count}</div></div>
+            <div class="command-kpi"><div class="hero-kpi-label">{t('hero_kpi_ai_coverage')}</div>
+              <div class="hero-kpi-value mono">{ai_pct}%</div></div>
+            <div class="command-kpi"><div class="hero-kpi-label">{t('hero_kpi_sentiment_bias')}</div>
+              <div class="hero-kpi-value small mono">+{bull:.0f}% / -{bear:.0f}%</div></div>
+            <div class="command-kpi"><div class="hero-kpi-label">{"有效帖" if _ui_lang()=="zh" else "Clean posts"}</div>
+              <div class="hero-kpi-value mono">{kept}</div></div>
+            <div class="command-kpi"><div class="hero-kpi-label">{t('hero_kpi_report')}</div>
+              <div class="hero-kpi-value small">{report_time or t('hero_kpi_none')}</div></div>
+          </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
+    if dropped:
+        st.caption(
+            t("data_clean_fmt").format(kept=kept, dropped=dropped)
+        )
+
+
+def _render_pick_workspace(
+    picks_df: pd.DataFrame,
+    raw_df: pd.DataFrame,
+    sentiment_df: pd.DataFrame,
+) -> str | None:
+    """Interactive top picks — select a symbol to inspect reasons & comments."""
+    if picks_df is None or picks_df.empty or "avg_score" not in picks_df.columns:
+        st.info(t("hero_no_picks"))
+        return None
+    view = picks_df.copy()
+    view["avg_score"] = pd.to_numeric(view["avg_score"], errors="coerce").fillna(0.0)
+    view = view.sort_values("avg_score", ascending=False).reset_index(drop=True).head(8)
+    labels = []
+    mapping: Dict[str, str] = {}
+    for i, row in view.iterrows():
+        sym = str(row["symbol"])
+        score = float(row["avg_score"])
+        label = f"#{i+1} {_symbol_label(sym)}  ({score:+.3f})"
+        labels.append(label)
+        mapping[label] = sym
+
+    st.markdown(
+        "<div class='workspace-section-title'>"
+        + ("① 选择推荐标的（可点选查看详情）" if _ui_lang() == "zh" else "1. Select a pick to inspect")
+        + "</div>",
+        unsafe_allow_html=True,
+    )
+    choice = st.radio(
+        t("hero_top_picks"),
+        options=labels,
+        horizontal=True,
+        label_visibility="collapsed",
+        key="workspace_pick_radio",
+    )
+    symbol = mapping.get(str(choice))
+    if not symbol:
+        return None
+
+    row = view[view["symbol"] == symbol].iloc[0]
+    score = float(row["avg_score"])
+    tone = sentiment_intensity_label(score, _ui_lang())
+    c1, c2, c3 = st.columns(3)
+    c1.metric("标的" if _ui_lang() == "zh" else "Symbol", _symbol_label(symbol))
+    c2.metric("综合情感分" if _ui_lang() == "zh" else "Score", f"{score:+.3f}")
+    c3.metric("倾向" if _ui_lang() == "zh" else "Tone", tone)
+
+    with st.expander(
+        "为什么推荐这只？" if _ui_lang() == "zh" else "Why this pick?",
+        expanded=True,
+    ):
+        narrative = build_pick_narrative(
+            symbol,
+            score,
+            build_pick_contribution(symbol, picks_df, raw_df, sentiment_df, lookback_days=30),
+            raw_df,
+            lang=_ui_lang(),
+        )
+        st.markdown(narrative)
+        stats = evidence_stats(raw_df, symbol)
+        st.caption(_evidence_caption(stats))
+
+    with st.expander(
+        "相关用户评论" if _ui_lang() == "zh" else "Key comments",
+        expanded=True,
+    ):
+        rows = top_comment_rows(raw_df, symbol, top_n=16, include_reference=False)
+        merged = pd.concat(
+            [rows.get("positive", pd.DataFrame()), rows.get("negative", pd.DataFrame())],
+            ignore_index=True,
+        )
+        if merged.empty:
+            st.caption("暂无可用评论样本。" if _ui_lang() == "zh" else "No comment samples.")
+        else:
+            _render_comment_highlights(
+                merged.head(16), key_prefix=f"ws_{symbol}", initial_visible=8
+            )
+    return symbol
+
+
+def _render_time_overview(
+    raw_df: pd.DataFrame,
+    sentiment_df: pd.DataFrame,
+    *,
+    focus_symbol: str | None = None,
+    key_prefix: str = "time",
+    section_title: str | None = None,
+) -> None:
+    """Time-centric charts: market pulse + symbol trajectory + volume."""
+    zh = _ui_lang() == "zh"
+    title = section_title or ("③ 时间走势（按发帖日）" if zh else "3. Time trends")
+    st.markdown(
+        f"<div class='workspace-section-title'>{title}</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        "<div class='workspace-section-sub'>"
+        + (
+            "用帖文时间看情绪与热度怎么变化；可调回看天数。数据来自合并后的原始帖 + 舆情历史。"
+            if zh
+            else "Track sentiment and heat over post time. Adjust lookback as needed."
+        )
+        + "</div>",
+        unsafe_allow_html=True,
+    )
+
+    lookback = st.slider(
+        "回看天数" if zh else "Lookback days",
+        min_value=7,
+        max_value=180,
+        value=90,
+        step=1,
+        key=f"{key_prefix}_lookback",
+    )
+
+    pulse = filter_time_window(build_daily_market_pulse(raw_df), "date", lookback)
+    ts_all = filter_time_window(build_time_series_from_raw(raw_df), "date", lookback)
+
+    if pulse.empty and (sentiment_df is None or sentiment_df.empty):
+        st.info("暂无足够时间序列数据。" if zh else "Not enough time-series data yet.")
+        return
+
+    if not pulse.empty:
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("覆盖天数" if zh else "Days", int(pulse["date"].nunique()))
+        k2.metric("区间帖量" if zh else "Posts", int(pulse["post_count"].sum()))
+        k3.metric(
+            "日均情绪" if zh else "Avg sentiment",
+            f"{float(pulse['avg_score'].mean()):+.3f}",
+        )
+        k4.metric(
+            "最新日情绪" if zh else "Latest day",
+            f"{float(pulse['avg_score'].iloc[-1]):+.3f}",
+        )
+
+    c_left, c_right = st.columns(2)
+    with c_left:
+        if not pulse.empty:
+            line = (
+                alt.Chart(pulse)
+                .mark_line(point=True, strokeWidth=2.2, color=_DASH_ACCENT)
+                .encode(
+                    x=alt.X("date:T", title="日期" if zh else "Date"),
+                    y=alt.Y("avg_score:Q", title="市场情绪分" if zh else "Sentiment"),
+                    tooltip=[
+                        alt.Tooltip("date:T", title="日期" if zh else "Date"),
+                        alt.Tooltip("avg_score:Q", format="+.3f", title="情绪"),
+                        alt.Tooltip("post_count:Q", title="帖量"),
+                        alt.Tooltip("symbols:Q", title="标的数"),
+                    ],
+                )
+                .properties(
+                    title="全市场日均情绪" if zh else "Market daily sentiment",
+                    height=260,
+                )
+            )
+            st.altair_chart(_configure_chart(line), use_container_width=True)
+        else:
+            st.caption("缺少市场日均情绪序列。" if zh else "No market pulse series.")
+
+    with c_right:
+        if not pulse.empty:
+            bars = (
+                alt.Chart(pulse)
+                .mark_bar(color="#A89070", cornerRadiusEnd=4)
+                .encode(
+                    x=alt.X("date:T", title="日期" if zh else "Date"),
+                    y=alt.Y("post_count:Q", title="帖量" if zh else "Posts"),
+                    tooltip=["date:T", "post_count:Q", "symbols:Q"],
+                )
+                .properties(
+                    title="每日舆情热度（帖量）" if zh else "Daily heat (posts)",
+                    height=260,
+                )
+            )
+            st.altair_chart(_configure_chart(bars), use_container_width=True)
+
+    symbols = []
+    if not ts_all.empty:
+        symbols = sorted(ts_all["symbol"].astype(str).unique().tolist())
+    if sentiment_df is not None and not sentiment_df.empty and "symbol" in sentiment_df.columns:
+        symbols = sorted(set(symbols) | set(sentiment_df["symbol"].astype(str).unique()))
+    if not symbols:
+        return
+
+    default_idx = 0
+    if focus_symbol and focus_symbol in symbols:
+        default_idx = symbols.index(focus_symbol)
+    sym = st.selectbox(
+        "时间图关注标的" if zh else "Symbol for time chart",
+        symbols,
+        index=default_idx,
+        key=f"{key_prefix}_symbol",
+    )
+    series = filter_time_window(
+        build_symbol_daily_series(raw_df, sym, sentiment_df), "date", lookback
+    )
+    if series.empty:
+        st.caption(
+            f"{_symbol_label(sym)} 在所选时间窗内无序列。"
+            if zh
+            else f"No series for {_symbol_label(sym)} in this window."
+        )
+        return
+
+    base = alt.Chart(series).encode(x=alt.X("date:T", title="日期" if zh else "Date"))
+    score_line = base.mark_line(point=True, strokeWidth=2.4, color="#3D6B4F").encode(
+        y=alt.Y("avg_score:Q", title="情绪分" if zh else "Score"),
+        tooltip=[
+            alt.Tooltip("date:T"),
+            alt.Tooltip("avg_score:Q", format="+.3f"),
+            alt.Tooltip("post_count:Q"),
+            alt.Tooltip("source:N"),
+        ],
+    )
+    heat_bar = base.mark_bar(opacity=0.35, color="#8B7355").encode(
+        y=alt.Y("post_count:Q", title="帖量" if zh else "Posts"),
+        tooltip=["date:T", "post_count:Q"],
+    )
+    layered = (
+        alt.layer(heat_bar, score_line)
+        .resolve_scale(y="independent")
+        .properties(
+            title=(
+                f"{_symbol_label(sym)} · 情绪 vs 热度"
+                if zh
+                else f"{_symbol_label(sym)} · score vs heat"
+            ),
+            height=300,
+        )
+    )
+    st.altair_chart(_configure_chart(layered), use_container_width=True)
+
+    if not ts_all.empty:
+        plat = ts_all[ts_all["symbol"].astype(str) == str(sym)].copy()
+        if not plat.empty and plat["platform"].nunique() > 1:
+            heat = (
+                alt.Chart(plat)
+                .mark_rect()
+                .encode(
+                    x=alt.X("date:T", title="日期" if zh else "Date"),
+                    y=alt.Y("platform:N", title="平台" if zh else "Platform"),
+                    color=alt.Color(
+                        "avg_score:Q",
+                        scale=alt.Scale(scheme="redyellowgreen", domainMid=0),
+                        title="情绪",
+                    ),
+                    tooltip=[
+                        "date:T",
+                        "platform:N",
+                        alt.Tooltip("avg_score:Q", format="+.3f"),
+                        "post_count:Q",
+                    ],
+                )
+                .properties(
+                    title="平台 × 日期 情绪热力" if zh else "Platform × date heatmap",
+                    height=max(180, 28 * int(plat["platform"].nunique())),
+                )
+            )
+            st.altair_chart(_configure_chart(heat), use_container_width=True)
+
+    with st.expander("时间序列明细表" if zh else "Time-series table", expanded=False):
+        show = series.copy()
+        show["date"] = show["date"].dt.strftime("%Y-%m-%d")
+        show = show.rename(
+            columns={
+                "date": "日期" if zh else "Date",
+                "avg_score": "情绪分" if zh else "Score",
+                "post_count": "帖量" if zh else "Posts",
+                "source": "来源" if zh else "Source",
+            }
+        )
+        st.dataframe(show, use_container_width=True, hide_index=True)
+
+    pulse = filter_time_window(build_daily_market_pulse(raw_df), "date", lookback)
+    ts_all = filter_time_window(build_time_series_from_raw(raw_df), "date", lookback)
+
+    if pulse.empty and (sentiment_df is None or sentiment_df.empty):
+        st.info("暂无足够时间序列数据。" if zh else "Not enough time-series data yet.")
+        return
+
+    if not pulse.empty:
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("覆盖天数" if zh else "Days", int(pulse["date"].nunique()))
+        k2.metric("区间帖量" if zh else "Posts", int(pulse["post_count"].sum()))
+        k3.metric(
+            "日均情绪" if zh else "Avg sentiment",
+            f"{float(pulse['avg_score'].mean()):+.3f}",
+        )
+        k4.metric(
+            "最新日情绪" if zh else "Latest day",
+            f"{float(pulse['avg_score'].iloc[-1]):+.3f}",
+        )
+
+    c_left, c_right = st.columns(2)
+    with c_left:
+        if not pulse.empty:
+            line = (
+                alt.Chart(pulse)
+                .mark_line(point=True, strokeWidth=2.2, color=_DASH_ACCENT)
+                .encode(
+                    x=alt.X("date:T", title="日期" if zh else "Date"),
+                    y=alt.Y("avg_score:Q", title="市场情绪分" if zh else "Sentiment"),
+                    tooltip=[
+                        alt.Tooltip("date:T", title="日期" if zh else "Date"),
+                        alt.Tooltip("avg_score:Q", format="+.3f", title="情绪"),
+                        alt.Tooltip("post_count:Q", title="帖量"),
+                        alt.Tooltip("symbols:Q", title="标的数"),
+                    ],
+                )
+                .properties(
+                    title="全市场日均情绪" if zh else "Market daily sentiment",
+                    height=260,
+                )
+            )
+            st.altair_chart(_configure_chart(line), use_container_width=True)
+        else:
+            st.caption("缺少市场日均情绪序列。" if zh else "No market pulse series.")
+
+    with c_right:
+        if not pulse.empty:
+            bars = (
+                alt.Chart(pulse)
+                .mark_bar(color="#A89070", cornerRadiusEnd=4)
+                .encode(
+                    x=alt.X("date:T", title="日期" if zh else "Date"),
+                    y=alt.Y("post_count:Q", title="帖量" if zh else "Posts"),
+                    tooltip=["date:T", "post_count:Q", "symbols:Q"],
+                )
+                .properties(
+                    title="每日舆情热度（帖量）" if zh else "Daily heat (posts)",
+                    height=260,
+                )
+            )
+            st.altair_chart(_configure_chart(bars), use_container_width=True)
+
+    symbols = []
+    if not ts_all.empty:
+        symbols = sorted(ts_all["symbol"].astype(str).unique().tolist())
+    if sentiment_df is not None and not sentiment_df.empty and "symbol" in sentiment_df.columns:
+        symbols = sorted(set(symbols) | set(sentiment_df["symbol"].astype(str).unique()))
+    if not symbols:
+        return
+
+    default_idx = 0
+    if focus_symbol and focus_symbol in symbols:
+        default_idx = symbols.index(focus_symbol)
+    sym = st.selectbox(
+        "时间图关注标的" if zh else "Symbol for time chart",
+        symbols,
+        index=default_idx,
+        key="time_overview_symbol",
+    )
+    series = filter_time_window(
+        build_symbol_daily_series(raw_df, sym, sentiment_df), "date", lookback
+    )
+    if series.empty:
+        st.caption(
+            f"{_symbol_label(sym)} 在所选时间窗内无序列。"
+            if zh
+            else f"No series for {_symbol_label(sym)} in this window."
+        )
+        return
+
+    base = alt.Chart(series).encode(x=alt.X("date:T", title="日期" if zh else "Date"))
+    score_line = base.mark_line(point=True, strokeWidth=2.4, color="#3D6B4F").encode(
+        y=alt.Y("avg_score:Q", title="情绪分" if zh else "Score"),
+        tooltip=[
+            alt.Tooltip("date:T"),
+            alt.Tooltip("avg_score:Q", format="+.3f"),
+            alt.Tooltip("post_count:Q"),
+            alt.Tooltip("source:N"),
+        ],
+    )
+    heat_bar = base.mark_bar(opacity=0.35, color="#8B7355").encode(
+        y=alt.Y("post_count:Q", title="帖量" if zh else "Posts"),
+        tooltip=["date:T", "post_count:Q"],
+    )
+    layered = (
+        alt.layer(heat_bar, score_line)
+        .resolve_scale(y="independent")
+        .properties(
+            title=(
+                f"{_symbol_label(sym)} · 情绪 vs 热度"
+                if zh
+                else f"{_symbol_label(sym)} · score vs heat"
+            ),
+            height=300,
+        )
+    )
+    st.altair_chart(_configure_chart(layered), use_container_width=True)
+
+    if not ts_all.empty:
+        plat = ts_all[ts_all["symbol"].astype(str) == str(sym)].copy()
+        if not plat.empty and plat["platform"].nunique() > 1:
+            heat = (
+                alt.Chart(plat)
+                .mark_rect()
+                .encode(
+                    x=alt.X("date:T", title="日期" if zh else "Date"),
+                    y=alt.Y("platform:N", title="平台" if zh else "Platform"),
+                    color=alt.Color(
+                        "avg_score:Q",
+                        scale=alt.Scale(scheme="redyellowgreen", domainMid=0),
+                        title="情绪",
+                    ),
+                    tooltip=[
+                        "date:T",
+                        "platform:N",
+                        alt.Tooltip("avg_score:Q", format="+.3f"),
+                        "post_count:Q",
+                    ],
+                )
+                .properties(
+                    title="平台 × 日期 情绪热力" if zh else "Platform × date heatmap",
+                    height=max(180, 28 * int(plat["platform"].nunique())),
+                )
+            )
+            st.altair_chart(_configure_chart(heat), use_container_width=True)
+
+    with st.expander("时间序列明细表" if zh else "Time-series table", expanded=False):
+        show = series.copy()
+        show["date"] = show["date"].dt.strftime("%Y-%m-%d")
+        show = show.rename(
+            columns={
+                "date": "日期" if zh else "Date",
+                "avg_score": "情绪分" if zh else "Score",
+                "post_count": "帖量" if zh else "Posts",
+                "source": "来源" if zh else "Source",
+            }
+        )
+        st.dataframe(show, use_container_width=True, hide_index=True)
 
 
 def _load_uploaded_price_frame(uploaded_file) -> pd.DataFrame:
@@ -1705,53 +2241,19 @@ def _render_pick_leaderboard(picks_df: pd.DataFrame) -> None:
 
     view["avg_score"] = pd.to_numeric(view["avg_score"], errors="coerce").fillna(0.0)
     view = view.sort_values("avg_score", ascending=False).reset_index(drop=True)
-    st.markdown('<div class="panel-card">', unsafe_allow_html=True)
-    st.markdown(f"#### {t('realtime_picks')}")
-    st.markdown("<div class='section-kicker'>Top 5</div>", unsafe_allow_html=True)
-    cols = st.columns(min(5, len(view)))
-
-    for idx, row in view.head(5).iterrows():
-        symbol = str(row.get("symbol", ""))
-        score = float(row.get("avg_score", 0.0))
-        score_class = "pos" if score > 0.05 else "neg" if score < -0.05 else "neu"
-        platform_scores = _parse_platform_scores(row.get("platform_scores", ""))
-        platform_html = ""
-        if platform_scores:
-            chips = []
-            for platform, pscore in sorted(
-                platform_scores.items(), key=lambda x: abs(x[1]), reverse=True
-            )[:4]:
-                chips.append(_platform_chip_html(platform, pscore))
-            platform_html = "".join(chips)
-        else:
-            platform_html = (
-                f"<span style='color:#8A827A;font-size:0.8125rem;'>"
-                f"{t('no_platform_scores')}</span>"
-            )
-
-        with cols[idx]:
-            rank_cls = f"rank-{min(idx + 1, 3)}"
-            st.markdown(
-                f"""
-                <div class="pick-card {rank_cls}">
-                    <div class="pick-rank">{t('rank_label')} #{idx + 1}</div>
-                    <div class="pick-symbol">{_symbol_label(symbol)}</div>
-                    <div style="display:flex;align-items:baseline;gap:0.65rem;flex-wrap:wrap;">
-                        <div class="pick-score {score_class}">{score:+.4f}</div>
-                        <span class="trend-pill {score_class}">{score:+.2f}</span>
-                    </div>
-                    <div style="margin-top:0.45rem;">{_score_badge(score)}</div>
-                    <div style="margin-top:0.65rem;">{platform_html}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-    with st.expander(t("key_fields"), expanded=False):
-        st.caption(t("key_fields_help"))
-        detail = build_picks_detail_table(view, _ui_lang())
-        st.dataframe(detail, use_container_width=True, hide_index=True)
-    st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='workspace-section-title'>"
+        + (t("realtime_picks"))
+        + "</div>",
+        unsafe_allow_html=True,
+    )
+    detail = build_picks_detail_table(view.head(10), _ui_lang())
+    st.dataframe(detail, use_container_width=True, hide_index=True)
+    st.caption(
+        "上方首页已可点选推荐查看原因与评论；此表用于对照全量排名。"
+        if _ui_lang() == "zh"
+        else "Use the home picker for details; this table is the full ranking."
+    )
 
 
 def _trend_arrow(score: float) -> str:
@@ -2652,6 +3154,53 @@ def _render_export_zip_button(report_dir: str, memory_dir: str, raw_dir: str) ->
         )
 
 
+def _render_trading_memory_panel(memory_dir: str) -> None:
+    """Show per-symbol cross-day memory cards (sentiment streak + last signal)."""
+    from opinion_trading.core.trading_memory import (
+        load_symbol_memory,
+        symbol_memory_as_rows,
+    )
+
+    zh = _ui_lang() == "zh"
+    mem = load_symbol_memory(memory_dir)
+    rows = symbol_memory_as_rows(mem)
+    title = "跨日记忆" if zh else "Cross-day memory"
+    st.markdown(f"#### {title}")
+    if mem.get("as_of") or mem.get("updated_at"):
+        st.caption(
+            (
+                f"更新至 {mem.get('as_of') or '—'} · 回看 {mem.get('prior_days_used') or '—'} 日 · {mem.get('updated_at') or ''}"
+                if zh
+                else f"As of {mem.get('as_of') or '—'} · prior days {mem.get('prior_days_used') or '—'} · {mem.get('updated_at') or ''}"
+            )
+        )
+    if not rows:
+        st.info(
+            "暂无股票记忆卡。跑完 daily（带历史 raw/sentiment）后会自动写入 data/memory/symbol_memory.json。"
+            if zh
+            else "No symbol memory yet. Run daily with prior history to populate data/memory/symbol_memory.json."
+        )
+        return
+    df = pd.DataFrame(rows)
+    rename = {
+        "symbol": "代码" if zh else "Symbol",
+        "last_trade_date": "最近日期" if zh else "Last date",
+        "last_score": "情绪分" if zh else "Score",
+        "delta": "较上次" if zh else "Delta",
+        "streak": "连续方向" if zh else "Streak",
+        "last_action": "最近信号" if zh else "Last action",
+        "last_confidence": "置信度" if zh else "Confidence",
+        "note": "摘要" if zh else "Note",
+    }
+    show = df.rename(columns={k: v for k, v in rename.items() if k in df.columns})
+    st.dataframe(show, use_container_width=True, hide_index=True)
+    st.caption(
+        "分析时会自动加载历史舆情记忆，用于多日共振与反转信号；本表是可读的股票记忆卡。"
+        if zh
+        else "Daily analysis loads prior sentiment memory for multi-day reversal/resonance; this table is the human-readable card view."
+    )
+
+
 def _render_event_log_panel(memory_dir: str) -> None:
     from opinion_trading.core.event_log import load_recent_events
 
@@ -2702,16 +3251,6 @@ def main() -> None:
         _render_openclaw_sidebar()
         st.markdown("</div>", unsafe_allow_html=True)
 
-        st.markdown(
-            "<div class='sidebar-toolbar'>"
-            "<div class='sidebar-toolbar-label'>Controls</div>"
-            "<div class='sidebar-toolbar-actions'>"
-            "<span class='sidebar-toolbar-chip'>Locale</span>"
-            "<span class='sidebar-toolbar-chip'>Theme</span>"
-            "<span class='sidebar-toolbar-chip'>Refresh</span>"
-            "</div></div>",
-            unsafe_allow_html=True,
-        )
         opts = [
             ("en", LANG.get("en", {}).get("language_en", "English")),
             ("zh", LANG.get("zh", {}).get("language_zh", "中文")),
@@ -2758,13 +3297,7 @@ def main() -> None:
             _persist_theme_query(str(theme_cur))
 
         if st.button(t("refresh_data"), use_container_width=True):
-            try:
-                st.cache_data.clear()
-            except Exception:
-                pass
-            for k in list(st.session_state.keys()):
-                if str(k).startswith("_openclaw_probe_"):
-                    st.session_state.pop(k, None)
+            _clear_dashboard_caches()
             st.rerun()
 
         st.markdown(f"<div class='panel-rail panel-rail--compact'><div class='panel-section-title'>{t('sidebar_paths')}</div>", unsafe_allow_html=True)
@@ -2772,6 +3305,7 @@ def main() -> None:
         raw_dir = st.text_input(t("raw_dir"), "data/raw")
         memory_dir = st.text_input(t("memory_dir"), "data/memory")
         st.markdown("</div>", unsafe_allow_html=True)
+        _render_snapshot_and_regen_controls(report_dir, raw_dir)
         _render_export_zip_button(report_dir, memory_dir, raw_dir)
         _render_collect_progress_expander(report_dir)
 
@@ -2885,52 +3419,60 @@ def main() -> None:
             "本地几乎没有展示数据。请先运行日批采集，"
             "或把侧边栏路径指到 data/reports、data/raw、data/memory。"
         )
-    elif int(clean_stats.get("dropped_total", 0) or 0) > 0:
-        st.caption(
-            t("data_clean_fmt").format(
-                kept=int(clean_stats.get("kept", 0) or 0),
-                dropped=int(clean_stats.get("dropped_total", 0) or 0),
-            )
-        )
 
-    _render_dashboard_hero(
-        len(picks_df),
-        len(alerts_df),
-        platform_count,
-        report_dir,
-        picks_df=picks_df,
-        engine_stats=engine_stats,
-        capture_rates=capture_rates,
-        clean_stats=clean_stats,
-    )
-    _render_sentiment_engine_strip(
-        engine_stats, capture_rates=capture_rates, clean_stats=clean_stats
-    )
-    with st.expander(t("user_guide_title"), expanded=False):
-        st.markdown(t("user_guide_body"))
     oc_probe = _openclaw_probe(llm=False)
-    _render_status_strip(
-        report_dir,
-        len(picks_df),
-        len(alerts_df),
-        platform_count,
+    _render_command_board(
+        picks_df,
+        platform_count=platform_count,
+        report_dir=report_dir,
+        engine_stats=engine_stats,
+        clean_stats=clean_stats,
         openclaw_connected=bool(oc_probe.get("connected")),
     )
+    focus_symbol = _render_pick_workspace(picks_df, raw_df, sentiment_df)
+    _render_time_overview(
+        raw_df,
+        sentiment_df,
+        focus_symbol=focus_symbol,
+        key_prefix="home_time",
+        section_title="③ 时间走势（按发帖日）" if _ui_lang() == "zh" else "3. Time trends",
+    )
 
-    tab_watch, tab_alert, tab_review, tab_ai, tab_picks, tab_openclaw, tab_sentiment, tab_comments, tab_eval, tab_analyst = st.tabs(
+    st.markdown(
+        "<div class='workspace-section-title'>"
+        + ("④ 深入查看（按主题切换）" if _ui_lang() == "zh" else "4. Dive deeper by topic")
+        + "</div>",
+        unsafe_allow_html=True,
+    )
+
+    tab_time, tab_memory, tab_picks, tab_sentiment, tab_comments, tab_watch, tab_alert, tab_review, tab_ai, tab_openclaw, tab_eval, tab_analyst = st.tabs(
         [
-            "自选股监控",
+            "时间趋势",
+            "跨日记忆",
+            "推荐选股",
+            "舆情趋势",
+            "相关评论",
+            "自选监控",
             "信号预警",
-            "舆情股价复盘",
-            "AI采集筛选",
-            t("tab_picks"),
-            t("tab_openclaw"),
-            t("tab_sentiment"),
-            t("tab_comments"),
-            t("tab_eval"),
-            t("tab_analyst"),
+            "舆情复盘",
+            "采集质量",
+            "分析引擎",
+            "回测评估",
+            "分析师共识",
         ]
     )
+
+    with tab_time:
+        _render_time_overview(
+            raw_df,
+            sentiment_df,
+            focus_symbol=focus_symbol,
+            key_prefix="tab_time",
+            section_title="时间趋势放大" if _ui_lang() == "zh" else "Time trends (detail)",
+        )
+
+    with tab_memory:
+        _render_trading_memory_panel(memory_dir)
 
     with tab_watch:
         render_watchlist_tab(sentiment_df, raw_df, mvp_user, workspace=_mvp_ws)
@@ -2947,13 +3489,11 @@ def main() -> None:
     with tab_picks:
         _render_pick_leaderboard(picks_df)
 
-        st.markdown('<div class="panel-card">', unsafe_allow_html=True)
         st.markdown(f"#### {t('score_alerts')}")
         if alerts_df.empty:
             st.info(t("no_alerts"))
         else:
             st.dataframe(alerts_df, use_container_width=True, hide_index=True)
-        st.markdown("</div>", unsafe_allow_html=True)
 
         st.markdown(f"#### {t('pick_reason_cards')}")
         if picks_df.empty:
@@ -2966,28 +3506,13 @@ def main() -> None:
 
     with tab_sentiment:
         st.markdown(
-            "<div class='panel-rail'>"
-            "<div class='panel-headbar'>"
-            "<div class='panel-headbar-left'>"
-            f"<div class='panel-section-title'>{t('sentiment_trend')}</div>"
-            f"<div class='panel-subtitle'>{t('guide_trend_body')}</div>"
-            "</div>"
-            "<div class='panel-headbar-right'>"
-            f"<span class='panel-headbar-chip'>{t('chip_trend')}</span>"
-            f"<span class='panel-headbar-chip'>{t('chip_multisource')}</span>"
-            "</div>"
-            "</div>"
-            "</div>",
+            f"<div class='workspace-section-title'>{t('sentiment_trend')}</div>"
+            f"<div class='workspace-section-sub'>{t('guide_trend_body')}</div>",
             unsafe_allow_html=True,
         )
         with st.container(border=True):
             c_filter, c_stats, c_export = st.columns([1.4, 1.0, 1.0])
             with c_filter:
-                st.markdown(
-                    f"<div class='panel-control-row'><div class='panel-control-label'>"
-                    f"{t('filter_controls')}</div>",
-                    unsafe_allow_html=True,
-                )
                 min_samples = st.number_input(
                     t("min_samples_platform"),
                     min_value=0,
@@ -3001,34 +3526,10 @@ def main() -> None:
                     st.session_state["include_zero_scores"] = bool(include_zero)
                 except Exception:
                     pass
-                st.markdown(
-                    f"<div class='panel-control-hint'>"
-                    f"{t('filter_hint_samples')}"
-                    "</div></div>",
-                    unsafe_allow_html=True,
-                )
             with c_stats:
-                st.markdown(
-                    f"<div class='panel-control-row'><div class='panel-control-label'>"
-                    f"{t('signal_stats')}</div>",
-                    unsafe_allow_html=True,
-                )
                 show_counts = st.checkbox(t("show_platform_counts"), value=True)
-                st.markdown(
-                    f"<div class='panel-control-hint'>{t('signal_stats_hint')}</div></div>",
-                    unsafe_allow_html=True,
-                )
             with c_export:
-                st.markdown(
-                    f"<div class='panel-control-row'><div class='panel-control-label'>"
-                    f"{t('export_section')}</div>",
-                    unsafe_allow_html=True,
-                )
                 export_placeholder = st.empty()
-                st.markdown(
-                    f"<div class='panel-control-hint'>{t('export_hint')}</div></div>",
-                    unsafe_allow_html=True,
-                )
 
             if not sentiment_df.empty:
                 df = sentiment_df.copy()
@@ -3094,22 +3595,12 @@ def main() -> None:
                 st.info(t("no_sentiment_history"))
 
         st.markdown(
-            "<div class='panel-rail panel-rail--compact'>"
-            "<div class='panel-headbar'>"
-            "<div class='panel-headbar-left'>"
-            f"<div class='panel-section-title'>{t('platform_contribution')}</div>"
-            f"<div class='panel-subtitle'>{t('guide_contrib_body')}</div>"
-            "</div>"
-            "<div class='panel-headbar-right'>"
-            f"<span class='panel-headbar-chip'>{t('chip_drivers')}</span>"
-            f"<span class='panel-headbar-chip'>{t('chip_weights')}</span>"
-            "</div>"
-            "</div>"
-            "</div>",
+            f"<div class='workspace-section-title'>{t('platform_contribution')}</div>"
+            f"<div class='workspace-section-sub'>{t('guide_contrib_body')}</div>",
             unsafe_allow_html=True,
         )
         with st.container(border=True):
-            c_left, c_mid, c_right = st.columns([1.2, 1.0, 0.9])
+            c_left, c_mid = st.columns([1.4, 1.0])
             pick_symbols = sorted(picks_df["symbol"].unique()) if not picks_df.empty else []
             hist_symbols = sorted(sentiment_df["symbol"].unique()) if not sentiment_df.empty else []
             symbol_options = sorted(set(pick_symbols + hist_symbols))
@@ -3120,15 +3611,6 @@ def main() -> None:
                     symbol = st.selectbox(t("select_symbol_for_contribution"), symbol_options)
                 with c_mid:
                     lookback_days = st.number_input(t("lookback_days_non_zero"), min_value=1, value=30, step=1)
-                with c_right:
-                    st.markdown(
-                        f"<div class='panel-control-row'><div class='panel-control-label'>{t('actions')}</div>",
-                        unsafe_allow_html=True,
-                    )
-                    st.markdown(
-                        f"<div class='panel-control-hint'>{t('contrib_actions_hint')}</div></div>",
-                        unsafe_allow_html=True,
-                    )
                 contrib_df = build_pick_contribution(symbol, picks_df, raw_df, sentiment_df, lookback_days=int(lookback_days))
                 if contrib_df.empty:
                     st.info(t("no_contribution_data"))
@@ -3151,7 +3633,7 @@ def main() -> None:
                         chart_view = contrib_df.copy()
                     chart_view = label_platform_column(chart_view, _ui_lang())
                     chart_view["bar_color"] = chart_view["platform_score"].apply(lambda s: "bull" if s > 0.05 else "bear" if s < -0.05 else "flat")
-                    bar = alt.Chart(chart_view).mark_bar(cornerRadiusEnd=12).encode(
+                    bar = alt.Chart(chart_view).mark_bar(cornerRadiusEnd=6).encode(
                         x=alt.X("weighted_contrib:Q", title=t("col_weighted_contrib")),
                         y=alt.Y("platform:N", sort="-x", title=None),
                         color=alt.Color("bar_color:N", scale=_SENTIMENT_BAR_SCALE, title=t("col_direction")),
@@ -3161,18 +3643,8 @@ def main() -> None:
                     st.markdown("</div>", unsafe_allow_html=True)
 
         st.markdown(
-            "<div class='panel-rail panel-rail--compact'>"
-            "<div class='panel-headbar'>"
-            "<div class='panel-headbar-left'>"
-            f"<div class='panel-section-title'>{t('platform_snapshot')}</div>"
-            f"<div class='panel-subtitle'>{t('guide_snapshot_body')}</div>"
-            "</div>"
-            "<div class='panel-headbar-right'>"
-            f"<span class='panel-headbar-chip'>{t('chip_snapshot')}</span>"
-            f"<span class='panel-headbar-chip'>{t('chip_ranked')}</span>"
-            "</div>"
-            "</div>"
-            "</div>",
+            f"<div class='workspace-section-title'>{t('platform_snapshot')}</div>"
+            f"<div class='workspace-section-sub'>{t('guide_snapshot_body')}</div>",
             unsafe_allow_html=True,
         )
         pick_symbols = sorted(picks_df["symbol"].unique()) if not picks_df.empty else []
@@ -3190,7 +3662,7 @@ def main() -> None:
                     snap_display = label_platform_column(snap, _ui_lang())
                     snap_display["sentiment_label"] = snap_display["platform_score"].apply(lambda s: f"{s:+.3f}")
                     snap_display["bar_color"] = snap_display["platform_score"].apply(lambda s: "bull" if s > 0.05 else "bear" if s < -0.05 else "flat")
-                    snap_chart = alt.Chart(snap_display).mark_bar(cornerRadiusEnd=12).encode(
+                    snap_chart = alt.Chart(snap_display).mark_bar(cornerRadiusEnd=6).encode(
                         x=alt.X("platform_score:Q", title=t("sentiment_score_label")),
                         y=alt.Y("platform:N", sort="-x", title=t("platform_label")),
                         color=alt.Color("bar_color:N", scale=_SENTIMENT_BAR_SCALE, title=t("col_direction")),
@@ -3202,7 +3674,6 @@ def main() -> None:
                         use_container_width=True,
                         hide_index=True,
                     )
-                    st.markdown("</div>", unsafe_allow_html=True)
 
     with tab_comments:
         _render_info_box(t("guide_comments_title"), t("guide_comments_body"))

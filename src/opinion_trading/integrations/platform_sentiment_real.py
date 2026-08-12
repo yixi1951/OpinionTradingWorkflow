@@ -79,7 +79,9 @@ def _write_html_cache(url: str, html: str) -> None:
     cache_dir = _get_cache_dir()
     key = _cache_key(url)
     cache_file = cache_dir / key
-    cache_file.write_text(html, encoding="utf-8")
+    # Drop lone surrogates from broken page encodings so cache write never aborts collect.
+    safe = html.encode("utf-8", errors="surrogatepass").decode("utf-8", errors="ignore")
+    cache_file.write_text(safe, encoding="utf-8")
 
 
 # ── 请求频率控制 ───────────────────────────────────────────────────────────

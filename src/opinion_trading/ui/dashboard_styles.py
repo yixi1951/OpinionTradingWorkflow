@@ -237,7 +237,7 @@ def build_dashboard_css(theme: str = "light") -> str:
     --radius-md: 14px;
     --radius-lg: 16px;
     --ease-soft: cubic-bezier(0.22, 1, 0.36, 1);
-    --dur-soft: 480ms;
+    --dur-soft: 160ms;
     --font-sans: 'Inter', 'Segoe UI', sans-serif;
     --font-mono: 'Inter', ui-monospace, monospace;
     --panel-gap: 1.35rem;
@@ -382,7 +382,6 @@ html, body, [class*="css"] {{
 }}
 
 [data-testid="stSidebar"] .stButton > button:hover {{
-    transform: translateY(-2px);
     opacity: 0.94;
     box-shadow: var(--dash-shadow-sm);
 }}
@@ -620,7 +619,6 @@ html, body, [class*="css"] {{
 }}
 
 .panel-card:hover {{
-    transform: translateY(-2px);
     box-shadow:
         inset 0 0 0 1px var(--dash-border-glow),
         var(--dash-shadow-hover);
@@ -880,11 +878,10 @@ hr {{
     padding: 0.85rem 1rem;
     background: var(--dash-surface-muted);
     box-shadow: inset 0 0 0 1px var(--dash-border-glow);
-    transition: transform var(--dur-soft) var(--ease-soft);
+    transition: border-color var(--dur-soft) var(--ease-soft), background var(--dur-soft) var(--ease-soft);
 }}
 
 .hero-kpi:hover {{
-    transform: translateY(-2px);
 }}
 
 .hero-kpi-label {{
@@ -1036,7 +1033,6 @@ hr {{
 }}
 
 .ref-snippet:hover {{
-    transform: translateY(-3px);
     border-color: var(--geo-line);
     box-shadow:
         inset 0 0 0 1px var(--dash-border-glow),
@@ -1086,7 +1082,7 @@ hr {{
     -webkit-backdrop-filter: blur(var(--glass-blur));
     box-shadow: inset 0 0 0 1px var(--dash-border-glow);
     min-height: 168px;
-    transform: translateY(0);
+    transform: none;
     transition: transform var(--dur-soft) var(--ease-soft),
                 box-shadow var(--dur-soft) var(--ease-soft),
                 border-color var(--dur-soft) var(--ease-soft);
@@ -1119,11 +1115,8 @@ hr {{
 }}
 
 .pick-card:hover {{
-    transform: translateY(-4px);
-    box-shadow:
-        inset 0 0 0 1px var(--dash-border-glow),
-        var(--dash-shadow-hover);
-    border-color: var(--geo-line);
+    border-color: var(--dash-accent);
+    box-shadow: inset 0 0 0 1px var(--dash-border-glow);
 }}
 
 .disclaimer-banner {{
@@ -1226,6 +1219,76 @@ hr {{
     }}
 }}
 
+.command-board {{
+    border: 1px solid var(--dash-border);
+    border-radius: var(--radius-lg);
+    background: var(--dash-surface-solid);
+    padding: 1.15rem 1.25rem 1.05rem;
+    margin-bottom: 1rem;
+}}
+
+.command-board-head {{
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: flex-start;
+    margin-bottom: 0.95rem;
+}}
+
+.command-board-purpose {{
+    margin: 0.4rem 0 0;
+    max-width: 52ch;
+    color: var(--dash-muted);
+    font-size: 0.9rem;
+    line-height: 1.5;
+}}
+
+.command-kpi-row {{
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.65rem;
+}}
+
+@media (min-width: 900px) {{
+    .command-kpi-row {{
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+    }}
+}}
+
+.command-kpi {{
+    border: 1px solid var(--dash-border);
+    border-radius: var(--radius-sm);
+    background: var(--dash-surface-muted);
+    padding: 0.65rem 0.75rem;
+    min-height: 4.5rem;
+}}
+
+.workspace-section-title {{
+    font-size: 1rem;
+    font-weight: 560;
+    color: var(--dash-ink);
+    margin: 0.85rem 0 0.35rem;
+    letter-spacing: 0.01em;
+}}
+
+.workspace-section-sub {{
+    color: var(--dash-muted);
+    font-size: 0.85rem;
+    margin: 0 0 0.75rem;
+    max-width: 70ch;
+    line-height: 1.45;
+}}
+
+/* Tabs: readable labels, no float */
+.stTabs [data-baseweb="tab-list"] {{
+    gap: 0.25rem;
+    flex-wrap: wrap;
+}}
+
+.main .stTabs {{
+    padding-top: 0.35rem;
+}}
+
 @media (prefers-reduced-motion: reduce) {{
     .pick-card,
     .ref-snippet,
@@ -1296,7 +1359,6 @@ hr {{
 }}
 
 .reason-card:hover {{
-    transform: translateY(-3px);
     box-shadow:
         inset 0 0 0 1px var(--dash-border-glow),
         var(--dash-shadow-hover);
@@ -1318,11 +1380,10 @@ div[data-testid="stMetric"] {{
     backdrop-filter: blur(var(--glass-blur));
     -webkit-backdrop-filter: blur(var(--glass-blur));
     box-shadow: inset 0 0 0 1px var(--dash-border-glow);
-    transition: transform var(--dur-soft) var(--ease-soft);
+    transition: border-color var(--dur-soft) var(--ease-soft), background var(--dur-soft) var(--ease-soft);
 }}
 
 div[data-testid="stMetric"]:hover {{
-    transform: translateY(-2px);
 }}
 
 div[data-testid="stMetric"] label {{
@@ -1376,7 +1437,6 @@ div[data-testid="stMetric"] [data-testid="stMetricValue"] {{
 .stTabs [data-baseweb="tab"]:hover {{
     color: var(--dash-ink);
     background: var(--dash-accent-soft) !important;
-    transform: translateY(-1px);
 }}
 
 .stTabs [aria-selected="true"] {{
@@ -1410,7 +1470,6 @@ div[data-testid="stMetric"] [data-testid="stMetricValue"] {{
 }}
 
 .main .stButton > button:hover {{
-    transform: translateY(-2px);
     box-shadow: var(--dash-shadow-sm);
 }}
 

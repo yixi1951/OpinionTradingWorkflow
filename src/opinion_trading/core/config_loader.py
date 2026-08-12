@@ -116,6 +116,7 @@ def load_runtime_config(config_path: str = "config/settings.yaml") -> RuntimeCon
 
     browser_raw = raw.get("browser", {}) or {}
     ai_pipe_raw = raw.get("ai_pipeline", {}) or {}
+    memory_raw = raw.get("memory", {}) or {}
 
     return RuntimeConfig(
         strategy=strategy_config,
@@ -137,4 +138,5 @@ def load_runtime_config(config_path: str = "config/settings.yaml") -> RuntimeCon
         sentiment_recency=sentiment_recency_config,
         risk=risk_config,
         explanation_lang=expl_lang,
+        memory_lookback_days=int(memory_raw.get("lookback_days", 60)),
     )

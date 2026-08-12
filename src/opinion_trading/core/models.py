@@ -203,3 +203,4 @@ class RuntimeConfig:
     risk: RiskConfig | None = None
     sentiment_recency: SentimentRecencyConfig | None = None
     explanation_lang: str = "zh"
+    memory_lookback_days: int = 60

@@ -103,6 +103,49 @@ def test_prepare_customer_raw_drops_spam_and_fallback():
     assert clean.iloc[0]["platform"] == "guba"
 
 
+def test_build_time_series_from_raw():
+    from opinion_trading.ui_helpers import (
+        build_daily_market_pulse,
+        build_symbol_daily_series,
+        build_time_series_from_raw,
+        filter_time_window,
+    )
+
+    df = pd.DataFrame(
+        [
+            {
+                "symbol": "600519.SH",
+                "platform": "guba",
+                "ai_score": 0.2,
+                "post_time": "2026-06-01 10:00:00",
+                "trade_date": "2026-06-01",
+            },
+            {
+                "symbol": "600519.SH",
+                "platform": "guba",
+                "ai_score": 0.4,
+                "post_time": "2026-06-02 11:00:00",
+                "trade_date": "2026-06-02",
+            },
+            {
+                "symbol": "000001.SZ",
+                "platform": "weibo",
+                "ai_score": -0.1,
+                "post_time": "2026-06-02 12:00:00",
+                "trade_date": "2026-06-02",
+            },
+        ]
+    )
+    ts = build_time_series_from_raw(df)
+    assert len(ts) >= 2
+    pulse = build_daily_market_pulse(df)
+    assert len(pulse) == 2
+    series = build_symbol_daily_series(df, "600519.SH")
+    assert len(series) == 2
+    windowed = filter_time_window(pulse, "date", 1)
+    assert len(windowed) >= 1
+
+
 def test_filter_comment_evidence_drops_news():
     df = pd.DataFrame(
         [
