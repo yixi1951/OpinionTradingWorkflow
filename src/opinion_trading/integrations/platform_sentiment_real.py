@@ -105,6 +105,7 @@ _PLATFORM_DOUYIN = "douyin"
 _PLATFORM_WEIBO = "weibo"
 _PLATFORM_XUEQIU = "xueqiu"
 _PLATFORM_ZHIHU = "zhihu"
+_PLATFORM_BILIBILI = "bilibili"
 
 
 class RealPlatformSentimentProvider:
@@ -270,6 +271,10 @@ class RealPlatformSentimentProvider:
                 )
             elif platform == _PLATFORM_ZHIHU:
                 rows = self._collect_zhihu_rows(
+                    list_url, html, platform, symbol, trade_date, max_posts=max_posts
+                )
+            elif platform == _PLATFORM_BILIBILI:
+                rows = self._collect_bilibili_rows(
                     list_url, html, platform, symbol, trade_date, max_posts=max_posts
                 )
             else:
@@ -546,6 +551,72 @@ class RealPlatformSentimentProvider:
 
         for card in cards:
             title_el = card.select_one("a, h2, h3, .ContentItem-title")
+            title = self._clean_text(
+                title_el.get_text(" ", strip=True) if title_el else ""
+            )
+            body = self._clean_text(card.get_text(" ", strip=True))
+            if not self._looks_like_content(title or body):
+                continue
+            key = (title or body)[:120]
+            if key in seen:
+                continue
+            seen.add(key)
+            href = ""
+            if title_el is not None:
+                href = self._clean_text(title_el.get("href", ""))
+            article_url = urljoin(list_url, href) if href else list_url
+            rows.append(
+                self._build_raw_row(
+                    trade_date=trade_date,
+                    platform=platform,
+                    symbol=symbol,
+                    title=title or body[:80],
+                    summary=body,
+                    post_time=self._extract_time(body, trade_date=trade_date),
+                    content=body,
+                    url=article_url,
+                    source_page=list_url,
+                    is_noise=self._is_noise_text(body),
+                    capture_status="success",
+                    failure_reason="",
+                )
+            )
+            if len(rows) >= max_posts:
+                break
+        return rows
+
+    def _collect_bilibili_rows(
+        self,
+        list_url: str,
+        html: str,
+        platform: str,
+        symbol: str,
+        trade_date: date,
+        max_posts: int,
+    ) -> List[Dict[str, str]]:
+        """Best-effort Bilibili search cards (no login, stub fallback elsewhere)."""
+        soup = BeautifulSoup(html, "lxml")
+        rows: List[Dict[str, str]] = []
+        seen: set[str] = set()
+        selectors = (
+            ".bili-video-card",
+            ".video-item",
+            ".bili-video-card__info",
+            "article",
+            ".video-list-item",
+        )
+        cards = []
+        for sel in selectors:
+            cards.extend(soup.select(sel))
+        if not cards:
+            return self._collect_generic_rows(
+                list_url, html, platform, symbol, trade_date, max_posts=max_posts
+            )
+
+        for card in cards:
+            title_el = card.select_one(
+                "a.title, h2, h3, .bili-video-card__info--tit, a"
+            )
             title = self._clean_text(
                 title_el.get_text(" ", strip=True) if title_el else ""
             )
@@ -882,6 +953,9 @@ class RealPlatformSentimentProvider:
             # Public search page; login/captcha still fall back to stub.
             q = quote(symbol)
             return f"https://www.zhihu.com/search?type=content&q={q}"
+        if platform == "bilibili":
+            q = quote(symbol)
+            return f"https://search.bilibili.com/all?keyword={q}"
 
         raise ValueError(f"Unsupported platform: {platform}")
 
