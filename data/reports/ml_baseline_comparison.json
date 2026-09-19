@@ -1,0 +1,22 @@
+{
+  "n_samples": 12,
+  "n_train": 8,
+  "n_test": 4,
+  "tfidf_accuracy": 0.5,
+  "keyword_accuracy": 1.0,
+  "tfidf_macro_f1": 0.3333333333333333,
+  "keyword_macro_f1": 0.6666666666666666,
+  "tfidf_per_class_f1": {
+    "bull": 0.5,
+    "bear": 0.5,
+    "neutral": 0.0,
+    "macro": 0.3333333333333333
+  },
+  "keyword_per_class_f1": {
+    "bull": 1.0,
+    "bear": 1.0,
+    "neutral": 0.0,
+    "macro": 0.6666666666666666
+  },
+  "note": "Research prototype only — tiny labeled sample, not a profitability claim. Keyword/hybrid remains the default scoring path."
+}
