@@ -44,6 +44,8 @@ def run_walk_forward(
     train_days: int = 60,
     test_days: int = 20,
     min_signals_per_fold: int = 3,
+    slippage_bps: float = 0.0,
+    fee_bps: float = 0.0,
 ) -> WalkForwardReport:
     """Rolling train/test splits on calendar days (uses signal_history.jsonl)."""
     signals = load_signals(signal_path)
@@ -68,17 +70,21 @@ def run_walk_forward(
         train_end = test_start - timedelta(days=1)
         train_start = train_end - timedelta(days=train_days - 1)
 
-        train_merged, train_sum = evaluate_signals(
+        _train_merged, train_sum = evaluate_signals(
             signals,
             price_df,
             start_date=train_start.isoformat(),
             end_date=train_end.isoformat(),
+            slippage_bps=slippage_bps,
+            fee_bps=fee_bps,
         )
-        test_merged, test_sum = evaluate_signals(
+        _test_merged, test_sum = evaluate_signals(
             signals,
             price_df,
             start_date=test_start.isoformat(),
             end_date=test_end.isoformat(),
+            slippage_bps=slippage_bps,
+            fee_bps=fee_bps,
         )
 
         if test_sum.total_signals < min_signals_per_fold and train_sum.total_signals < min_signals_per_fold:
