@@ -16,6 +16,7 @@ EVENT_TYPES = (
     "signal_blocked",
     "execution_intent",
     "paper_fill",
+    "paper_exit",
     "risk_reject",
 )
 

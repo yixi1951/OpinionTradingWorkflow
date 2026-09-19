@@ -18,10 +18,10 @@
 | 代理池 / 验证码 | 单 UA + per-domain 限速 + 缓存；**gateway health** CLI；`collection.proxy_urls` / `PROXY_POOL` + **`ProxyRotator` round-robin / 失败跳过**；**`proxy-health` 短 HTTP(S) 探测**（空池 skip/PASS） | 打码、登录态农场；生产级住宅代理质量评分 |
 | 知乎/B 站/小红书/公众号 | 6 默认平台 + **知乎 / B 站 / 小红书 / 公众号** best-effort HTML adapter（均默认不加入 daily 爬取列表） | 登录墙 / 验证码后的稳定抓取；互动字段 |
 | 评论/点赞/转发 | 帖子标题+正文为主 | 互动字段与热度权重 |
-| **去重** | `text_dedup.dedupe_raw_rows`（daily 采集后） | 跨日全局 dedup DB |
+| **去重** | `text_dedup.dedupe_raw_rows`（日内）+ 可选 **`collection.cross_day_dedup`** SQLite 指纹（默认关） | 大规模分布式 dedup / 语义近重复 |
 | 水军识别 | 噪声规则 + quality 统计 | 账号图谱 / 行为模型 |
 | 时间校准 | 多格式 regex + trade_date 补年 | 统一 UTC 时区库 |
-| 极端情感值 | quality 门控 + 阈值策略 | 分位数 Winsorize |
+| 极端情感值 | quality 门控 + 可选 **`quality.sentiment_winsorize`** 分位裁剪（默认关） | 自适应 / 分标的 winsorize |
 
 ## 三、LLM 与策略
 
@@ -32,7 +32,7 @@
 | 时效权重 | **daily + realtime** `sentiment_recency` 半衰期加权；实时 delta 告警 | 跨平台统一 UTC |
 | 反讽/黑话 | LLM + 关键词 | 领域微调 |
 | **多因子** | Multi-Agent：情绪+技术+基本面+共识 | 行业/宏观因子 |
-| **风控** | `risk_controls`、Kelly 上限、纸面市价 | 止盈止损、实盘 |
+| **风控** | `risk_controls`、Kelly 上限、纸面市价；**纸面 TP/SL 脚手架**（`execution.paper_exit`，非柜台） | 实盘止盈止损、券商风控 |
 | **交易成本** | `execution.simulation_slippage_bps` / `fee_bps` 写入 **evaluate_signals 策略收益** 与纸面成交价（同一价表路径） | 券商佣金档位 / 印花税日历 |
 | 实时 9 分钟 | `row_level_llm: false` 默认；`--fast-daily` 演示 | 并行 LLM / 批处理 |
 
@@ -78,7 +78,7 @@
 | **P1** | 样本外回测与纸面净值对齐 | Eval：信号评估 + WF 折表/CSV；**纸面净值曲线** 与 `evaluate_signals` **共用同一收盘价表**；可选 `slippage_bps`/`fee_bps` | 真实券商沙箱 API（当前仅 stub） |
 | **P2** | OpenClaw / 采集成功率 | 缓存、限速、并行采集日志；**`scripts/check_gateway_health.py` / `--mode gateway-health`**（无 URL 时 Stub PASS）；`ProxyRotator` 轮换 `collection.proxy_urls` / `PROXY_POOL`；**`--mode proxy-health` / `scripts/check_proxy_health.py`**（空池 skip/PASS，短 HTTP 探测） | 验证码打码、登录态农场 |
 | **P3** | 人工标注 + ML 基线 | `docs/annotation_instructions_zh.md`、`scripts/sample_annotation.py`（含 `label_source`/`annotator`）、`scripts/compare_ml_baseline.py`（TF-IDF vs 关键词 vs **offline hybrid**；36 行平衡 **synthetic** fixture）；`scripts/train_eval.py` sklearn 可选；**DeepSeek live 打分**（`DEEPSEEK_API_KEY`，`--mode deepseek-probe` / `score-sample`；CI 不调用）；DeepSeek 失败 → 可选 Qwen → 关键词 | 更大**人工**标注；真实采集历史仍独立 |
-| **P4** | 合规与实盘 | `docs/broker_integration.md`、`execution` dry_run；纸面滑点/费用；**`SandboxBrokerAdapter` 只记意图、不下单** | 真实券商 REST/FIX / 资金账户 |
+| **P4** | 合规与实盘 | `docs/broker_integration.md`（模式对照 + live 钩子 stub）；`execution` dry_run；纸面滑点/费用；**`SandboxBrokerAdapter` 只记意图、不下单** | 真实券商 REST/FIX / 资金账户 |
 
 **P0 命令示例（无真实 raw 时也会从 `tests/fixtures` seed 多日 CSV + 价表）**
 

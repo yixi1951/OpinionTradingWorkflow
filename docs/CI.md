@@ -6,7 +6,7 @@ Workflow: `.github/workflows/ci.yml`
 
 | Job | What it does |
 |-----|----------------|
-| `test` | `pytest tests/` on Python 3.10–3.12（coverage gate `--cov-fail-under=44`，与 pyproject 对齐） |
+| `test` | `pytest tests/` on Python 3.10–3.12（coverage gate `--cov-fail-under=52`） |
 | `fast-daily-smoke` | Fixture raw CSV → `analysis.enabled=false` → `--fast-daily` → checks `data/memory/state.json` |
 
 ## fast-daily-smoke

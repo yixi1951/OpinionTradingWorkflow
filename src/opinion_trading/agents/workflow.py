@@ -163,6 +163,29 @@ class OpinionTradingWorkflow:
         if dup_removed:
             logger.info("Dedup removed %d duplicate raw rows", dup_removed)
 
+        cdd = getattr(self.config, "cross_day_dedup", None)
+        if cdd and cdd.enabled:
+            from opinion_trading.core.cross_day_dedup import apply_cross_day_dedup
+
+            raw_rows, cdd_stats = apply_cross_day_dedup(
+                raw_rows,
+                trade_date=run_date,
+                config=cdd,
+            )
+            if cdd_stats.get("removed"):
+                logger.info(
+                    "Cross-day dedup removed %d rows (registered %d)",
+                    cdd_stats["removed"],
+                    cdd_stats.get("registered", 0),
+                )
+
+        qcfg = getattr(self.config, "quality", None)
+        winsor = getattr(qcfg, "sentiment_winsorize", None) if qcfg else None
+        if winsor and winsor.enabled:
+            from opinion_trading.core.sentiment_winsorize import winsorize_raw_rows
+
+            raw_rows = winsorize_raw_rows(raw_rows, config=winsor)
+
         from opinion_trading.core.noise_filter import filter_noisy_rows
         from opinion_trading.core.semantic_enrichment import enrich_raw_rows
 
@@ -387,6 +410,37 @@ class OpinionTradingWorkflow:
 
         state = self.store.load_state()
         today_aggregated = aggregated.get(run_date, {})
+        exit_signals: List = []
+        ecfg_pe = getattr(self.config.execution, "paper_exit", None)
+        if ecfg_pe and ecfg_pe.enabled:
+            from opinion_trading.core.paper_exit_rules import evaluate_paper_exits
+
+            price_table = getattr(self.trader.skill, "price_df", None)
+            exit_signals, exit_diag = evaluate_paper_exits(
+                run_date,
+                state,
+                price_df=price_table,
+                config=ecfg_pe,
+                memory_dir=self.config.memory_dir,
+                slippage_bps=float(
+                    self.config.execution.simulation_slippage_bps
+                    if self.config.execution
+                    else 0.0
+                ),
+                fee_bps=float(
+                    self.config.execution.fee_bps if self.config.execution else 0.0
+                ),
+            )
+            if exit_diag:
+                from opinion_trading.core.event_log import append_event
+
+                for row in exit_diag:
+                    append_event(
+                        self.config.memory_dir,
+                        "paper_exit",
+                        row,
+                        trade_date=run_date.isoformat(),
+                    )
         ref_prices: Dict[str, float] = {}
         if signals:
             from opinion_trading.core.market_data import fetch_closes_for_symbols
@@ -483,12 +537,23 @@ class OpinionTradingWorkflow:
                     )
             signals_for_trade = risk_out.allowed
 
+        if exit_signals:
+            signals_for_trade = list(exit_signals) + list(signals_for_trade)
+
         trades, updated_state = self.trader.run(
             trade_date=run_date,
             signals=signals_for_trade,
             today_aggregated=today_aggregated,
             state=state,
         )
+        if trades:
+            from opinion_trading.core.paper_exit_rules import record_entry_prices
+
+            record_entry_prices(
+                self.config.memory_dir,
+                trades,
+                dict(updated_state.get("positions", {})),
+            )
 
         self.store.append_many("trade_history.jsonl", [x.to_dict() for x in trades])
         if trades:

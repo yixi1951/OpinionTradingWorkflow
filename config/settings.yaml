@@ -108,6 +108,11 @@ quality:
   fail_confidence_multiplier: 0.55
   block_signals_on_severe_failure: true
   entity_match_rate_min: 0.70
+  # Optional percentile clip on row-level ai_score / keyword_score (off by default).
+  sentiment_winsorize:
+    enabled: false
+    lower_pct: 1.0
+    upper_pct: 99.0
 platform_taxonomy:
   guba: forum
   eastmoney: portal
@@ -141,6 +146,11 @@ execution:
   dry_run: true
   simulation_slippage_bps: 5.0
   fee_bps: 0.0
+  # Paper-only TP/SL research scaffold (uses shared price table; no live orders).
+  paper_exit:
+    enabled: false
+    take_profit_pct: 0.10
+    stop_loss_pct: 0.05
 collection:
   # Round-robin / failover via ProxyRotator (HTTP crawl only). Also: PROXY_POOL=url1,url2
   # Quality probe: python -m opinion_trading.main --mode proxy-health (empty list = PASS)
@@ -148,6 +158,11 @@ collection:
   proxy_urls: []
   # Zhihu / Bilibili / Xiaohongshu / Weixin adapters exist but stay opt-in
   # (uncomment under strategy.platforms). They are not on the default daily list.
+  # Cross-day near-duplicate filter (SQLite fingerprints; off by default).
+  cross_day_dedup:
+    enabled: false
+    db_path: data/memory/cross_day_fingerprints.sqlite
+    lookback_days: 30
 sentiment_recency:
   enabled: true
   half_life_hours: 24.0
