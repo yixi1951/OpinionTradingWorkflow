@@ -13,6 +13,10 @@ from opinion_trading.core.factor_metrics import (
     compute_excess_return,
     rolling_date_ic,
 )
+from opinion_trading.core.transaction_costs import (
+    TransactionCostConfig,
+    resolve_one_way_fee_bps,
+)
 
 
 @dataclass
@@ -185,10 +189,20 @@ def apply_fill_price(
     *,
     slippage_bps: float = 0.0,
     fee_bps: float = 0.0,
+    trade_date: Optional[Union[date, datetime]] = None,
+    transaction_costs: Optional[TransactionCostConfig] = None,
+    notional_cny: float = 0.0,
 ) -> float:
     """BUY pays up, SELL receives down. Mid/MTM price is unchanged."""
     px = float(mid_price)
-    cost = transaction_cost_fraction(slippage_bps, fee_bps)
+    eff_fee = resolve_one_way_fee_bps(
+        fee_bps,
+        trade_date=trade_date,
+        action=action,
+        config=transaction_costs,
+        notional_cny=notional_cny if notional_cny > 0 else (px if px > 0 else 0.0),
+    )
+    cost = transaction_cost_fraction(slippage_bps, eff_fee)
     if cost <= 0 or px <= 0:
         return px
     act = str(action).upper()
@@ -222,6 +236,7 @@ def evaluate_signals(
     *,
     slippage_bps: float = 0.0,
     fee_bps: float = 0.0,
+    transaction_costs: Optional[TransactionCostConfig] = None,
 ) -> Tuple[pd.DataFrame, EvalSummary]:
     if signal_df.empty:
         summary = EvalSummary(0, 0.0, 0.0, 0.0, 0.0)
@@ -350,9 +365,24 @@ def evaluate_signals(
 
     valid = valid.copy()
     valid["strategy_return"] = valid.apply(_signed_return, axis=1)
-    cost_frac = transaction_cost_fraction(slippage_bps, fee_bps)
-    if cost_frac:
-        valid["strategy_return"] = valid["strategy_return"] - cost_frac
+
+    def _row_cost_frac(row) -> float:
+        eff_fee = resolve_one_way_fee_bps(
+            fee_bps,
+            trade_date=row.get("trade_date"),
+            action=row.get("action", ""),
+            config=transaction_costs,
+        )
+        return transaction_cost_fraction(slippage_bps, eff_fee)
+
+    if transaction_costs and transaction_costs.enabled:
+        valid["strategy_return"] = valid["strategy_return"] - valid.apply(
+            _row_cost_frac, axis=1
+        )
+    else:
+        cost_frac = transaction_cost_fraction(slippage_bps, fee_bps)
+        if cost_frac:
+            valid["strategy_return"] = valid["strategy_return"] - cost_frac
     merged = merged.copy()
     merged.loc[valid.index, "strategy_return"] = valid["strategy_return"]
     rets = valid["strategy_return"]

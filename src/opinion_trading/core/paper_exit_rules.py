@@ -7,6 +7,7 @@ from typing import Dict, List, Optional, Tuple
 
 from opinion_trading.core.evaluation import apply_fill_price, lookup_close
 from opinion_trading.core.models import PaperExitConfig, PaperTrade, TradeSignal
+from opinion_trading.core.transaction_costs import TransactionCostConfig
 
 
 def load_paper_exit_config(raw: Optional[dict] = None) -> PaperExitConfig:
@@ -87,6 +88,7 @@ def evaluate_paper_exits(
     memory_dir: str,
     slippage_bps: float = 0.0,
     fee_bps: float = 0.0,
+    transaction_costs: TransactionCostConfig | None = None,
 ) -> Tuple[List[TradeSignal], List[Dict]]:
     """Return SELL signals and diagnostic rows for TP/SL hits."""
     if not config.enabled or price_df is None:
@@ -114,7 +116,12 @@ def evaluate_paper_exits(
         else:
             continue
         fill_px = apply_fill_price(
-            float(mtm), "SELL", slippage_bps=slippage_bps, fee_bps=fee_bps
+            float(mtm),
+            "SELL",
+            slippage_bps=slippage_bps,
+            fee_bps=fee_bps,
+            trade_date=trade_date,
+            transaction_costs=transaction_costs,
         )
         diagnostics.append(
             {

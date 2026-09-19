@@ -70,6 +70,7 @@ class OpinionTradingWorkflow:
             position_size_ratio=self.config.strategy.position_size_ratio,
             slippage_bps=float(getattr(ecfg, "simulation_slippage_bps", 0.0) or 0.0),
             fee_bps=float(getattr(ecfg, "fee_bps", 0.0) or 0.0),
+            transaction_costs=getattr(ecfg, "transaction_costs", None) if ecfg else None,
         )
 
         self.collector = CollectorAgent(collector_skill)
@@ -429,6 +430,11 @@ class OpinionTradingWorkflow:
                 ),
                 fee_bps=float(
                     self.config.execution.fee_bps if self.config.execution else 0.0
+                ),
+                transaction_costs=(
+                    self.config.execution.transaction_costs
+                    if self.config.execution
+                    else None
                 ),
             )
             if exit_diag:

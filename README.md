@@ -1,7 +1,7 @@
 # OpinionTradingWorkflow
 
 [![CI](https://github.com/yixi1951/OpinionTradingWorkflow/actions/workflows/ci.yml/badge.svg)](https://github.com/yixi1951/OpinionTradingWorkflow/actions/workflows/ci.yml)
-[![Coverage](https://img.shields.io/badge/coverage-52%25+-yellow?logo=pytest)](https://github.com/yixi1951/OpinionTradingWorkflow/actions)
+[![Coverage](https://img.shields.io/badge/coverage-54%25+-yellow?logo=pytest)](https://github.com/yixi1951/OpinionTradingWorkflow/actions)
 [![Python](https://img.shields.io/badge/python-3.10%20|%203.11%20|%203.12-blue?logo=python)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![GitHub last commit](https://img.shields.io/github/last-commit/yixi1951/OpinionTradingWorkflow?logo=git)](https://github.com/yixi1951/OpinionTradingWorkflow/commits/main)
@@ -26,7 +26,7 @@ Python 个人项目：从股吧、新浪财经、微博、东方财富、雪球�
 | 指标 | 数值 |
 |------|------|
 | 测试用例 | **120+**（单元 + 集成 + 多 Agent 评分验证） |
-| 代码覆盖 | **52%+** CI gate（核心模块 60-97%，排除 Streamlit UI 的静态代码） |
+| 代码覆盖 | **54%+** CI gate（核心模块 60-97%，排除 Streamlit UI 的静态代码） |
 | 分析师 Agent | **3 个**（情绪 / 技术 / 基本面）+ 共识引擎 |
 | 行情数据 | yfinance → akshare 双回退 + Parquet 缓存 |
 | CI pipeline | ruff lint → black 格式 → mypy 类型 → pytest + 覆盖率门槛 → 报告上传 |

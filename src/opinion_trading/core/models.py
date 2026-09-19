@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, asdict, field
 from datetime import date, datetime
-from typing import Dict, List
+from typing import Dict, List, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from opinion_trading.core.transaction_costs import TransactionCostConfig
 
 
 @dataclass
@@ -194,6 +197,7 @@ class ExecutionConfig:
     simulation_slippage_bps: float = 5.0
     fee_bps: float = 0.0
     paper_exit: PaperExitConfig | None = None
+    transaction_costs: Optional["TransactionCostConfig"] = None
 
 
 @dataclass

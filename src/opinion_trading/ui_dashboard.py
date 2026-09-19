@@ -3681,32 +3681,11 @@ def main() -> None:
         with st.expander(t("settings_preview_title"), expanded=False):
             try:
                 from opinion_trading.core.config_loader import load_runtime_config
+                from opinion_trading.ui.settings_preview import build_settings_preview
 
                 cfg = load_runtime_config("config/settings.yaml")
-                rec = cfg.sentiment_recency
                 st.caption(t("settings_preview_hint"))
-                st.json(
-                    {
-                        "universe_symbols": cfg.symbols[:12],
-                        "analysis_enabled": bool(
-                            cfg.analysis and cfg.analysis.enabled
-                        ),
-                        "sentiment_recency": {
-                            "enabled": bool(rec and rec.enabled),
-                            "half_life_hours": rec.half_life_hours if rec else 24,
-                        },
-                        "risk": {
-                            "max_single_symbol_notional_pct": (
-                                cfg.risk.max_single_symbol_notional_pct
-                                if cfg.risk
-                                else 0.25
-                            ),
-                        },
-                        "execution_mode": (
-                            cfg.execution.mode if cfg.execution else "paper"
-                        ),
-                    }
-                )
+                st.json(build_settings_preview(cfg))
             except Exception as exc:
                 st.caption(str(exc))
 

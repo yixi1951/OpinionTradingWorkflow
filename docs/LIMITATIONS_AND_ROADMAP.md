@@ -33,7 +33,7 @@
 | 反讽/黑话 | LLM + 关键词 | 领域微调 |
 | **多因子** | Multi-Agent：情绪+技术+基本面+共识 | 行业/宏观因子 |
 | **风控** | `risk_controls`、Kelly 上限、纸面市价；**纸面 TP/SL 脚手架**（`execution.paper_exit`，非柜台） | 实盘止盈止损、券商风控 |
-| **交易成本** | `execution.simulation_slippage_bps` / `fee_bps` 写入 **evaluate_signals 策略收益** 与纸面成交价（同一价表路径） | 券商佣金档位 / 印花税日历 |
+| **交易成本** | `execution.simulation_slippage_bps` / `fee_bps` 写入 **evaluate_signals 策略收益** 与纸面成交价（同一价表路径）；可选 **`execution.transaction_costs`** 佣金档位 + 卖方印花税日历（默认关，见 `docs/transaction_costs_research.md`） | 真实券商费率 API、过户费/最低佣金等细项 |
 | 实时 9 分钟 | `row_level_llm: false` 默认；`--fast-daily` 演示 | 并行 LLM / 批处理 |
 
 ## 四、回测与过拟合
@@ -59,11 +59,11 @@
 | 评审点 | 已实现 | 仍推迟 |
 |--------|--------|--------|
 | 仅 Windows 脚本 | **`docs/DEV_SETUP.md`** + **`scripts/run_ui.sh`**（venv / `PYTHONPATH` / `--port` / `--no-browser`）+ `scripts/run_ui.ps1` | 完整 Linux `run_demo.sh`（OpenClaw stub 一键）非本切片 |
-| 容器 | `Dockerfile` + **`docker-compose.yml`**：`docker compose --profile ui up --build streamlit-ui` → **:8501**（挂载 `./data`、`./config`）；默认 `docker compose up` 仍是 API/采集/Prometheus 全栈 | 公网认证 / 反代 hardening |
-| UI 参数 | 侧边栏目录、Eval 价源 | 侧边栏改 `settings` 只读预览 |
+| 容器 | `Dockerfile` + **`docker-compose.yml`**：`docker compose --profile ui up --build streamlit-ui` → **:8501**（挂载 `./data`、`./config`）；默认 `docker compose up` 仍是 API/采集/Prometheus 全栈 | 生产 OAuth / 企业 SSO |
+| UI 参数 | 侧边栏目录、Eval 价源；**策略配置只读预览**（`build_settings_preview`，不写 YAML） | 侧边栏在线改 `settings`（仍推迟） |
 | 导出 | reports CSV/MD、execution intents；侧边栏 ZIP | — |
 | 移动端 | Streamlit 响应式一般 | 未专门适配 |
-| **认证** | 可选 `STREAMLIT_DASHBOARD_PASSWORD`（演示级） | 生产 Nginx/OAuth |
+| **认证** | 可选 `STREAMLIT_DASHBOARD_PASSWORD`（演示级）；**`docs/DEV_SETUP.md` + `deploy/nginx-streamlit.conf.example`** 反代清单 | 生产 OAuth / SSO |
 
 ## 七、安全
 

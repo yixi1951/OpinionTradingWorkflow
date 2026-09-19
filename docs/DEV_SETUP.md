@@ -79,6 +79,17 @@ docker compose --profile ui up --build streamlit-ui
 
 浏览器打开 http://localhost:8501。不要与全栈 `docker compose up` 同时跑（都会占用 8501）。
 
+### 公网暴露前（演示级加固清单）
+
+生产 OAuth / SSO 仍推迟；公网或团队共享环境建议至少：
+
+1. **不要**把 `:8501` 直接暴露到互联网；用 Nginx（或云 LB）反代并启用 HTTPS。
+2. 设置 **`STREAMLIT_DASHBOARD_PASSWORD`**（见 `.env.example`）；UI 内为明文比对，仅适合演示。
+3. 可选：Nginx `auth_basic` 第二层（示例见 `deploy/nginx-streamlit.conf.example`）。
+4. 防火墙仅放行 443；Streamlit 只监听 `127.0.0.1:8501`。
+5. 密钥与 API Key 只走环境变量 / `.env`，勿写入 `config/settings.yaml` 或镜像层。
+6. 完整 OAuth / 企业 SSO：**未实现**，见 `docs/LIMITATIONS_AND_ROADMAP.md`。
+
 全栈（API :8000、collector :8001、inference :8002、compute :8003、dashboard :8501、Prometheus :9090、Grafana :3000）：
 
 ```bash
@@ -103,7 +114,7 @@ docker compose up --build
 | `py -m opinion_trading.main --mode score-sample` | 有 key 时对 3 条中文 fixture 做 live 打分（研究原型，非收益预测） |
 | `python scripts/probe_deepseek.py` | 同上脚本入口；`--soft` 在未配置时 exit 0 |
 | `python scripts/check_gateway_health.py --stub` | 同上（脚本入口） |
-| `py -m opinion_trading.main --mode evaluate` | 单次信号评估（与纸面净值同一价表；可含滑点/费用） |
+| `py -m opinion_trading.main --mode evaluate` | 单次信号评估（与纸面净值同一价表；可含滑点/费用；可选 `execution.transaction_costs`） |
 | `python scripts/compare_ml_baseline.py --labels tests/fixtures/annotation_sample_labeled.csv` | P3：TF-IDF vs 关键词 vs offline hybrid（CI 无 key） |
 
 Opt-in 采集平台（默认 daily 列表不含）：在 `config/settings.yaml` → `strategy.platforms` 取消注释 `zhihu` / `bilibili` / `xiaohongshu` / `weixin`。券商沙箱：`execution.mode: sandbox`（只记意图）。
