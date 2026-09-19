@@ -18,10 +18,12 @@ class PaperTradingSkill:
         position_size_ratio: float,
         *,
         use_market_prices: bool = True,
+        price_df=None,
     ) -> None:
         self.initial_cash = initial_cash
         self.position_size_ratio = position_size_ratio
         self.use_market_prices = use_market_prices
+        self.price_df = price_df
 
     def simulate(
         self,
@@ -137,6 +139,12 @@ class PaperTradingSkill:
         today_aggregated: Dict[str, AggregatedSentiment],
         market_prices: Dict[str, tuple[float | None, str]],
     ) -> Tuple[float, str]:
+        if self.use_market_prices and self.price_df is not None:
+            from opinion_trading.core.evaluation import lookup_close
+
+            table_px = lookup_close(self.price_df, symbol, trade_date)
+            if table_px is not None and table_px > 0:
+                return float(table_px), "price_table"
         if self.use_market_prices and symbol in market_prices:
             px, src = market_prices[symbol]
             if px is not None and px > 0:

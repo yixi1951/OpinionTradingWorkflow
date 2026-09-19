@@ -82,6 +82,16 @@ class OpinionTradingWorkflow:
             self.analyst = SentimentAnalystAgent(analyst_skill)
             logger.info("Multi-agent analysis DISABLED (pure sentiment only)")
         self.trader = TraderAgent(trader_skill)
+        self._install_eval_price_table()
+
+    def _install_eval_price_table(self) -> None:
+        """Share the Eval close table with paper fills / MTM when a CSV exists."""
+        try:
+            from opinion_trading.core.market_data import load_local_price_table
+
+            load_local_price_table()
+        except Exception as exc:
+            logger.debug("Eval price table not installed: %s", exc)
 
     def run_daily(self, run_date: date, *, skip_crawl: bool = False) -> Dict:
         logger.info(

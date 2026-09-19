@@ -338,7 +338,7 @@ Connect OpenClaw via `OPENCLAW_URL` (see `scripts/run_demo_openclaw.ps1`). Sideb
         "walk_forward_recommendation": "Recommendation",
         "paper_account_title": "Paper account",
         "paper_equity_title": "Paper equity curve",
-        "paper_equity_hint": "From trade_history.jsonl; marks-to-market via latest close when available.",
+        "paper_equity_hint": "From trade_history.jsonl; marks-to-market via the same close table as evaluate_signals (PRICE_FILE / cache CSV).",
         "paper_cash": "Cash",
         "paper_positions": "Positions",
         "paper_total_value": "Total value",
@@ -642,7 +642,7 @@ Connect OpenClaw via `OPENCLAW_URL` (see `scripts/run_demo_openclaw.ps1`). Sideb
         "walk_forward_recommendation": "结论建议",
         "paper_account_title": "纸面账户",
         "paper_equity_title": "纸面净值曲线",
-        "paper_equity_hint": "由 trade_history.jsonl 重建；持仓按最近收盘价市值（若可获取）。",
+        "paper_equity_hint": "由 trade_history.jsonl 重建；持仓按与 evaluate_signals 相同的收盘价表（PRICE_FILE / price_history_cache）市值。",
         "paper_cash": "现金",
         "paper_positions": "持仓",
         "paper_total_value": "总市值",
@@ -3321,10 +3321,21 @@ def _render_paper_account_panel(
     _render_paper_equity_chart(memory_dir)
 
 
-def _render_paper_equity_chart(memory_dir: str) -> None:
+def _render_paper_equity_chart(memory_dir: str, price_df=None) -> None:
+    from opinion_trading.core.evaluation import load_prices, resolve_price_csv
     from opinion_trading.core.paper_equity import build_paper_equity_curve
 
-    eq = build_paper_equity_curve(memory_dir)
+    table = price_df
+    if table is None:
+        cached = st.session_state.get("eval_price_df")
+        if isinstance(cached, pd.DataFrame) and not cached.empty:
+            table = cached
+    if table is None or (isinstance(table, pd.DataFrame) and table.empty):
+        try:
+            table = load_prices(resolve_price_csv("data/reports/price_history_cache.csv"))
+        except Exception:
+            table = None
+    eq = build_paper_equity_curve(memory_dir, price_df=table)
     if eq.empty:
         return
     st.markdown(f"#### {t('paper_equity_title')}")
@@ -4223,6 +4234,14 @@ def main() -> None:
                 wf_price = load_prices(price_csv)
             except Exception:
                 wf_price = pd.DataFrame()
+        if isinstance(wf_price, pd.DataFrame) and not wf_price.empty:
+            st.session_state["eval_price_df"] = wf_price
+            try:
+                from opinion_trading.core.market_data import set_local_price_table
+
+                set_local_price_table(wf_price)
+            except Exception:
+                pass
         _render_walk_forward_panel(memory_dir, report_dir, wf_price)
 
         st.markdown(f"#### {t('monthly_training')}")
