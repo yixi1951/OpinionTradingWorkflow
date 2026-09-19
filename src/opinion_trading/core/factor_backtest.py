@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
-from datetime import date
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -14,7 +12,6 @@ import pandas as pd
 from opinion_trading.core.factor_metrics import (
     compute_excess_return,
     compute_factor_ic,
-    compute_icir,
     rolling_date_ic,
 )
 from opinion_trading.core.log_utils import get_logger

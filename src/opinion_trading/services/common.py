@@ -29,7 +29,7 @@ class MetricsRegistry:
         self.latency_count[name] = self.latency_count.get(name, 0.0) + 1.0
 
     def render(self) -> str:
-        lines = [f"# HELP service_info OpinionTrading service", f'service_info{{service="{self.service}"}} 1']
+        lines = ["# HELP service_info OpinionTrading service", f'service_info{{service="{self.service}"}} 1']
         for k, v in sorted(self.counters.items()):
             lines.append(f'{k}{{service="{self.service}"}} {v}')
         for k, v in sorted(self.gauges.items()):

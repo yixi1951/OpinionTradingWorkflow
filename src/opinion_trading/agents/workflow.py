@@ -6,7 +6,7 @@ import os
 from datetime import date, datetime
 from pathlib import Path
 from time import sleep
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from opinion_trading.core.log_utils import get_logger
 from opinion_trading.agents.roles import (

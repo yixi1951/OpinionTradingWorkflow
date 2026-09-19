@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from opinion_trading.core.models import OpinionSnapshot
 from opinion_trading.core.time_decay import weighted_mean_scores

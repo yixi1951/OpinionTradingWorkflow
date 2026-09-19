@@ -4,6 +4,9 @@ from datetime import date
 from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Tuple
 
 if TYPE_CHECKING:
+    from opinion_trading.agents.consensus_engine import ConsensusEngine
+    from opinion_trading.agents.fundamental_analyst import FundamentalAnalyst
+    from opinion_trading.agents.technical_analyst import TechnicalAnalyst
     from opinion_trading.core.data_quality import QualityGateResult
 
 from opinion_trading.core.models import (
@@ -73,9 +76,9 @@ class MultiAnalystAgent:
         self._sentiment_analyst = sentiment_analyst
         self._analysis_cfg = analysis_cfg or AnalysisConfig()
         self._explanation_lang = explanation_lang or "zh"
-        self._technical_analyst: Optional["TechnicalAnalyst"] = None  # type: ignore[name-defined]
-        self._fundamental_analyst: Optional["FundamentalAnalyst"] = None  # type: ignore[name-defined]
-        self._consensus_engine: Optional["ConsensusEngine"] = None  # type: ignore[name-defined]
+        self._technical_analyst: Optional[TechnicalAnalyst] = None
+        self._fundamental_analyst: Optional[FundamentalAnalyst] = None
+        self._consensus_engine: Optional[ConsensusEngine] = None
 
     def _lazy_init(self) -> None:
         if self._technical_analyst is not None:
@@ -131,7 +134,6 @@ class MultiAnalystAgent:
         self._lazy_init()
 
         # Collect opinions from all analysts
-        today_aggregated = aggregated.get(trade_date, {})
         opinions = []
 
         from opinion_trading.core.data_quality import apply_quality_to_sentiment_confidence

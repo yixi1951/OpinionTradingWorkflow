@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import random
 from datetime import date
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 from opinion_trading.core.log_utils import get_logger
 from opinion_trading.core.market_data import fetch_closes_for_symbols
