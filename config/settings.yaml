@@ -16,6 +16,10 @@ strategy:
   # - zhihu
   # B 站：best-effort 搜索页 HTML adapter + stub fallback（见 tests/fixtures/bilibili_page.html）
   # - bilibili
+  # 小红书：best-effort 搜索页 HTML + stub fallback（见 tests/fixtures/xiaohongshu_page.html）
+  # - xiaohongshu
+  # 公众号：Sogou 列表页 HTML + stub fallback（真实 mp 页常被拦截；见 tests/fixtures/weixin_page.html）
+  # - weixin
   # - cninfo
   # - broker_report
   platform_weights:
@@ -27,6 +31,8 @@ strategy:
     douyin: 1.05
     zhihu: 1.05
     bilibili: 1.0
+    xiaohongshu: 0.95
+    weixin: 1.1
     cninfo: 1.5
     broker_report: 1.45
   bearish_threshold: -0.6
@@ -104,6 +110,8 @@ platform_taxonomy:
   douyin: short_video
   zhihu: qa_community
   bilibili: short_video
+  xiaohongshu: social
+  weixin: official_account
   cninfo: disclosure
   broker_report: research
 scoring_fusion:
@@ -121,14 +129,17 @@ risk:
   max_open_positions: 10
 execution:
   mode: paper
+  # paper | export | simulation | sandbox (sandbox = dry-run JSONL, no live orders)
   export_intents: true
   dry_run: true
   simulation_slippage_bps: 5.0
   fee_bps: 0.0
 collection:
-  # Config-only proxy list (no rotation in this prototype). Also: PROXY_POOL=url1,url2
+  # Round-robin / failover via ProxyRotator (HTTP crawl only). Also: PROXY_POOL=url1,url2
+  # Captcha solvers and login-session farms are NOT implemented.
   proxy_urls: []
-  # Bilibili / Zhihu adapters exist but stay opt-in (see strategy.platforms comments).
+  # Zhihu / Bilibili / Xiaohongshu / Weixin adapters exist but stay opt-in
+  # (uncomment under strategy.platforms). They are not on the default daily list.
 sentiment_recency:
   enabled: true
   half_life_hours: 24.0

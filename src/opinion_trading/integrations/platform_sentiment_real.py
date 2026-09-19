@@ -106,6 +106,17 @@ _PLATFORM_WEIBO = "weibo"
 _PLATFORM_XUEQIU = "xueqiu"
 _PLATFORM_ZHIHU = "zhihu"
 _PLATFORM_BILIBILI = "bilibili"
+_PLATFORM_XIAOHONGSHU = "xiaohongshu"
+_PLATFORM_WEIXIN = "weixin"
+_PLATFORM_ALIASES = {
+    "xhs": _PLATFORM_XIAOHONGSHU,
+    "xiaohongshu": _PLATFORM_XIAOHONGSHU,
+    "weixin": _PLATFORM_WEIXIN,
+    "gongzhonghao": _PLATFORM_WEIXIN,
+    "wechat_oa": _PLATFORM_WEIXIN,
+    "wechat": _PLATFORM_WEIXIN,
+    "official_account": _PLATFORM_WEIXIN,
+}
 
 
 class RealPlatformSentimentProvider:
@@ -174,7 +185,12 @@ class RealPlatformSentimentProvider:
             self._browser_platforms = frozenset({"xueqiu", "weibo", "douyin"})
             self._browser = None
 
+    def _canonical_platform(self, platform: str) -> str:
+        key = str(platform or "").strip().lower()
+        return _PLATFORM_ALIASES.get(key, key)
+
     def fetch(self, platform: str, symbol: str, trade_date: date) -> Dict[str, float]:
+        platform = self._canonical_platform(platform)
         try:
             raw_rows = self.collect_raw_posts(
                 platform=platform, symbol=symbol, trade_date=trade_date
@@ -229,6 +245,7 @@ class RealPlatformSentimentProvider:
     def collect_raw_posts(
         self, platform: str, symbol: str, trade_date: date, max_posts: int | None = None
     ) -> List[Dict[str, str]]:
+        platform = self._canonical_platform(platform)
         if max_posts is None:
             max_posts = getattr(self, "max_posts", None) or int(
                 os.environ.get("OPENCLAW_MAX_POSTS", "20")
@@ -275,6 +292,14 @@ class RealPlatformSentimentProvider:
                 )
             elif platform == _PLATFORM_BILIBILI:
                 rows = self._collect_bilibili_rows(
+                    list_url, html, platform, symbol, trade_date, max_posts=max_posts
+                )
+            elif platform == _PLATFORM_XIAOHONGSHU:
+                rows = self._collect_xiaohongshu_rows(
+                    list_url, html, platform, symbol, trade_date, max_posts=max_posts
+                )
+            elif platform == _PLATFORM_WEIXIN:
+                rows = self._collect_weixin_rows(
                     list_url, html, platform, symbol, trade_date, max_posts=max_posts
                 )
             else:
@@ -521,7 +546,7 @@ class RealPlatformSentimentProvider:
 
         return rows
 
-    def _collect_zhihu_rows(
+    def _collect_selector_cards(
         self,
         list_url: str,
         html: str,
@@ -529,18 +554,13 @@ class RealPlatformSentimentProvider:
         symbol: str,
         trade_date: date,
         max_posts: int,
+        selectors: tuple[str, ...],
+        title_selectors: str,
     ) -> List[Dict[str, str]]:
-        """Best-effort Zhihu search/question cards (no login, stub fallback elsewhere)."""
+        """Shared card parser for opt-in HTML adapters (zhihu / bili / xhs / weixin)."""
         soup = BeautifulSoup(html, "lxml")
         rows: List[Dict[str, str]] = []
         seen: set[str] = set()
-        selectors = (
-            ".ContentItem",
-            ".List-item",
-            ".SearchResult-Card",
-            "article",
-            ".QuestionItem",
-        )
         cards = []
         for sel in selectors:
             cards.extend(soup.select(sel))
@@ -550,7 +570,7 @@ class RealPlatformSentimentProvider:
             )
 
         for card in cards:
-            title_el = card.select_one("a, h2, h3, .ContentItem-title")
+            title_el = card.select_one(title_selectors)
             title = self._clean_text(
                 title_el.get_text(" ", strip=True) if title_el else ""
             )
@@ -584,6 +604,33 @@ class RealPlatformSentimentProvider:
             if len(rows) >= max_posts:
                 break
         return rows
+
+    def _collect_zhihu_rows(
+        self,
+        list_url: str,
+        html: str,
+        platform: str,
+        symbol: str,
+        trade_date: date,
+        max_posts: int,
+    ) -> List[Dict[str, str]]:
+        """Best-effort Zhihu search/question cards (no login, stub fallback elsewhere)."""
+        return self._collect_selector_cards(
+            list_url,
+            html,
+            platform,
+            symbol,
+            trade_date,
+            max_posts,
+            selectors=(
+                ".ContentItem",
+                ".List-item",
+                ".SearchResult-Card",
+                "article",
+                ".QuestionItem",
+            ),
+            title_selectors="a, h2, h3, .ContentItem-title",
+        )
 
     def _collect_bilibili_rows(
         self,
@@ -595,61 +642,64 @@ class RealPlatformSentimentProvider:
         max_posts: int,
     ) -> List[Dict[str, str]]:
         """Best-effort Bilibili search cards (no login, stub fallback elsewhere)."""
-        soup = BeautifulSoup(html, "lxml")
-        rows: List[Dict[str, str]] = []
-        seen: set[str] = set()
-        selectors = (
-            ".bili-video-card",
-            ".video-item",
-            ".bili-video-card__info",
-            "article",
-            ".video-list-item",
+        return self._collect_selector_cards(
+            list_url,
+            html,
+            platform,
+            symbol,
+            trade_date,
+            max_posts,
+            selectors=(
+                ".bili-video-card",
+                ".video-item",
+                ".bili-video-card__info",
+                "article",
+                ".video-list-item",
+            ),
+            title_selectors="a.title, h2, h3, .bili-video-card__info--tit, a",
         )
-        cards = []
-        for sel in selectors:
-            cards.extend(soup.select(sel))
-        if not cards:
-            return self._collect_generic_rows(
-                list_url, html, platform, symbol, trade_date, max_posts=max_posts
-            )
 
-        for card in cards:
-            title_el = card.select_one(
-                "a.title, h2, h3, .bili-video-card__info--tit, a"
-            )
-            title = self._clean_text(
-                title_el.get_text(" ", strip=True) if title_el else ""
-            )
-            body = self._clean_text(card.get_text(" ", strip=True))
-            if not self._looks_like_content(title or body):
-                continue
-            key = (title or body)[:120]
-            if key in seen:
-                continue
-            seen.add(key)
-            href = ""
-            if title_el is not None:
-                href = self._clean_text(title_el.get("href", ""))
-            article_url = urljoin(list_url, href) if href else list_url
-            rows.append(
-                self._build_raw_row(
-                    trade_date=trade_date,
-                    platform=platform,
-                    symbol=symbol,
-                    title=title or body[:80],
-                    summary=body,
-                    post_time=self._extract_time(body, trade_date=trade_date),
-                    content=body,
-                    url=article_url,
-                    source_page=list_url,
-                    is_noise=self._is_noise_text(body),
-                    capture_status="success",
-                    failure_reason="",
-                )
-            )
-            if len(rows) >= max_posts:
-                break
-        return rows
+    def _collect_xiaohongshu_rows(
+        self,
+        list_url: str,
+        html: str,
+        platform: str,
+        symbol: str,
+        trade_date: date,
+        max_posts: int,
+    ) -> List[Dict[str, str]]:
+        """Best-effort Xiaohongshu note cards (no login; live pages often blocked)."""
+        return self._collect_selector_cards(
+            list_url,
+            html,
+            platform,
+            symbol,
+            trade_date,
+            max_posts,
+            selectors=(".note-item", ".feeds-page .note-item", "article"),
+            title_selectors="a.title, a, h2, h3",
+        )
+
+    def _collect_weixin_rows(
+        self,
+        list_url: str,
+        html: str,
+        platform: str,
+        symbol: str,
+        trade_date: date,
+        max_posts: int,
+    ) -> List[Dict[str, str]]:
+        """Best-effort WeChat OA / Sogou listing cards. Public pages are often walled."""
+        return self._collect_selector_cards(
+            list_url,
+            html,
+            platform,
+            symbol,
+            trade_date,
+            max_posts,
+            selectors=(".txt-box", ".news-box .txt-box", "article"),
+            title_selectors="h3 a, a, h3, h2",
+        )
 
     def _collect_douyin_rows(
         self,
@@ -935,6 +985,7 @@ class RealPlatformSentimentProvider:
         ]
 
     def _build_url(self, platform: str, symbol: str) -> str:
+        platform = self._canonical_platform(platform)
         code = self._to_cn_market_code(symbol)
 
         if platform in {"guba", "eastmoney"}:
@@ -956,6 +1007,12 @@ class RealPlatformSentimentProvider:
         if platform == "bilibili":
             q = quote(symbol)
             return f"https://search.bilibili.com/all?keyword={q}"
+        if platform == _PLATFORM_XIAOHONGSHU:
+            q = quote(symbol)
+            return f"https://www.xiaohongshu.com/search_result?keyword={q}"
+        if platform == _PLATFORM_WEIXIN:
+            q = quote(symbol)
+            return f"https://weixin.sogou.com/weixin?type=2&query={q}"
 
         raise ValueError(f"Unsupported platform: {platform}")
 
@@ -968,30 +1025,49 @@ class RealPlatformSentimentProvider:
         # 2) 频率控制
         _rate_limit(url)
 
-        # 3) 实际请求
+        # 3) 实际请求（optional round-robin proxy; no captcha / login farm）
         logger.info("Downloading %s", url[:160])
-        try:
-            response = requests.get(
-                url, headers=self._HEADERS, timeout=self.timeout
-            )
-            response.raise_for_status()
-            response.encoding = response.apparent_encoding or response.encoding or "utf-8"
-        except requests.Timeout:
-            logger.warning("Timeout downloading %s (%ds)", url[:120], self.timeout)
-            raise
-        except requests.ConnectionError as exc:
-            logger.warning("Connection error %s: %s", url[:120], exc)
-            raise
-        except requests.HTTPError as exc:
-            logger.warning("HTTP %s for %s", exc.response.status_code, url[:120])
-            raise
-        except Exception:
-            logger.exception("Unexpected error downloading %s", url[:120])
-            raise
+        from opinion_trading.core.proxy_pool import get_proxy_rotator
 
-        # 4) 写入缓存
-        _write_html_cache(url, response.text)
-        return response.text
+        rotator = get_proxy_rotator()
+        attempts = 1 + min(2, len(rotator.urls))
+        last_exc: Exception | None = None
+        for _attempt in range(attempts):
+            proxy_url = rotator.next() if rotator.urls else None
+            proxies = rotator.requests_proxies(proxy_url)
+            try:
+                response = requests.get(
+                    url,
+                    headers=self._HEADERS,
+                    timeout=self.timeout,
+                    proxies=proxies,
+                )
+                response.raise_for_status()
+                response.encoding = (
+                    response.apparent_encoding or response.encoding or "utf-8"
+                )
+                rotator.mark_success(proxy_url)
+                _write_html_cache(url, response.text)
+                return response.text
+            except requests.Timeout as exc:
+                logger.warning("Timeout downloading %s (%ds)", url[:120], self.timeout)
+                rotator.mark_failure(proxy_url)
+                last_exc = exc
+                continue
+            except requests.ConnectionError as exc:
+                logger.warning("Connection error %s: %s", url[:120], exc)
+                rotator.mark_failure(proxy_url)
+                last_exc = exc
+                continue
+            except requests.HTTPError as exc:
+                logger.warning("HTTP %s for %s", exc.response.status_code, url[:120])
+                raise
+            except Exception:
+                logger.exception("Unexpected error downloading %s", url[:120])
+                raise
+        if last_exc is not None:
+            raise last_exc
+        raise RuntimeError(f"download failed for {url[:120]}")
 
     def _extract_text_snippets(self, html: str) -> List[str]:
         soup = BeautifulSoup(html, "lxml")

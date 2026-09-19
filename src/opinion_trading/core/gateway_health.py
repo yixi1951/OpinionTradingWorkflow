@@ -1,8 +1,10 @@
 """OpenClaw / collection gateway health probe (HTTP + optional WS).
 
 Offline-safe: when no gateway URL is configured, reports a Stub pass so CI and
-local keyword mode still have a clear HEALTH PASS/FAIL line. Proxy pool is
-config-only (no rotation) — list URLs in ``collection.proxy_urls`` or ``PROXY_POOL``.
+local keyword mode still have a clear HEALTH PASS/FAIL line. Proxy URLs from
+``collection.proxy_urls`` / ``PROXY_POOL`` are enumerated here; crawl rotation
+lives in ``opinion_trading.core.proxy_pool.ProxyRotator`` (round-robin + failover).
+Captcha solvers and login-session farms are not implemented.
 """
 
 from __future__ import annotations
