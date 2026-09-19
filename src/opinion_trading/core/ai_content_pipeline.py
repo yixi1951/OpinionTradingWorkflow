@@ -38,9 +38,21 @@ def _call_llm_json(prompt: str, texts: List[str]) -> Optional[Dict[str, Any]]:
         return None
 
     if os.environ.get("DEEPSEEK_API_KEY", "").strip():
-        base = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
-        model = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
-        key = os.environ["DEEPSEEK_API_KEY"].strip()
+        from opinion_trading.core.deepseek_client import chat_completion
+
+        try:
+            content = chat_completion(
+                prompt
+                + "\n输入文本数组:\n"
+                + json.dumps(texts, ensure_ascii=False),
+                system="只输出合法 JSON，不要 Markdown。",
+                temperature=0.1,
+                max_tokens=800,
+            )
+            return _extract_json_obj(str(content))
+        except Exception as exc:
+            logger.warning("DeepSeek JSON chat failed: %s", exc)
+            return None
     else:
         base = os.environ.get(
             "QWEN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"
@@ -138,7 +150,6 @@ def screen_relevance(
                     code = symbol.split(".")[0]
                     relevant = True
                     reason = ""
-                    low = t.lower()
                     if any(
                         x in t
                         for x in ("加微信", "加V", "免费荐股", "稳赚", "扫码进群")
@@ -214,8 +225,13 @@ def score_sentiment(
         for i, res in zip(batch_idxs, results):
             out[i]["ai_score"] = float(res.score)
             src = str(res.source)
-            if src in {"openclaw", "transformers", "hybrid"}:
-                out[i]["score_source"] = "openclaw" if src != "transformers" else "transformers"
+            if src in {"openclaw", "transformers", "hybrid", "deepseek"}:
+                if src == "transformers":
+                    out[i]["score_source"] = "transformers"
+                elif src == "deepseek":
+                    out[i]["score_source"] = "deepseek"
+                else:
+                    out[i]["score_source"] = "openclaw" if src != "hybrid" else "hybrid"
             elif src == "keyword":
                 # keep keyword only if LLM truly fell back
                 out[i]["score_source"] = "keyword"
@@ -246,7 +262,7 @@ def run_ai_content_pipeline(
         1
         for r in scored
         if str(r.get("score_source", "")).lower()
-        in {"openclaw", "transformers", "gateway", "hybrid"}
+        in {"openclaw", "transformers", "gateway", "hybrid", "deepseek"}
     )
     stats = {
         "total": total,

@@ -1,5 +1,74 @@
 # Changelog
 
+## Unreleased (2026-09)
+
+### DeepSeek live sentiment
+- Env interface: `DEEPSEEK_API_KEY` (required for live), optional `DEEPSEEK_BASE_URL` / `DEEPSEEK_MODEL` / `DEEPSEEK_TIMEOUT`.
+- OpenAI-compatible `/v1/chat/completions` client with one retry; keyword fallback when the key is missing (or `DEEPSEEK_REQUIRE=1` for a bilingual error).
+- Wired first in `AISentimentAnalyzer` when `scoring.mode` is `ai`/`hybrid` (CI stays `SCORING_MODE=keyword`).
+- CLI: `--mode deepseek-probe`, `--mode score-sample`, `scripts/probe_deepseek.py`. pytest mocks HTTP and strips the key.
+- Manual GitHub Action **DeepSeek probe** (`.github/workflows/deepseek-probe.yml`, `workflow_dispatch` only) reads repo secret `DEEPSEEK_API_KEY`. Not on PR push.
+
+### Opt-in Xiaohongshu / Weixin adapters
+- Best-effort HTML collectors + stub fallback for `xiaohongshu` (`xhs`) and `weixin` (`gongzhonghao` / `wechat_oa`).
+- Not on the default daily `strategy.platforms` list; enable by uncommenting in `config/settings.yaml`.
+- Offline fixtures: `tests/fixtures/xiaohongshu_page.html`, `tests/fixtures/weixin_page.html`.
+
+### Honest 3-fold walk-forward bundle (generated on demand)
+- Committed replay span stays ~87 weekdays so `replay-batch` does not clone 170+ raw CSVs.
+- `materialize_honest_walk_forward` / `scripts/materialize_wf_history.py` write ~240 calendar days of synthetic prices + `signal_history.jsonl` into a tmp dir.
+- Tests assert 3 non-overlapping 60/20 folds without window shrink. This is **not** real crawl history.
+
+### Proxy rotation skeleton
+- `ProxyRotator` round-robin + failover; crawl GET uses `collection.proxy_urls` / `PROXY_POOL`.
+- Captcha solvers and login-session farms remain deferred.
+
+### P4 sandbox broker
+- `SandboxBrokerAdapter` records dry-run intents to `sandbox_intents_*.jsonl` (`live_order=False`). No live broker API.
+
+### Human labels / live hybrid flags
+- Annotation schema adds optional `label_source` / `annotator`. CI fixture stays `synthetic`.
+- Live hybrid LLM requires `HYBRID_USE_LLM=1` (or `USE_LLM_GATEWAY=1`) **and** a gateway/key; skipped in CI.
+
+### P2 gateway health
+- `scripts/check_gateway_health.py` and `--mode gateway-health`: HTTP `/ready` + `/api/v1/sentiment`, optional WS.
+- No `OPENCLAW_URL` → Stub **HEALTH PASS** (offline/CI). Proxy URLs from `collection.proxy_urls` / `PROXY_POOL` are rotated by `ProxyRotator` on crawl GET (not a captcha/login farm).
+
+### Longer walk-forward fixtures
+- Price table spans 2026-03-20..2026-06-18. Raw seed clones weekday CSVs 2026-03-23..2026-06-17 (~87 days).
+- Default 60/20 windows are not shrunk on that span. Three non-overlapping 60/20 folds use the **on-demand** ~240-day synthetic bundle (`scripts/materialize_wf_history.py`); still not real history.
+
+### P3 labeled set / hybrid
+- `tests/fixtures/annotation_sample_labeled.csv`: 36 synthetic rows, 12 per class.
+- `compare_ml_baseline` also reports offline hybrid fusion (LLM skipped without keys).
+- `scripts/train_eval.py` lazy-imports sklearn; CI smoke skips if missing.
+
+### P5 Bilibili adapter
+- Best-effort Bilibili search HTML + stub fallback; not on default daily platform list.
+
+### Transaction costs
+- `evaluate_signals` / paper fills honor `slippage_bps` + `fee_bps` on the shared price table. MTM stays mid. Broker **sandbox stub** records dry-run intents; live API still future.
+
+### P0 replay / walk-forward
+- Multi-day fixture raw CSVs (`tests/fixtures/raw_posts_2026-06-1*.csv`) and `price_history_replay.csv`.
+- `--mode replay-batch` seeds fixtures when `data/raw` is empty; omits 2025 backtest date defaults so 2026 fixtures are not filtered out.
+- Walk-forward auto-shrinks train/test windows on short `signal_history`.
+
+### P1 price alignment
+- Paper equity MTM and `evaluate_signals` share `lookup_close` / local price table (`PRICE_FILE` or cache CSV).
+- `validate_paper_eval_price_alignment` catches mismatches.
+
+### P3 ML baseline
+- `scripts/compare_ml_baseline.py` writes TF-IDF vs keyword report; CI fixture `tests/fixtures/annotation_sample_labeled.csv`.
+- `sample_annotation.py` accepts raw CSV as well as JSONL.
+
+### P5 Zhihu adapter
+- Best-effort Zhihu HTML collector + stub fallback; not enabled in default daily platform list.
+
+### Tests / docs
+- Replay-batch, walk-forward, price alignment, zhihu, and core-module coverage tests.
+- Roadmap / DEV_SETUP / CI / annotation docs updated.
+
 ## Unreleased (2026-06)
 
 ### CI & smoke

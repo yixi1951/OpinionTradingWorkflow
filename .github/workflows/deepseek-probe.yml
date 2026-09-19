@@ -1,0 +1,65 @@
+name: DeepSeek probe
+
+# Manual only — never on push/PR. Default CI stays offline (keyword + mocks).
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: DeepSeek chat model (blank uses deepseek-chat)
+        required: false
+        type: string
+        default: deepseek-chat
+      require:
+        description: Fail if DEEPSEEK_API_KEY is missing
+        required: false
+        type: boolean
+        default: true
+      score_sample:
+        description: Also run --mode score-sample after the ping probe
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      PYTHONPATH: src
+      SCORING_MODE: ai
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      DEEPSEEK_MODEL: ${{ inputs.model }}
+      DEEPSEEK_REQUIRE: ${{ inputs.require && '1' || '0' }}
+      DEEPSEEK_ALLOW_LIVE: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Require repository secret DEEPSEEK_API_KEY
+        run: |
+          if [ -z "${DEEPSEEK_API_KEY}" ]; then
+            echo "DEEPSEEK_API_KEY is empty or not configured."
+            echo "Add it at: Repo → Settings → Secrets and variables → Actions"
+            echo "Secret name must be exactly: DEEPSEEK_API_KEY"
+            echo "Do not paste the key into chat, YAML, or logs."
+            exit 1
+          fi
+          echo "::add-mask::${DEEPSEEK_API_KEY}"
+          echo "DEEPSEEK_API_KEY is configured (value not printed)."
+
+      - name: Live DeepSeek ping probe
+        run: python -m opinion_trading.main --mode deepseek-probe
+
+      - name: Live DeepSeek score-sample
+        if: ${{ inputs.score_sample }}
+        run: python -m opinion_trading.main --mode score-sample

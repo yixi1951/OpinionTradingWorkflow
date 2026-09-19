@@ -27,7 +27,26 @@ python -m pytest tests/ -q
 
 ## 环境变量
 
-复制 [`.env.example`](../.env.example) 为 `.env` 并按需填写（OpenClaw、采集并行、`STREAMLIT_DASHBOARD_PASSWORD` 等）。
+复制 [`.env.example`](../.env.example) 为 `.env` 并按需填写（DeepSeek、OpenClaw、采集并行、`STREAMLIT_DASHBOARD_PASSWORD` 等）。**不要提交 `.env` 或真实 API key。**
+
+Live 情绪打分（DeepSeek 优先）：
+
+```bash
+cp .env.example .env   # 填入 DEEPSEEK_API_KEY=sk-...
+export PYTHONPATH=src SCORING_MODE=ai
+python -m opinion_trading.main --mode deepseek-probe
+python -m opinion_trading.main --mode score-sample
+# daily / pipeline 在 scoring.mode=ai 且 key 存在时走 DeepSeek；否则回退关键词
+```
+
+无 key 时探针打印 **NOT_CONFIGURED**（中英提示）。pytest / 默认 CI 删掉 `DEEPSEEK_API_KEY` 并 mock HTTP，不发起真实请求。
+
+**GitHub Actions 真实探针（密钥只放仓库 Secret，不要贴到聊天里）**
+
+1. Repo → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**
+2. Name 必须是 **`DEEPSEEK_API_KEY`**，Value 填 DeepSeek 密钥
+3. **Actions** → 工作流 **DeepSeek probe** → **Run workflow** → 选分支（例如 `cursor/roadmap-p0-p5-7604`）→ Run
+4. 文件：`.github/workflows/deepseek-probe.yml`（仅 `workflow_dispatch`，不会在每次 PR push 跑）
 
 终端采集进度条（需 `pip install tqdm`）：`COLLECT_SHOW_PROGRESS=1`
 
@@ -44,11 +63,21 @@ streamlit run src/opinion_trading/ui_dashboard.py
 |------|------|
 | `py -m opinion_trading.main --mode daily` | 日线 pipeline（信号、纸面、quality、event_log） |
 | `py -m opinion_trading.main --mode daily --fast-daily --date YYYY-MM-DD` | 跳过爬虫，重放已有 raw CSV |
-| `py -m opinion_trading.main --mode walk_forward` | 样本外 walk-forward 报告 |
-| `py -m opinion_trading.main --mode evaluate` | 单次信号评估 |
+| `py -m opinion_trading.main --mode replay-batch --reset-paper` | P0：按 raw CSV 日期批量 fast-daily；无 raw 时 seed `tests/fixtures` |
+| `py -m opinion_trading.main --mode walk_forward` | 样本外 walk-forward；价表走 `resolve_price_csv`（cache / fixture） |
+| `python scripts/materialize_wf_history.py --dest /tmp/ot-honest-wf` | 生成 ~240 日 synthetic 价表+信号，供 3 折 60/20（不入库 raw） |
+| `py -m opinion_trading.main --mode gateway-health` | P2：OpenClaw HTTP/WS 探针；无 URL 时 Stub PASS |
+| `py -m opinion_trading.main --mode deepseek-probe` | DeepSeek 密钥探针；无 `DEEPSEEK_API_KEY` 时 `NOT_CONFIGURED`（exit 2，CI 不跑 live） |
+| `py -m opinion_trading.main --mode score-sample` | 有 key 时对 3 条中文 fixture 做 live 打分（研究原型，非收益预测） |
+| `python scripts/probe_deepseek.py` | 同上脚本入口；`--soft` 在未配置时 exit 0 |
+| `python scripts/check_gateway_health.py --stub` | 同上（脚本入口） |
+| `py -m opinion_trading.main --mode evaluate` | 单次信号评估（与纸面净值同一价表；可含滑点/费用） |
+| `python scripts/compare_ml_baseline.py --labels tests/fixtures/annotation_sample_labeled.csv` | P3：TF-IDF vs 关键词 vs offline hybrid（CI 无 key） |
+
+Opt-in 采集平台（默认 daily 列表不含）：在 `config/settings.yaml` → `strategy.platforms` 取消注释 `zhihu` / `bilibili` / `xiaohongshu` / `weixin`。券商沙箱：`execution.mode: sandbox`（只记意图）。
 
 `main.py` 与 Streamlit 启动时会自动加载项目根目录 **`.env`**（不覆盖已设置的环境变量）。
 
 Docker：`docker compose up --build`（见根目录 `docker-compose.yml`）。
 
-CI 配置见 [.github/workflows/ci.yml](../.github/workflows/ci.yml)。
+CI 配置见 [.github/workflows/ci.yml](../.github/workflows/ci.yml)（离线）。真实 DeepSeek 探针见 [.github/workflows/deepseek-probe.yml](../.github/workflows/deepseek-probe.yml)（手动 **DeepSeek probe**）。

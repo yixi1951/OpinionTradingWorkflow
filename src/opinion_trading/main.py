@@ -11,16 +11,20 @@ from opinion_trading.core.env_bootstrap import load_dotenv_if_present
 from opinion_trading.core.log_utils import configure_logging, get_logger
 
 load_dotenv_if_present(Path(__file__).resolve().parents[2])
-from opinion_trading.agents.workflow import OpinionTradingWorkflow
-from opinion_trading.core.backtest import StrategyBacktester
-from opinion_trading.core.evaluation import load_prices, load_signals
-from opinion_trading.core.monthly_training import (
+from opinion_trading.agents.workflow import OpinionTradingWorkflow  # noqa: E402
+from opinion_trading.core.backtest import StrategyBacktester  # noqa: E402
+from opinion_trading.core.evaluation import (  # noqa: E402
+    load_prices,
+    load_signals,
+    resolve_price_csv,
+)
+from opinion_trading.core.monthly_training import (  # noqa: E402
     build_monthly_training_frame,
     fetch_prices_with_timeout,
     load_training_history,
     save_monthly_training_report,
 )
-from opinion_trading.core.visualization import (
+from opinion_trading.core.visualization import (  # noqa: E402
     load_backtest_csv,
     plot_sharpe_vs_threshold,
     top_n_table,
@@ -47,6 +51,9 @@ def parse_args() -> argparse.Namespace:
             "sync_universe",
             "optimize",
             "visualize",
+            "gateway-health",
+            "deepseek-probe",
+            "score-sample",
         ],
         help="Execution mode",
     )
@@ -63,10 +70,16 @@ def parse_args() -> argparse.Namespace:
         help="Path to config file",
     )
     parser.add_argument(
-        "--start-date", type=str, default="2025-01-01", help="Backtest start date"
+        "--start-date",
+        type=str,
+        default=None,
+        help="Start date YYYY-MM-DD (backtest default 2025-01-01; replay-batch: all dates if omitted)",
     )
     parser.add_argument(
-        "--end-date", type=str, default="2025-12-31", help="Backtest end date"
+        "--end-date",
+        type=str,
+        default=None,
+        help="End date YYYY-MM-DD (backtest default 2025-12-31; replay-batch: all dates if omitted)",
     )
     parser.add_argument(
         "--bearish-threshold",
@@ -195,6 +208,47 @@ def main() -> None:
         )
         return
 
+    if args.mode == "gateway-health":
+        from opinion_trading.core.gateway_health import check_gateway_health
+
+        result = check_gateway_health(config_path=args.config)
+        print(result.log_line())
+        print(
+            f"mode={result.mode} http_ready={result.http_ready} "
+            f"http_sentiment={result.http_sentiment} ws={result.ws_ok} "
+            f"proxy_pool={result.proxy_pool_configured}"
+        )
+        if not result.ok:
+            raise SystemExit(1)
+        return
+
+    if args.mode == "deepseek-probe":
+        from opinion_trading.core.deepseek_client import probe_deepseek
+
+        result = probe_deepseek()
+        print(f"DEEPSEEK {result.get('status')}")
+        print(result.get("message", ""))
+        if result.get("configured"):
+            print(
+                f"model={result.get('model')} base={result.get('base_url')} "
+                f"latency_ms={result.get('latency_ms')}"
+            )
+        if result.get("ok"):
+            return
+        raise SystemExit(2 if result.get("status") == "NOT_CONFIGURED" else 1)
+
+    if args.mode == "score-sample":
+        from opinion_trading.core.deepseek_client import score_sample
+
+        result = score_sample()
+        print(f"DEEPSEEK {result.get('status')}")
+        print(result.get("message", ""))
+        for text, score in zip(result.get("texts") or [], result.get("scores") or []):
+            print(f"  {float(score):+.3f}  {text[:80]}")
+        if result.get("ok"):
+            return
+        raise SystemExit(2 if result.get("status") == "NOT_CONFIGURED" else 1)
+
     if args.mode == "evaluate":
         from opinion_trading.core.config_loader import load_runtime_config
         from opinion_trading.core.evaluation import evaluate_signals, save_evaluation
@@ -206,9 +260,19 @@ def main() -> None:
         runtime = load_runtime_config(args.config)
         signal_path = str(Path(runtime.memory_dir) / "signal_history.jsonl")
         signals = load_signals(signal_path)
-        prices = load_prices(args.price_file)
+        price_path = resolve_price_csv(args.price_file)
+        prices = load_prices(price_path)
+        slip = (
+            runtime.execution.simulation_slippage_bps if runtime.execution else 0.0
+        )
+        fee = runtime.execution.fee_bps if runtime.execution else 0.0
         merged, summary = evaluate_signals(
-            signals, prices, args.start_date, args.end_date
+            signals,
+            prices,
+            args.start_date,
+            args.end_date,
+            slippage_bps=slip,
+            fee_bps=fee,
         )
         outputs = save_evaluation(runtime.report_dir, merged, summary)
         print("=== Evaluation Completed ===")
@@ -234,6 +298,8 @@ def main() -> None:
                 n_folds=wf.n_folds,
                 train_days=wf.train_days,
                 test_days=wf.test_days,
+                slippage_bps=slip,
+                fee_bps=fee,
             )
             wf_path = save_walk_forward_report(runtime.report_dir, wf_report)
             print("--- Walk-Forward (out-of-sample) ---")
@@ -342,6 +408,8 @@ def main() -> None:
         print("=== Replay Batch (P0) ===")
         print(f"Dates OK: {summary['dates_run']}/{summary['dates_total']}")
         print(f"Total signals appended: {summary['total_signals']}")
+        if summary.get("seeded_raw"):
+            print("Seeded missing raw CSVs from tests/fixtures (offline P0 path).")
         for row in summary.get("results", []):
             if row.get("ok"):
                 print(f"  {row['date']}: signals={row.get('signals', 0)}")
@@ -363,13 +431,25 @@ def main() -> None:
         runtime = load_runtime_config(args.config)
         wf = runtime.walk_forward or WalkForwardConfig()
         signal_path = str(Path(runtime.memory_dir) / "signal_history.jsonl")
-        prices = load_prices(args.price_file)
+        price_path = resolve_price_csv(args.price_file)
+        if not Path(price_path).is_file():
+            from opinion_trading.core.replay_fixtures import seed_price_fixture
+
+            seeded = seed_price_fixture(str(Path(runtime.report_dir) / "price_history_cache.csv"))
+            price_path = resolve_price_csv(seeded or args.price_file)
+        prices = load_prices(price_path)
+        slip = (
+            runtime.execution.simulation_slippage_bps if runtime.execution else 0.0
+        )
+        fee = runtime.execution.fee_bps if runtime.execution else 0.0
         report = run_walk_forward(
             signal_path,
             prices,
             n_folds=wf.n_folds,
             train_days=wf.train_days,
             test_days=wf.test_days,
+            slippage_bps=slip,
+            fee_bps=fee,
         )
         out = save_walk_forward_report(runtime.report_dir, report)
         print("=== Walk-Forward Completed ===")
@@ -423,8 +503,8 @@ def main() -> None:
         return
 
     backtester = StrategyBacktester(config_path=args.config)
-    start_date = backtester.parse_date(args.start_date)
-    end_date = backtester.parse_date(args.end_date)
+    start_date = backtester.parse_date(args.start_date or "2025-01-01")
+    end_date = backtester.parse_date(args.end_date or "2025-12-31")
 
     if args.mode == "backtest" and args.multi_agent:
         from opinion_trading.core.backtest_multi_agent import (

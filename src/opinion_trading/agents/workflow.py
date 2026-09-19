@@ -6,7 +6,7 @@ import os
 from datetime import date, datetime
 from pathlib import Path
 from time import sleep
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from opinion_trading.core.log_utils import get_logger
 from opinion_trading.agents.roles import (
@@ -64,9 +64,12 @@ class OpinionTradingWorkflow:
             reversal_min_delta=self.config.strategy.reversal_min_delta,
             platform_weights=self.config.strategy.platform_weights,
         )
+        ecfg = getattr(self.config, "execution", None)
         trader_skill = PaperTradingSkill(
             initial_cash=self.config.strategy.initial_cash,
             position_size_ratio=self.config.strategy.position_size_ratio,
+            slippage_bps=float(getattr(ecfg, "simulation_slippage_bps", 0.0) or 0.0),
+            fee_bps=float(getattr(ecfg, "fee_bps", 0.0) or 0.0),
         )
 
         self.collector = CollectorAgent(collector_skill)
@@ -82,6 +85,16 @@ class OpinionTradingWorkflow:
             self.analyst = SentimentAnalystAgent(analyst_skill)
             logger.info("Multi-agent analysis DISABLED (pure sentiment only)")
         self.trader = TraderAgent(trader_skill)
+        self._install_eval_price_table()
+
+    def _install_eval_price_table(self) -> None:
+        """Share the Eval close table with paper fills / MTM when a CSV exists."""
+        try:
+            from opinion_trading.core.market_data import load_local_price_table
+
+            load_local_price_table()
+        except Exception as exc:
+            logger.debug("Eval price table not installed: %s", exc)
 
     def run_daily(self, run_date: date, *, skip_crawl: bool = False) -> Dict:
         logger.info(

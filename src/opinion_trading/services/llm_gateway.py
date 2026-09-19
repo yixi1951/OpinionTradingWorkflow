@@ -249,7 +249,9 @@ class MultiModelGateway:
                 return [float(x) for x in scores]
             return None
 
-        url = provider.base_url.rstrip("/") + "/chat/completions"
+        from opinion_trading.core.deepseek_client import chat_completions_url
+
+        url = chat_completions_url(provider.base_url)
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {provider.api_key}",

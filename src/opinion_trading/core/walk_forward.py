@@ -44,6 +44,8 @@ def run_walk_forward(
     train_days: int = 60,
     test_days: int = 20,
     min_signals_per_fold: int = 3,
+    slippage_bps: float = 0.0,
+    fee_bps: float = 0.0,
 ) -> WalkForwardReport:
     """Rolling train/test splits on calendar days (uses signal_history.jsonl)."""
     signals = load_signals(signal_path)
@@ -55,6 +57,10 @@ def run_walk_forward(
     if end_date is None:
         end_date = max_dt.date() if hasattr(max_dt, "date") else date.today()
 
+    n_folds, train_days, test_days, min_signals_per_fold = _adapt_windows(
+        signals, n_folds, train_days, test_days, min_signals_per_fold
+    )
+
     folds: List[WalkForwardFold] = []
     cursor_end = end_date
 
@@ -64,17 +70,21 @@ def run_walk_forward(
         train_end = test_start - timedelta(days=1)
         train_start = train_end - timedelta(days=train_days - 1)
 
-        train_merged, train_sum = evaluate_signals(
+        _train_merged, train_sum = evaluate_signals(
             signals,
             price_df,
             start_date=train_start.isoformat(),
             end_date=train_end.isoformat(),
+            slippage_bps=slippage_bps,
+            fee_bps=fee_bps,
         )
-        test_merged, test_sum = evaluate_signals(
+        _test_merged, test_sum = evaluate_signals(
             signals,
             price_df,
             start_date=test_start.isoformat(),
             end_date=test_end.isoformat(),
+            slippage_bps=slippage_bps,
+            fee_bps=fee_bps,
         )
 
         if test_sum.total_signals < min_signals_per_fold and train_sum.total_signals < min_signals_per_fold:
@@ -143,6 +153,41 @@ def save_walk_forward_report(report_dir: str, report: WalkForwardReport) -> Path
 
     save_walk_forward_json(report_dir, report)
     return target
+
+
+def _adapt_windows(
+    signals: pd.DataFrame,
+    n_folds: int,
+    train_days: int,
+    test_days: int,
+    min_signals_per_fold: int,
+) -> Tuple[int, int, int, int]:
+    """Shrink train/test windows when signal history is shorter than the config span.
+
+    Keeps production 60/20 windows when history is long enough; fixture / short
+    replay runs still produce at least one fold.
+    """
+    dates = pd.to_datetime(signals["trade_date"], errors="coerce").dropna()
+    if dates.empty:
+        return n_folds, train_days, test_days, min_signals_per_fold
+    span = int((dates.max() - dates.min()).days) + 1
+    needed = int(train_days) + int(test_days)
+    if span >= needed:
+        return n_folds, train_days, test_days, min_signals_per_fold
+
+    test_days_ad = max(1, min(int(test_days), max(1, span // 3)))
+    train_days_ad = max(1, span - test_days_ad)
+    max_folds = max(1, (span - train_days_ad) // max(test_days_ad, 1) + 1)
+    n_folds_ad = max(1, min(int(n_folds), max_folds))
+    min_sig = min(int(min_signals_per_fold), 1)
+    logger.info(
+        "Walk-forward adapted for short history span=%d: folds=%d train=%d test=%d",
+        span,
+        n_folds_ad,
+        train_days_ad,
+        test_days_ad,
+    )
+    return n_folds_ad, train_days_ad, test_days_ad, min_sig
 
 
 def _recommendation(avg_test_acc: float, avg_test_sh: float, avg_deg: float) -> str:

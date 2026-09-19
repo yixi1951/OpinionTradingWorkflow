@@ -4,7 +4,6 @@ These focus on pure logic paths that don't require real APIs.
 """
 from __future__ import annotations
 
-import json
 import logging
 import os
 from pathlib import Path
@@ -281,7 +280,6 @@ def test_openclaw_adapter_probe_exception():
 
 def test_openclaw_adapter_timeout_config():
     """Custom timeout via env var OPENCLAW_TIMEOUT."""
-    import os
     os.environ["OPENCLAW_TIMEOUT"] = "30"
     from opinion_trading.core.openclaw_adapter import OpenClawClient
 

@@ -7,13 +7,8 @@ Actual HTTP requests are NOT made — we test pure logic paths.
 from __future__ import annotations
 
 import hashlib
-import json
-import os
 import time
-from pathlib import Path
-from unittest.mock import patch
 
-import pytest
 
 
 # ── HTML Cache helpers (imported inline to test) ──────────────────────────
@@ -43,7 +38,6 @@ def test_cache_read_write(tmp_path, monkeypatch):
 
     # Re-import to pick up env var changes
     from opinion_trading.integrations.platform_sentiment_real import (
-        _get_cache_dir,
         _write_html_cache,
         _read_html_cache,
     )

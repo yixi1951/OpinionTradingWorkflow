@@ -34,7 +34,6 @@ def apply_risk_to_signals(
     if portfolio_value <= 0:
         portfolio_value = max(cash, 1.0)
 
-    prices = reference_prices or {}
     open_count = sum(1 for sh in positions.values() if sh > 0)
     result = RiskCheckResult()
 

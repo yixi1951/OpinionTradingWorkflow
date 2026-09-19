@@ -5,11 +5,11 @@ from __future__ import annotations
 import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from opinion_trading.core.models import PaperTrade, TradeSignal
+from opinion_trading.core.models import TradeSignal
 
 
 @dataclass
@@ -61,6 +61,46 @@ class PaperBrokerAdapter(BaseBrokerAdapter):
             for intent in intents:
                 f.write(json.dumps(intent.to_dict(), ensure_ascii=False) + "\n")
         return {"path": str(path), "count": len(intents), "dry_run": True}
+
+
+class SandboxBrokerAdapter(BaseBrokerAdapter):
+    """P4 paper/sandbox: records dry-run intents; never places live orders.
+
+    Distinct from ``PaperBrokerAdapter`` only in the audit filename and the
+    explicit ``sandbox`` / ``live_order=False`` flags. A real broker API is
+    still required for production matching.
+    """
+
+    def __init__(self, report_dir: str = "data/reports") -> None:
+        self.report_dir = Path(report_dir)
+        self.report_dir.mkdir(parents=True, exist_ok=True)
+        self.recorded: List[Dict] = []
+
+    def submit_intents(self, intents: List[ExecutionIntent]) -> Dict[str, object]:
+        if not intents:
+            return {
+                "path": "",
+                "count": 0,
+                "dry_run": True,
+                "sandbox": True,
+                "live_order": False,
+            }
+        day = intents[0].trade_date
+        path = self.report_dir / f"sandbox_intents_{day}.jsonl"
+        with path.open("a", encoding="utf-8") as f:
+            for intent in intents:
+                payload = intent.to_dict()
+                payload["sandbox"] = True
+                payload["live_order"] = False
+                self.recorded.append(payload)
+                f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        return {
+            "path": str(path),
+            "count": len(intents),
+            "dry_run": True,
+            "sandbox": True,
+            "live_order": False,
+        }
 
 
 class SignalExportAdapter(BaseBrokerAdapter):
@@ -138,4 +178,6 @@ def get_broker_adapter(name: str, report_dir: str) -> BaseBrokerAdapter:
     key = (name or "paper").lower()
     if key in ("export", "csv"):
         return SignalExportAdapter(report_dir)
+    if key in ("sandbox", "paper_sandbox", "dry_run"):
+        return SandboxBrokerAdapter(report_dir)
     return PaperBrokerAdapter(report_dir)

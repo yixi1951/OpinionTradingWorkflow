@@ -7,9 +7,9 @@ from __future__ import annotations
 
 import os
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List
 
 import pandas as pd
 
@@ -19,6 +19,8 @@ logger = get_logger(__name__)
 
 _MARKET_CACHE_DIR: Path | None = None
 _CACHE_TTL_HOURS = 4
+# Shared Eval / paper-equity close table (date, symbol, close).
+_LOCAL_PRICE_DF: pd.DataFrame | None = None
 
 
 def _get_cache_dir() -> Path:
@@ -81,6 +83,45 @@ def _to_tz_naive(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def set_local_price_table(price_df: pd.DataFrame | None) -> None:
+    """Install the same close table used by evaluate_signals (P1 alignment)."""
+    global _LOCAL_PRICE_DF
+    if price_df is None or price_df.empty:
+        _LOCAL_PRICE_DF = None
+        return
+    from opinion_trading.core.evaluation import normalize_price_frame
+
+    _LOCAL_PRICE_DF = normalize_price_frame(price_df)
+
+
+def load_local_price_table(price_csv: str | None = None) -> pd.DataFrame:
+    """Load a CSV into the process-wide price table and return it."""
+    from opinion_trading.core.evaluation import load_prices, resolve_price_csv
+
+    path = resolve_price_csv(price_csv)
+    if not Path(path).is_file():
+        set_local_price_table(None)
+        return pd.DataFrame()
+    df = load_prices(path)
+    set_local_price_table(df)
+    return df
+
+
+def get_local_price_table() -> pd.DataFrame | None:
+    return _LOCAL_PRICE_DF
+
+
+def _lookup_local_close(symbol: str, trade_date: date) -> tuple[float | None, str]:
+    if _LOCAL_PRICE_DF is None or _LOCAL_PRICE_DF.empty:
+        return None, "unavailable"
+    from opinion_trading.core.evaluation import lookup_close
+
+    px = lookup_close(_LOCAL_PRICE_DF, symbol, trade_date)
+    if px is None:
+        return None, "unavailable"
+    return float(px), "price_table"
+
+
 # ── Public API ────────────────────────────────────────────────────────────
 
 
@@ -136,7 +177,15 @@ def fetch_current_price(symbol: str) -> float | None:
 
 
 def fetch_close_on_date(symbol: str, trade_date: date) -> tuple[float | None, str]:
-    """Return (close, source) for trade_date using last available bar on or before that date."""
+    """Return (close, source) for trade_date using last available bar on or before that date.
+
+    Prefers the Eval price table (PRICE_FILE / cache CSV) so paper equity and
+    evaluate_signals mark the same close.
+    """
+    table_px, table_src = _lookup_local_close(symbol, trade_date)
+    if table_px is not None:
+        return table_px, table_src
+
     start = (trade_date - timedelta(days=45)).isoformat()
     end = (trade_date + timedelta(days=5)).isoformat()
     df = fetch_ohlcv(symbol, start_date=start, end_date=end, use_cache=True)
@@ -166,7 +215,14 @@ def fetch_closes_for_symbols(
     symbols: List[str],
     trade_date: date,
 ) -> Dict[str, tuple[float | None, str]]:
-    """Batch close lookup for paper trading."""
+    """Batch close lookup for paper trading (Eval price table first)."""
+    if _LOCAL_PRICE_DF is None:
+        csv_path = os.environ.get("PRICE_FILE", "").strip()
+        if csv_path or Path("data/reports/price_history_cache.csv").is_file():
+            try:
+                load_local_price_table(csv_path or None)
+            except Exception as exc:
+                logger.debug("Local price table load skipped: %s", exc)
     out: Dict[str, tuple[float | None, str]] = {}
     for sym in symbols:
         out[sym] = fetch_close_on_date(sym, trade_date)

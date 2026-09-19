@@ -12,7 +12,14 @@ strategy:
   - sina_finance
   - douyin
   # 权威信源扩展位（adapter 可渐进接入，不强制爬取）
+  # 知乎：已提供 best-effort HTML adapter + stub fallback（见 tests/fixtures/zhihu_page.html）
   # - zhihu
+  # B 站：best-effort 搜索页 HTML adapter + stub fallback（见 tests/fixtures/bilibili_page.html）
+  # - bilibili
+  # 小红书：best-effort 搜索页 HTML + stub fallback（见 tests/fixtures/xiaohongshu_page.html）
+  # - xiaohongshu
+  # 公众号：Sogou 列表页 HTML + stub fallback（真实 mp 页常被拦截；见 tests/fixtures/weixin_page.html）
+  # - weixin
   # - cninfo
   # - broker_report
   platform_weights:
@@ -23,6 +30,9 @@ strategy:
     weibo: 0.95
     douyin: 1.05
     zhihu: 1.05
+    bilibili: 1.0
+    xiaohongshu: 0.95
+    weixin: 1.1
     cninfo: 1.5
     broker_report: 1.45
   bearish_threshold: -0.6
@@ -51,6 +61,8 @@ universe:
   - 600900.SH
   - 600030.SH
   - 000568.SZ
+  - 600887.SH
+  - 002304.SZ
 storage:
   memory_dir: data/memory
   report_dir: data/reports
@@ -59,6 +71,12 @@ storage:
   backend: file
 scoring:
   mode: ai
+  # keyword = offline (CI default via SCORING_MODE=keyword).
+  # ai / hybrid = DeepSeek live scoring when DEEPSEEK_API_KEY is set.
+  # Keys never belong in this file — use env / gitignored .env (see .env.example).
+  # Env overrides: DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL, DEEPSEEK_TIMEOUT.
+  # Live requested without a key: fallback to keyword unless DEEPSEEK_REQUIRE=1.
+  provider: deepseek
   row_level_llm: true
   max_posts: 20
 browser:
@@ -71,6 +89,7 @@ ai_pipeline:
   screen_enabled: true
   score_enabled: true
   max_screen_batch: 12
+  # Batch sentiment uses scoring.provider=deepseek when DEEPSEEK_API_KEY is set.
 analysis:
   enabled: false
   sentiment_weight: 0.4
@@ -97,6 +116,9 @@ platform_taxonomy:
   xueqiu: investor_community
   douyin: short_video
   zhihu: qa_community
+  bilibili: short_video
+  xiaohongshu: social
+  weixin: official_account
   cninfo: disclosure
   broker_report: research
 scoring_fusion:
@@ -114,9 +136,17 @@ risk:
   max_open_positions: 10
 execution:
   mode: paper
+  # paper | export | simulation | sandbox (sandbox = dry-run JSONL, no live orders)
   export_intents: true
   dry_run: true
   simulation_slippage_bps: 5.0
+  fee_bps: 0.0
+collection:
+  # Round-robin / failover via ProxyRotator (HTTP crawl only). Also: PROXY_POOL=url1,url2
+  # Captcha solvers and login-session farms are NOT implemented.
+  proxy_urls: []
+  # Zhihu / Bilibili / Xiaohongshu / Weixin adapters exist but stay opt-in
+  # (uncomment under strategy.platforms). They are not on the default daily list.
 sentiment_recency:
   enabled: true
   half_life_hours: 24.0

@@ -164,6 +164,7 @@ class ExecutionConfig:
     export_intents: bool = True
     dry_run: bool = True
     simulation_slippage_bps: float = 5.0
+    fee_bps: float = 0.0
 
 
 @dataclass

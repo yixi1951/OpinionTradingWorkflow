@@ -21,6 +21,9 @@ PLATFORM_TYPES: Dict[str, Dict[str, str]] = {
     "weibo": {"type": "social", "label_zh": "微博财经", "tier": "ugc"},
     "xueqiu": {"type": "investor_community", "label_zh": "雪球", "tier": "ugc"},
     "zhihu": {"type": "qa_community", "label_zh": "知乎", "tier": "ugc"},
+    "bilibili": {"type": "short_video", "label_zh": "B站", "tier": "ugc"},
+    "xiaohongshu": {"type": "social", "label_zh": "小红书", "tier": "ugc"},
+    "weixin": {"type": "official_account", "label_zh": "微信公众号", "tier": "ugc"},
     "douyin": {"type": "short_video", "label_zh": "短视频", "tier": "ugc"},
     "cninfo": {"type": "disclosure", "label_zh": "巨潮公告", "tier": "authoritative"},
     "broker_report": {"type": "research", "label_zh": "券商研报摘要", "tier": "authoritative"},
@@ -33,13 +36,13 @@ _TYPE_AUTHORITY: Dict[str, float] = {
     "portal": 1.10,
     "investor_community": 1.05,
     "qa_community": 1.00,
+    "official_account": 1.08,
     "forum": 0.95,
     "social": 0.80,
     "short_video": 0.75,
 }
 
 # Re-export seed aliases for backward compatibility
-from opinion_trading.core.symbol_map import SEED_ALIAS_MAP as DEFAULT_SYMBOL_ALIASES  # noqa: E402
 
 _EVENT_RULES: List[tuple[str, tuple[str, ...]]] = [
     ("earnings", ("业绩", "财报", "净利", "营收", "季报", "年报", "超预期", "低于预期")),

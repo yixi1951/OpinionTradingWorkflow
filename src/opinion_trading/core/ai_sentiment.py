@@ -10,7 +10,7 @@ from opinion_trading.core.openclaw_adapter import OpenClawClient
 
 logger = get_logger(__name__)
 
-SentimentSource = Literal["openclaw", "transformers", "keyword", "hybrid"]
+SentimentSource = Literal["openclaw", "transformers", "keyword", "hybrid", "deepseek"]
 
 
 @dataclass(frozen=True)
@@ -196,6 +196,14 @@ class AISentimentAnalyzer:
 
         keyword_results = [self._keyword_result(t) for t in texts_list]
 
+        ds = self._try_deepseek(texts_list)
+        if ds is not None:
+            if self.enable_fusion:
+                return [
+                    self._blend(primary, kw) for primary, kw in zip(ds, keyword_results)
+                ]
+            return ds
+
         # Prefer multi-model inference gateway when available
         gw = self._try_gateway(texts_list)
         if gw is not None:
@@ -225,6 +233,54 @@ class AISentimentAnalyzer:
                 return tf
 
         return keyword_results
+
+    def _try_deepseek(
+        self, texts_list: Sequence[str]
+    ) -> Optional[List[SentimentResult]]:
+        """DeepSeek-first live scoring when DEEPSEEK_API_KEY is set."""
+        from opinion_trading.core.deepseek_client import (
+            MissingDeepSeekKeyError,
+            deepseek_configured,
+            deepseek_fallback_on_error,
+            deepseek_require_key,
+            live_llm_requested,
+            score_texts_deepseek,
+        )
+
+        wanted = live_llm_requested()
+        configured = deepseek_configured()
+        if not wanted:
+            return None
+        if not configured:
+            if deepseek_require_key():
+                raise MissingDeepSeekKeyError()
+            logger.debug(
+                "DeepSeek key missing; using keyword/hybrid fallback "
+                "(set DEEPSEEK_API_KEY for live scoring)"
+            )
+            return None
+        try:
+            scores = score_texts_deepseek(texts_list)
+        except MissingDeepSeekKeyError:
+            if deepseek_require_key():
+                raise
+            return None
+        except Exception as exc:
+            logger.warning("DeepSeek scoring failed; fallback=%s", deepseek_fallback_on_error())
+            if not deepseek_fallback_on_error():
+                raise
+            logger.debug("DeepSeek error: %s", exc)
+            return None
+        if len(scores) != len(texts_list):
+            return None
+        return [
+            SentimentResult(
+                score=clamp_score(float(s)),
+                source="deepseek",
+                confidence=min(0.99, 0.55 + abs(float(s)) * 0.4),
+            )
+            for s in scores
+        ]
 
     def _try_gateway(
         self, texts_list: Sequence[str]

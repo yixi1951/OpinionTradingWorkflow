@@ -17,7 +17,7 @@ import json
 import os
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, Optional
 
 
 class StorageBackend(ABC):
