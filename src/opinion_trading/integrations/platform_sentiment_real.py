@@ -8,7 +8,7 @@ import time
 from datetime import date, datetime
 from pathlib import Path
 from typing import Dict, List
-from urllib.parse import urljoin, urlparse
+from urllib.parse import quote, urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -104,6 +104,7 @@ _PLATFORM_SINA = "sina_finance"
 _PLATFORM_DOUYIN = "douyin"
 _PLATFORM_WEIBO = "weibo"
 _PLATFORM_XUEQIU = "xueqiu"
+_PLATFORM_ZHIHU = "zhihu"
 
 
 class RealPlatformSentimentProvider:
@@ -265,6 +266,10 @@ class RealPlatformSentimentProvider:
                 )
             elif platform == _PLATFORM_DOUYIN:
                 rows = self._collect_douyin_rows(
+                    list_url, html, platform, symbol, trade_date, max_posts=max_posts
+                )
+            elif platform == _PLATFORM_ZHIHU:
+                rows = self._collect_zhihu_rows(
                     list_url, html, platform, symbol, trade_date, max_posts=max_posts
                 )
             else:
@@ -509,6 +514,70 @@ class RealPlatformSentimentProvider:
             if len(rows) >= max_posts:
                 break
 
+        return rows
+
+    def _collect_zhihu_rows(
+        self,
+        list_url: str,
+        html: str,
+        platform: str,
+        symbol: str,
+        trade_date: date,
+        max_posts: int,
+    ) -> List[Dict[str, str]]:
+        """Best-effort Zhihu search/question cards (no login, stub fallback elsewhere)."""
+        soup = BeautifulSoup(html, "lxml")
+        rows: List[Dict[str, str]] = []
+        seen: set[str] = set()
+        selectors = (
+            ".ContentItem",
+            ".List-item",
+            ".SearchResult-Card",
+            "article",
+            ".QuestionItem",
+        )
+        cards = []
+        for sel in selectors:
+            cards.extend(soup.select(sel))
+        if not cards:
+            return self._collect_generic_rows(
+                list_url, html, platform, symbol, trade_date, max_posts=max_posts
+            )
+
+        for card in cards:
+            title_el = card.select_one("a, h2, h3, .ContentItem-title")
+            title = self._clean_text(
+                title_el.get_text(" ", strip=True) if title_el else ""
+            )
+            body = self._clean_text(card.get_text(" ", strip=True))
+            if not self._looks_like_content(title or body):
+                continue
+            key = (title or body)[:120]
+            if key in seen:
+                continue
+            seen.add(key)
+            href = ""
+            if title_el is not None:
+                href = self._clean_text(title_el.get("href", ""))
+            article_url = urljoin(list_url, href) if href else list_url
+            rows.append(
+                self._build_raw_row(
+                    trade_date=trade_date,
+                    platform=platform,
+                    symbol=symbol,
+                    title=title or body[:80],
+                    summary=body,
+                    post_time=self._extract_time(body, trade_date=trade_date),
+                    content=body,
+                    url=article_url,
+                    source_page=list_url,
+                    is_noise=self._is_noise_text(body),
+                    capture_status="success",
+                    failure_reason="",
+                )
+            )
+            if len(rows) >= max_posts:
+                break
         return rows
 
     def _collect_douyin_rows(
@@ -809,6 +878,10 @@ class RealPlatformSentimentProvider:
             # Douyin is JS-heavy; use search page as a best-effort entrypoint
             # example: https://www.douyin.com/search/{keyword}
             return f"https://www.douyin.com/search/{symbol}"
+        if platform == "zhihu":
+            # Public search page; login/captcha still fall back to stub.
+            q = quote(symbol)
+            return f"https://www.zhihu.com/search?type=content&q={q}"
 
         raise ValueError(f"Unsupported platform: {platform}")
 

@@ -12,6 +12,7 @@ strategy:
   - sina_finance
   - douyin
   # 权威信源扩展位（adapter 可渐进接入，不强制爬取）
+  # 知乎：已提供 best-effort HTML adapter + stub fallback（见 tests/fixtures/zhihu_page.html）
   # - zhihu
   # - cninfo
   # - broker_report
@@ -51,6 +52,8 @@ universe:
   - 600900.SH
   - 600030.SH
   - 000568.SZ
+  - 600887.SH
+  - 002304.SZ
 storage:
   memory_dir: data/memory
   report_dir: data/reports
