@@ -54,7 +54,7 @@ jobs:
           python -m pytest tests/ -q --tb=short \
             --cov=opinion_trading \
             --cov-report=term-missing \
-            --cov-fail-under=54
+            --cov-fail-under=55
 
   fast-daily-smoke:
     runs-on: ubuntu-latest

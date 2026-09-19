@@ -79,6 +79,10 @@ scoring:
   provider: deepseek
   row_level_llm: true
   max_posts: 20
+  # Optional multi-label tags (bullish/bearish/uncertainty); scalar keyword path unchanged unless attach_scalar.
+  multi_label_sentiment:
+    enabled: false
+    attach_scalar: false
 browser:
   enabled: true
   platforms:
@@ -90,6 +94,10 @@ ai_pipeline:
   score_enabled: true
   max_screen_batch: 12
   # Batch sentiment uses scoring.provider=deepseek when DEEPSEEK_API_KEY is set.
+  batch_scoring:
+    enabled: false
+    chunk_size: 12
+    mode: keyword
 analysis:
   enabled: false
   sentiment_weight: 0.4
@@ -101,6 +109,11 @@ analysis:
   max_kelly_fraction: 0.25
   min_confidence: 0.3
   technical_lookback_days: 365
+  # Stub industry/macro factor slots (neutral placeholders; off by default).
+  macro_industry_factors:
+    enabled: false
+    industry_weight: 0.0
+    macro_weight: 0.0
 quality:
   enabled: true
   max_fallback_rate: 0.35
@@ -113,6 +126,8 @@ quality:
     enabled: false
     lower_pct: 1.0
     upper_pct: 99.0
+    per_symbol: false
+    adaptive: false
 platform_taxonomy:
   guba: forum
   eastmoney: portal
@@ -162,6 +177,8 @@ execution:
         sell_stamp_bps: 10.0
       - effective_from: "2023-08-28"
         sell_stamp_bps: 5.0
+    min_commission_cny: 0.0
+    transfer_fee_bps: 0.0
   # Paper-only TP/SL research scaffold (uses shared price table; no live orders).
   paper_exit:
     enabled: false
@@ -179,6 +196,13 @@ collection:
     enabled: false
     db_path: data/memory/cross_day_fingerprints.sqlite
     lookback_days: 30
+  # Optional semantic near-duplicate filter (char-shingle Jaccard / SimHash; off by default).
+  semantic_near_dedup:
+    enabled: false
+    method: jaccard
+    jaccard_threshold: 0.85
+    simhash_hamming_max: 3
+    shingle_size: 3
 sentiment_recency:
   enabled: true
   half_life_hours: 24.0

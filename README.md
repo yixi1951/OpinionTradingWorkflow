@@ -1,7 +1,7 @@
 # OpinionTradingWorkflow
 
 [![CI](https://github.com/yixi1951/OpinionTradingWorkflow/actions/workflows/ci.yml/badge.svg)](https://github.com/yixi1951/OpinionTradingWorkflow/actions/workflows/ci.yml)
-[![Coverage](https://img.shields.io/badge/coverage-54%25+-yellow?logo=pytest)](https://github.com/yixi1951/OpinionTradingWorkflow/actions)
+[![Coverage](https://img.shields.io/badge/coverage-55%25+-yellow?logo=pytest)](https://github.com/yixi1951/OpinionTradingWorkflow/actions)
 [![Python](https://img.shields.io/badge/python-3.10%20|%203.11%20|%203.12-blue?logo=python)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![GitHub last commit](https://img.shields.io/github/last-commit/yixi1951/OpinionTradingWorkflow?logo=git)](https://github.com/yixi1951/OpinionTradingWorkflow/commits/main)
@@ -26,7 +26,7 @@ Python 个人项目：从股吧、新浪财经、微博、东方财富、雪球�
 | 指标 | 数值 |
 |------|------|
 | 测试用例 | **120+**（单元 + 集成 + 多 Agent 评分验证） |
-| 代码覆盖 | **54%+** CI gate（核心模块 60-97%，排除 Streamlit UI 的静态代码） |
+| 代码覆盖 | **55%+** CI gate（measured ~57%；核心模块 60–97%，Streamlit UI 静态代码除外） |
 | 分析师 Agent | **3 个**（情绪 / 技术 / 基本面）+ 共识引擎 |
 | 行情数据 | yfinance → akshare 双回退 + Parquet 缓存 |
 | CI pipeline | ruff lint → black 格式 → mypy 类型 → pytest + 覆盖率门槛 → 报告上传 |
@@ -331,9 +331,17 @@ pytest -q
 
 ## 项目状态
 
-该项目为个人学习与作品展示，持续活跃开发中。
-- **最近更新**：P0–P5 脚手架（replay/WF fixtures、价表对齐、ML 基线、DeepSeek live、知乎/B 站/小红书/公众号 adapter、ProxyRotator、SandboxBroker stub）；**docker-compose 一键 UI**、`scripts/run_ui.sh`、**proxy-health**、DeepSeek→Qwen→关键词 failover（见 [CHANGELOG](CHANGELOG.md)）
-- **下一步（仍需人工/外部依赖）**：真实券商 REST/FIX、验证码/登录态农场、大规模人工标注、真实多日爬取历史（当前 WF 含 synthetic fixture）
+**Research prototype — in-repo engineering complete.** Optional feature flags default off; CI stays offline (`SCORING_MODE=keyword`).
+
+| Done in repo | Needs external deps / ops |
+|--------------|---------------------------|
+| P0–P5 scaffolds, replay/WF fixtures, ML baseline, DeepSeek→Qwen failover, proxy-health, docker UI, cross-day dedup, winsorize, paper TP/SL, transaction costs, settings preview | Live broker REST/FIX & funded accounts |
+| `scripts/run_demo.sh` / `run_ui.sh`, semantic near-dup, multi-label & batch scoring scaffolds, 72-row synthetic labels | Captcha solvers / login-session farms |
+| SandboxBroker stub, nginx demo checklist | Large human annotation programs |
+| | Real multi-month crawl history replacing synthetic WF |
+| | Production OAuth / SSO |
+
+Details: [LIMITATIONS_AND_ROADMAP.md](docs/LIMITATIONS_AND_ROADMAP.md) · [CHANGELOG](CHANGELOG.md)
 
 ---
 

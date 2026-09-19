@@ -162,6 +162,35 @@ class MultiAnalystAgent:
                 if fund_op is not None:
                     opinions.append(fund_op)
 
+        from pathlib import Path
+
+        try:
+            import yaml
+
+            settings_raw = yaml.safe_load(
+                Path("config/settings.yaml").read_text(encoding="utf-8")
+            )
+        except Exception:
+            settings_raw = {}
+        from opinion_trading.core.macro_industry_factors import (
+            append_stub_factor_opinions,
+            factor_weight_overrides,
+            load_macro_industry_factor_config,
+        )
+
+        macro_cfg = load_macro_industry_factor_config(settings_raw or {})
+        symbols_today = self._get_symbols(aggregated, trade_date)
+        opinions = append_stub_factor_opinions(
+            opinions,
+            symbols=symbols_today,
+            trade_date=trade_date,
+            config=macro_cfg,
+        )
+        if self._consensus_engine is not None and macro_cfg.enabled:
+            extra = factor_weight_overrides(macro_cfg)
+            if extra:
+                self._consensus_engine.config.analyst_weights.update(extra)
+
         # 3. Compute consensus (will fall back gracefully if not enough analysts)
         consensus_signals: List = []
         if self._consensus_engine is not None and len(opinions) >= self._analysis_cfg.min_analysts:

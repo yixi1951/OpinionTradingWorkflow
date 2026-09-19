@@ -18,23 +18,23 @@
 | 代理池 / 验证码 | 单 UA + per-domain 限速 + 缓存；**gateway health** CLI；`collection.proxy_urls` / `PROXY_POOL` + **`ProxyRotator` round-robin / 失败跳过**；**`proxy-health` 短 HTTP(S) 探测**（空池 skip/PASS） | 打码、登录态农场；生产级住宅代理质量评分 |
 | 知乎/B 站/小红书/公众号 | 6 默认平台 + **知乎 / B 站 / 小红书 / 公众号** best-effort HTML adapter（均默认不加入 daily 爬取列表） | 登录墙 / 验证码后的稳定抓取；互动字段 |
 | 评论/点赞/转发 | 帖子标题+正文为主 | 互动字段与热度权重 |
-| **去重** | `text_dedup.dedupe_raw_rows`（日内）+ 可选 **`collection.cross_day_dedup`** SQLite 指纹（默认关） | 大规模分布式 dedup / 语义近重复 |
+| **去重** | `text_dedup.dedupe_raw_rows`（日内）+ 可选 **`collection.cross_day_dedup`** SQLite 指纹（默认关）+ 可选 **`collection.semantic_near_dedup`** Jaccard/SimHash（默认关） | 大规模分布式 dedup / 深度学习语义去重 |
 | 水军识别 | 噪声规则 + quality 统计 | 账号图谱 / 行为模型 |
-| 时间校准 | 多格式 regex + trade_date 补年 | 统一 UTC 时区库 |
-| 极端情感值 | quality 门控 + 可选 **`quality.sentiment_winsorize`** 分位裁剪（默认关） | 自适应 / 分标的 winsorize |
+| 时间校准 | 多格式 regex + trade_date 补年 + **`timezone_utils.normalize_trade_date`** | 全链路强制 IANA 时区库审计 |
+| 极端情感值 | quality 门控 + 可选 **`quality.sentiment_winsorize`** 分位裁剪（默认关；可选 per_symbol / adaptive） | 生产级分标的自适应调参 |
 
 ## 三、LLM 与策略
 
 | 评审点 | 已实现 | 未实现 |
 |--------|--------|--------|
 | 备用 LLM | `scoring.mode: keyword` 离线；**DeepSeek live**（`DEEPSEEK_API_KEY`）；失败后可选 **Qwen/DashScope**（`QWEN_API_KEY` / `DASHSCOPE_API_KEY`，OpenAI 兼容）再回退关键词，并打一条 `LLM_FAILOVER` 结构化警告 | 更多厂商自动路由 / 负载均衡仍有限 |
-| 情绪细分 | 单维 score | 多标签情绪 |
-| 时效权重 | **daily + realtime** `sentiment_recency` 半衰期加权；实时 delta 告警 | 跨平台统一 UTC |
+| 情绪细分 | 单维 score + 可选 **`scoring.multi_label_sentiment`** 标签（默认关，不改变 keyword 标量路径） | 有监督多标签微调 |
+| 时效权重 | **daily + realtime** `sentiment_recency` 半衰期加权；实时 delta 告警 | 跨平台统一 UTC 生产审计 |
 | 反讽/黑话 | LLM + 关键词 | 领域微调 |
-| **多因子** | Multi-Agent：情绪+技术+基本面+共识 | 行业/宏观因子 |
+| **多因子** | Multi-Agent：情绪+技术+基本面+共识；可选 **industry/macro stub 槽位**（中性占位，默认关） | 真实行业/宏观数据接入 |
 | **风控** | `risk_controls`、Kelly 上限、纸面市价；**纸面 TP/SL 脚手架**（`execution.paper_exit`，非柜台） | 实盘止盈止损、券商风控 |
-| **交易成本** | `execution.simulation_slippage_bps` / `fee_bps` 写入 **evaluate_signals 策略收益** 与纸面成交价（同一价表路径）；可选 **`execution.transaction_costs`** 佣金档位 + 卖方印花税日历（默认关，见 `docs/transaction_costs_research.md`） | 真实券商费率 API、过户费/最低佣金等细项 |
-| 实时 9 分钟 | `row_level_llm: false` 默认；`--fast-daily` 演示 | 并行 LLM / 批处理 |
+| **交易成本** | `execution.simulation_slippage_bps` / `fee_bps`；可选 **`execution.transaction_costs`** 档位 + 印花税 + **最低佣金/过户费 bps**（默认关） | 真实券商费率 API、逐笔结算 |
+| 实时 9 分钟 | `row_level_llm: false` 默认；`--fast-daily` 演示；**`ai_pipeline.batch_scoring` 分块离线结构**（默认关） | 生产并行 LLM / 批处理集群 |
 
 ## 四、回测与过拟合
 
@@ -58,7 +58,7 @@
 
 | 评审点 | 已实现 | 仍推迟 |
 |--------|--------|--------|
-| 仅 Windows 脚本 | **`docs/DEV_SETUP.md`** + **`scripts/run_ui.sh`**（venv / `PYTHONPATH` / `--port` / `--no-browser`）+ `scripts/run_ui.ps1` | 完整 Linux `run_demo.sh`（OpenClaw stub 一键）非本切片 |
+| 仅 Windows 脚本 | **`docs/DEV_SETUP.md`** + **`scripts/run_ui.sh`** + **`scripts/run_demo.sh`**（OpenClaw stub + keyword 离线一键） | — |
 | 容器 | `Dockerfile` + **`docker-compose.yml`**：`docker compose --profile ui up --build streamlit-ui` → **:8501**（挂载 `./data`、`./config`）；默认 `docker compose up` 仍是 API/采集/Prometheus 全栈 | 生产 OAuth / 企业 SSO |
 | UI 参数 | 侧边栏目录、Eval 价源；**策略配置只读预览**（`build_settings_preview`，不写 YAML） | 侧边栏在线改 `settings`（仍推迟） |
 | 导出 | reports CSV/MD、execution intents；侧边栏 ZIP | — |
@@ -70,15 +70,30 @@
 - API Key：**环境变量 / `.env`（gitignore）/ OpenClaw configure**，勿提交仓库。DeepSeek 使用 `DEEPSEEK_API_KEY`，日志只打印脱敏后缀。
 - 仪表盘：**默认无登录**，勿公网暴露。
 
-## 八、优先级路线图（P0–P4）
+## 八、优先级路线图（P0–P5）— 工程已落地
 
-| 优先级 | 方向 | 本仓库已做 | 下一步 |
-|--------|------|------------|--------|
-| **P0** | 扩大股票池与 signal 历史、稳定 WF | `universe.symbols`（约 17 只）；`--mode replay-batch` 在 **无多日 raw CSV 时自动 seed `tests/fixtures/raw_posts_YYYY-MM-DD.csv`** 并 **按 weekday 扩展至 2026-03-23..2026-06-17（~87 日）**；默认 60/20 窗口在该 span 上不再收缩；**3 折 60/20** 用 `scripts/materialize_wf_history.py` 在 tmp 生成 ~240 日 synthetic 价表+信号（不入库 170+ raw CSV） | 更长**真实** raw / 价表入库后才能替代 synthetic 3 折 |
-| **P1** | 样本外回测与纸面净值对齐 | Eval：信号评估 + WF 折表/CSV；**纸面净值曲线** 与 `evaluate_signals` **共用同一收盘价表**；可选 `slippage_bps`/`fee_bps` | 真实券商沙箱 API（当前仅 stub） |
-| **P2** | OpenClaw / 采集成功率 | 缓存、限速、并行采集日志；**`scripts/check_gateway_health.py` / `--mode gateway-health`**（无 URL 时 Stub PASS）；`ProxyRotator` 轮换 `collection.proxy_urls` / `PROXY_POOL`；**`--mode proxy-health` / `scripts/check_proxy_health.py`**（空池 skip/PASS，短 HTTP 探测） | 验证码打码、登录态农场 |
-| **P3** | 人工标注 + ML 基线 | `docs/annotation_instructions_zh.md`、`scripts/sample_annotation.py`（含 `label_source`/`annotator`）、`scripts/compare_ml_baseline.py`（TF-IDF vs 关键词 vs **offline hybrid**；36 行平衡 **synthetic** fixture）；`scripts/train_eval.py` sklearn 可选；**DeepSeek live 打分**（`DEEPSEEK_API_KEY`，`--mode deepseek-probe` / `score-sample`；CI 不调用）；DeepSeek 失败 → 可选 Qwen → 关键词 | 更大**人工**标注；真实采集历史仍独立 |
-| **P4** | 合规与实盘 | `docs/broker_integration.md`（模式对照 + live 钩子 stub）；`execution` dry_run；纸面滑点/费用；**`SandboxBrokerAdapter` 只记意图、不下单** | 真实券商 REST/FIX / 资金账户 |
+本仓库 **in-repo 可实施工程** 已收敛完成（PR #17–#20 及后续 engineering-complete 切片）。下表「下一步」列仅保留 **外部依赖 / 研究未来**，不在本仓库假装实现。
+
+| 优先级 | 方向 | 本仓库已做 | 下一步（仅 OUT OF SCOPE） |
+|--------|------|------------|---------------------------|
+| **P0** | 扩大股票池与 signal 历史、稳定 WF | replay-batch fixture seed、~87 日日历、3 折 synthetic bundle（`materialize_wf_history.py`） | 用**真实**多月 raw/价表替换 synthetic WF（需持续爬取与存储，非代码脚手架） |
+| **P1** | 样本外回测与纸面净值对齐 | Eval + WF + 共用价表 + 滑点/费用 + transaction_costs 脚手架 | **真实券商 REST/FIX / 资金账户** |
+| **P2** | OpenClaw / 采集成功率 | gateway-health、proxy-health、ProxyRotator、缓存限速 | **验证码打码、登录态农场** |
+| **P3** | 人工标注 + ML 基线 | 72 行 synthetic fixture、`compare_ml_baseline` / `train_eval`、`docs/human_labels_howto.md` | **大规模人工标注项目**（本仓库仅提供模板 CLI） |
+| **P4** | 合规与实盘 | broker 文档、SandboxBroker stub、dry_run | **真实柜台 API** |
+| **P5** | 扩展平台 adapter | 知乎/B 站/小红书/公众号 best-effort | 登录墙后的稳定生产抓取 |
+
+### OUT OF SCOPE（诚实边界）
+
+以下项 ** deliberately 不在本仓库实现**，需要外部密钥、人力或运营：
+
+1. Live broker REST/FIX 与 funded 交易账户  
+2. Captcha solvers / 登录 session 农场  
+3. 替代 synthetic WF 的**真实多月** crawl 历史（需长期数据采集）  
+4. 生产 OAuth / 企业 SSO  
+5. 大规模众包标注与 adjudication 流程（仅文档 + 小 CLI 模板）
+
+研究型未来（非承诺）：领域微调、账号图谱水军模型、Prometheus 级监控、分布式采集。
 
 **P0 命令示例（无真实 raw 时也会从 `tests/fixtures` seed 多日 CSV + 价表）**
 
