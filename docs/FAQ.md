@@ -18,6 +18,9 @@ A: 有价表 + `signal_history.jsonl` 时进入 **Eval** 会自动跑 WF 并生�
 **Q: OpenClaw 必须装吗？**  
 A: 否。`scoring.mode: keyword` 或 hybrid 在网关不可用时会回退关键词/Stub。可用 `python -m opinion_trading.main --mode gateway-health` 或 `scripts/check_gateway_health.py`：未配置 `OPENCLAW_URL` 时记 **HEALTH PASS [stub]**。
 
+**Q: 如何用 DeepSeek 做真实情绪打分？**  
+A: 设置 `DEEPSEEK_API_KEY`（可选 `DEEPSEEK_BASE_URL` 默认 `https://api.deepseek.com`，`DEEPSEEK_MODEL` 默认 `deepseek-chat`）。`config/settings.yaml` → `scoring.mode: ai`、`scoring.provider: deepseek`（密钥只走环境变量，不写 YAML）。本地：`python -m opinion_trading.main --mode deepseek-probe`；无 key 时 **NOT_CONFIGURED** 且 exit 2。`DEEPSEEK_REQUIRE=1` 时若请求了 live LLM 却缺 key 会抛明确中英错误；默认回退关键词。CI 使用 `SCORING_MODE=keyword`，不访问 DeepSeek。研究原型，不是收益承诺。
+
 **Q: 代理池怎么配？**  
 A: `config/settings.yaml` → `collection.proxy_urls` 或环境变量 `PROXY_POOL=url1,url2`。`ProxyRotator` 做 **round-robin + 失败跳过**，采集 GET 会带上 `proxies=`。**不做**验证码打码、登录态农场或代理质量探测。未配置时直连。
 

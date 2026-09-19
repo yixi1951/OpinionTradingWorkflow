@@ -2,6 +2,12 @@
 
 ## Unreleased (2026-09)
 
+### DeepSeek live sentiment
+- Env interface: `DEEPSEEK_API_KEY` (required for live), optional `DEEPSEEK_BASE_URL` / `DEEPSEEK_MODEL` / `DEEPSEEK_TIMEOUT`.
+- OpenAI-compatible `/v1/chat/completions` client with one retry; keyword fallback when the key is missing (or `DEEPSEEK_REQUIRE=1` for a bilingual error).
+- Wired first in `AISentimentAnalyzer` when `scoring.mode` is `ai`/`hybrid` (CI stays `SCORING_MODE=keyword`).
+- CLI: `--mode deepseek-probe`, `--mode score-sample`, `scripts/probe_deepseek.py`. pytest mocks HTTP and strips the key.
+
 ### Opt-in Xiaohongshu / Weixin adapters
 - Best-effort HTML collectors + stub fallback for `xiaohongshu` (`xhs`) and `weixin` (`gongzhonghao` / `wechat_oa`).
 - Not on the default daily `strategy.platforms` list; enable by uncommenting in `config/settings.yaml`.

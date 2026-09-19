@@ -27,7 +27,7 @@
 
 | 评审点 | 已实现 | 未实现 |
 |--------|--------|--------|
-| 备用 LLM | `scoring.mode: keyword` 离线；Stub 兜底 | 多厂商 API 自动切换 |
+| 备用 LLM | `scoring.mode: keyword` 离线；**DeepSeek live**（`DEEPSEEK_API_KEY` + `scoring.provider: deepseek`） | 多厂商自动切换仍有限（Qwen/OpenClaw 备援） |
 | 情绪细分 | 单维 score | 多标签情绪 |
 | 时效权重 | **daily + realtime** `sentiment_recency` 半衰期加权；实时 delta 告警 | 跨平台统一 UTC |
 | 反讽/黑话 | LLM + 关键词 | 领域微调 |
@@ -67,7 +67,7 @@
 
 ## 七、安全
 
-- API Key：**环境变量 / OpenClaw configure**，勿提交仓库。
+- API Key：**环境变量 / `.env`（gitignore）/ OpenClaw configure**，勿提交仓库。DeepSeek 使用 `DEEPSEEK_API_KEY`，日志只打印脱敏后缀。
 - 仪表盘：**默认无登录**，勿公网暴露。
 
 ## 八、优先级路线图（P0–P4）
@@ -77,7 +77,7 @@
 | **P0** | 扩大股票池与 signal 历史、稳定 WF | `universe.symbols`（约 17 只）；`--mode replay-batch` 在 **无多日 raw CSV 时自动 seed `tests/fixtures/raw_posts_YYYY-MM-DD.csv`** 并 **按 weekday 扩展至 2026-03-23..2026-06-17（~87 日）**；默认 60/20 窗口在该 span 上不再收缩；**3 折 60/20** 用 `scripts/materialize_wf_history.py` 在 tmp 生成 ~240 日 synthetic 价表+信号（不入库 170+ raw CSV） | 更长**真实** raw / 价表入库后才能替代 synthetic 3 折 |
 | **P1** | 样本外回测与纸面净值对齐 | Eval：信号评估 + WF 折表/CSV；**纸面净值曲线** 与 `evaluate_signals` **共用同一收盘价表**；可选 `slippage_bps`/`fee_bps` | 真实券商沙箱 API（当前仅 stub） |
 | **P2** | OpenClaw / 采集成功率 | 缓存、限速、并行采集日志；**`scripts/check_gateway_health.py` / `--mode gateway-health`**（无 URL 时 Stub PASS）；`ProxyRotator` 轮换 `collection.proxy_urls` / `PROXY_POOL` | 验证码打码、登录态、代理质量探测 |
-| **P3** | 人工标注 + ML 基线 | `docs/annotation_instructions_zh.md`、`scripts/sample_annotation.py`（含 `label_source`/`annotator`）、`scripts/compare_ml_baseline.py`（TF-IDF vs 关键词 vs **offline hybrid**；36 行平衡 **synthetic** fixture）；`scripts/train_eval.py` sklearn 可选；live hybrid 需 `HYBRID_USE_LLM=1` + key | 更大**人工**标注 + 有 key 时 hybrid LLM |
+| **P3** | 人工标注 + ML 基线 | `docs/annotation_instructions_zh.md`、`scripts/sample_annotation.py`（含 `label_source`/`annotator`）、`scripts/compare_ml_baseline.py`（TF-IDF vs 关键词 vs **offline hybrid**；36 行平衡 **synthetic** fixture）；`scripts/train_eval.py` sklearn 可选；**DeepSeek live 打分**（`DEEPSEEK_API_KEY`，`--mode deepseek-probe` / `score-sample`；CI 不调用） | 更大**人工**标注；真实采集历史仍独立 |
 | **P4** | 合规与实盘 | `docs/broker_integration.md`、`execution` dry_run；纸面滑点/费用；**`SandboxBrokerAdapter` 只记意图、不下单** | 真实券商 REST/FIX / 资金账户 |
 
 **P0 命令示例（无真实 raw 时也会从 `tests/fixtures` seed 多日 CSV + 价表）**
