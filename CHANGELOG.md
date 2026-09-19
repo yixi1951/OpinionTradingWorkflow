@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased (2026-09)
+
+### P0 replay / walk-forward
+- Multi-day fixture raw CSVs (`tests/fixtures/raw_posts_2026-06-1*.csv`) and `price_history_replay.csv`.
+- `--mode replay-batch` seeds fixtures when `data/raw` is empty; omits 2025 backtest date defaults so 2026 fixtures are not filtered out.
+- Walk-forward auto-shrinks train/test windows on short `signal_history`.
+
+### P1 price alignment
+- Paper equity MTM and `evaluate_signals` share `lookup_close` / local price table (`PRICE_FILE` or cache CSV).
+- `validate_paper_eval_price_alignment` catches mismatches.
+
+### P3 ML baseline
+- `scripts/compare_ml_baseline.py` writes TF-IDF vs keyword report; CI fixture `tests/fixtures/annotation_sample_labeled.csv`.
+- `sample_annotation.py` accepts raw CSV as well as JSONL.
+
+### P5 Zhihu adapter
+- Best-effort Zhihu HTML collector + stub fallback; not enabled in default daily platform list.
+
+### Tests / docs
+- Replay-batch, walk-forward, price alignment, zhihu, and core-module coverage tests.
+- Roadmap / DEV_SETUP / CI / annotation docs updated.
+
 ## Unreleased (2026-06)
 
 ### CI & smoke

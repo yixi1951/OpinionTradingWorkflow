@@ -285,7 +285,7 @@ pytest -q
 | 免费舆情噪音大、fallback 多 | `quality` 门控：质量报告未 PASS 时下调情绪置信度，严重时可阻断新信号 |
 | 回测过拟合 | `walk_forward` + Eval Tab；评估含 **最大回撤 / 盈亏比 / Profit factor**；`--mode walk_forward` |
 | 重复帖 / 搬运 | daily 采集后 **`text_dedup`** 去重 |
-| 答辩耗时 | **`--fast-daily`** 重放 `data/raw/raw_posts_<date>.csv`，跳过爬虫 |
+| 答辩耗时 | **`--fast-daily`** 重放 raw CSV；**`--mode replay-batch`** 无多日 raw 时 seed `tests/fixtures` 再 `walk_forward` |
 | 无实盘下单 | `execution`：纸面模拟 + `execution_intents_*.jsonl` / `signals_export_*.csv`（`dry_run: true`） |
 | AI/共识黑箱 | 多 Agent 信号写入 `consensus_score`、分项得分与中文 `explanation` |
 | 单一舆情因子 | 默认 `analysis.enabled`：情绪 + 技术 + 基本面 → 共识引擎 |

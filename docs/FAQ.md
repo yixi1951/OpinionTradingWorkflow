@@ -31,8 +31,8 @@ A: 编辑 `config/settings.yaml` → `universe.symbols`。
 **Q: 准确率是否用了未来数据？**  
 A: 评估使用信号日对应的 **下一交易日收益**（`next_return`）。若价表无重叠日期，会 `merge_asof` 并发出警告——答辩时应使用覆盖信号期的价 CSV。
 
-**Q: 和 walk-forward 区别？**  
-A: 单次 evaluate 可能是全样本；`walk_forward` / Eval Tab 滚动 train/test 看**样本外**落差。
+**Q: 纸面净值为什么和评估指标对不上？**  
+A: Eval Tab / CLI 与纸面 MTM 应读取同一收盘价表（`PRICE_FILE` 或 `data/reports/price_history_cache.csv`）。可用 `validate_paper_eval_price_alignment`；离线演示用 `tests/fixtures/price_history_replay.csv`。
 
 ## UI 与安全
 
