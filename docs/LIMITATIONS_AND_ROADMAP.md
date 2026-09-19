@@ -15,7 +15,7 @@
 
 | 评审点 | 已实现 | 未实现 / 长期 |
 |--------|--------|----------------|
-| 代理池 / 验证码 | 单 UA + per-domain 限速 + 缓存；**gateway health** CLI；`collection.proxy_urls` / `PROXY_POOL` + **`ProxyRotator` round-robin / 失败跳过** | 生产级代理质量探测、打码、登录态农场 |
+| 代理池 / 验证码 | 单 UA + per-domain 限速 + 缓存；**gateway health** CLI；`collection.proxy_urls` / `PROXY_POOL` + **`ProxyRotator` round-robin / 失败跳过**；**`proxy-health` 短 HTTP(S) 探测**（空池 skip/PASS） | 打码、登录态农场；生产级住宅代理质量评分 |
 | 知乎/B 站/小红书/公众号 | 6 默认平台 + **知乎 / B 站 / 小红书 / 公众号** best-effort HTML adapter（均默认不加入 daily 爬取列表） | 登录墙 / 验证码后的稳定抓取；互动字段 |
 | 评论/点赞/转发 | 帖子标题+正文为主 | 互动字段与热度权重 |
 | **去重** | `text_dedup.dedupe_raw_rows`（daily 采集后） | 跨日全局 dedup DB |
@@ -27,7 +27,7 @@
 
 | 评审点 | 已实现 | 未实现 |
 |--------|--------|--------|
-| 备用 LLM | `scoring.mode: keyword` 离线；**DeepSeek live**（`DEEPSEEK_API_KEY` + `scoring.provider: deepseek`） | 多厂商自动切换仍有限（Qwen/OpenClaw 备援） |
+| 备用 LLM | `scoring.mode: keyword` 离线；**DeepSeek live**（`DEEPSEEK_API_KEY`）；失败后可选 **Qwen/DashScope**（`QWEN_API_KEY` / `DASHSCOPE_API_KEY`，OpenAI 兼容）再回退关键词，并打一条 `LLM_FAILOVER` 结构化警告 | 更多厂商自动路由 / 负载均衡仍有限 |
 | 情绪细分 | 单维 score | 多标签情绪 |
 | 时效权重 | **daily + realtime** `sentiment_recency` 半衰期加权；实时 delta 告警 | 跨平台统一 UTC |
 | 反讽/黑话 | LLM + 关键词 | 领域微调 |
@@ -56,14 +56,14 @@
 
 ## 六、部署与 UX
 
-| 评审点 | 已实现 | 计划 |
-|--------|--------|------|
-| 仅 Windows 脚本 | **`docs/DEV_SETUP.md`** + bash 等价命令 | `scripts/run_ui.sh` |
-| 容器 | `Dockerfile` | **`docker-compose.yml`** 一键 UI |
+| 评审点 | 已实现 | 仍推迟 |
+|--------|--------|--------|
+| 仅 Windows 脚本 | **`docs/DEV_SETUP.md`** + **`scripts/run_ui.sh`**（venv / `PYTHONPATH` / `--port` / `--no-browser`）+ `scripts/run_ui.ps1` | 完整 Linux `run_demo.sh`（OpenClaw stub 一键）非本切片 |
+| 容器 | `Dockerfile` + **`docker-compose.yml`**：`docker compose --profile ui up --build streamlit-ui` → **:8501**（挂载 `./data`、`./config`）；默认 `docker compose up` 仍是 API/采集/Prometheus 全栈 | 公网认证 / 反代 hardening |
 | UI 参数 | 侧边栏目录、Eval 价源 | 侧边栏改 `settings` 只读预览 |
-| 导出 | reports CSV/MD、execution intents | UI 一键下载 zip |
+| 导出 | reports CSV/MD、execution intents；侧边栏 ZIP | — |
 | 移动端 | Streamlit 响应式一般 | 未专门适配 |
-| **认证** | 无（本地演示） | `STREAMLIT_PASSWORD` / 反代 |
+| **认证** | 可选 `STREAMLIT_DASHBOARD_PASSWORD`（演示级） | 生产 Nginx/OAuth |
 
 ## 七、安全
 
@@ -76,8 +76,8 @@
 |--------|------|------------|--------|
 | **P0** | 扩大股票池与 signal 历史、稳定 WF | `universe.symbols`（约 17 只）；`--mode replay-batch` 在 **无多日 raw CSV 时自动 seed `tests/fixtures/raw_posts_YYYY-MM-DD.csv`** 并 **按 weekday 扩展至 2026-03-23..2026-06-17（~87 日）**；默认 60/20 窗口在该 span 上不再收缩；**3 折 60/20** 用 `scripts/materialize_wf_history.py` 在 tmp 生成 ~240 日 synthetic 价表+信号（不入库 170+ raw CSV） | 更长**真实** raw / 价表入库后才能替代 synthetic 3 折 |
 | **P1** | 样本外回测与纸面净值对齐 | Eval：信号评估 + WF 折表/CSV；**纸面净值曲线** 与 `evaluate_signals` **共用同一收盘价表**；可选 `slippage_bps`/`fee_bps` | 真实券商沙箱 API（当前仅 stub） |
-| **P2** | OpenClaw / 采集成功率 | 缓存、限速、并行采集日志；**`scripts/check_gateway_health.py` / `--mode gateway-health`**（无 URL 时 Stub PASS）；`ProxyRotator` 轮换 `collection.proxy_urls` / `PROXY_POOL` | 验证码打码、登录态、代理质量探测 |
-| **P3** | 人工标注 + ML 基线 | `docs/annotation_instructions_zh.md`、`scripts/sample_annotation.py`（含 `label_source`/`annotator`）、`scripts/compare_ml_baseline.py`（TF-IDF vs 关键词 vs **offline hybrid**；36 行平衡 **synthetic** fixture）；`scripts/train_eval.py` sklearn 可选；**DeepSeek live 打分**（`DEEPSEEK_API_KEY`，`--mode deepseek-probe` / `score-sample`；CI 不调用） | 更大**人工**标注；真实采集历史仍独立 |
+| **P2** | OpenClaw / 采集成功率 | 缓存、限速、并行采集日志；**`scripts/check_gateway_health.py` / `--mode gateway-health`**（无 URL 时 Stub PASS）；`ProxyRotator` 轮换 `collection.proxy_urls` / `PROXY_POOL`；**`--mode proxy-health` / `scripts/check_proxy_health.py`**（空池 skip/PASS，短 HTTP 探测） | 验证码打码、登录态农场 |
+| **P3** | 人工标注 + ML 基线 | `docs/annotation_instructions_zh.md`、`scripts/sample_annotation.py`（含 `label_source`/`annotator`）、`scripts/compare_ml_baseline.py`（TF-IDF vs 关键词 vs **offline hybrid**；36 行平衡 **synthetic** fixture）；`scripts/train_eval.py` sklearn 可选；**DeepSeek live 打分**（`DEEPSEEK_API_KEY`，`--mode deepseek-probe` / `score-sample`；CI 不调用）；DeepSeek 失败 → 可选 Qwen → 关键词 | 更大**人工**标注；真实采集历史仍独立 |
 | **P4** | 合规与实盘 | `docs/broker_integration.md`、`execution` dry_run；纸面滑点/费用；**`SandboxBrokerAdapter` 只记意图、不下单** | 真实券商 REST/FIX / 资金账户 |
 
 **P0 命令示例（无真实 raw 时也会从 `tests/fixtures` seed 多日 CSV + 价表）**
@@ -143,7 +143,22 @@ python -m opinion_trading.main --mode gateway-health
 OPENCLAW_URL=http://127.0.0.1:18790 PYTHONPATH=src python scripts/check_gateway_health.py
 ```
 
-`collection.proxy_urls` / `PROXY_POOL` 由 `ProxyRotator` 做 round-robin / 失败跳过，采集 GET 带 `proxies=`。**仍不**做验证码打码、登录 cookie 农场或代理健康探测（可选后续）。
+`collection.proxy_urls` / `PROXY_POOL` 由 `ProxyRotator` 做 round-robin / 失败跳过，采集 GET 带 `proxies=`。**代理质量探测**（短 HTTP GET，非打码）：
+
+```bash
+# 空池：skip/PASS（CI / 默认 settings）
+PYTHONPATH=src python scripts/check_proxy_health.py
+python -m opinion_trading.main --mode proxy-health
+# 有池时对每个 URL 发短请求；全部失败则 exit 1
+PROXY_POOL=http://127.0.0.1:8888 PYTHONPATH=src python scripts/check_proxy_health.py
+```
+
+**仍不**做验证码打码或登录 cookie 农场。
+
+**LLM 备援（可选，CI 默认 keyword / 无 key）**
+
+- Live：`DEEPSEEK_API_KEY` → 失败重试后若配置了 `QWEN_API_KEY` 或 `DASHSCOPE_API_KEY` 则走 DashScope 兼容接口 → 再回退关键词。
+- 回退时打 **一条** `LLM_FAILOVER {...}` 结构化 warning；pytest 不发起真实请求。
 
 **P5 知乎 / B 站 / 小红书 / 公众号 adapter**
 

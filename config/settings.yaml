@@ -143,6 +143,7 @@ execution:
   fee_bps: 0.0
 collection:
   # Round-robin / failover via ProxyRotator (HTTP crawl only). Also: PROXY_POOL=url1,url2
+  # Quality probe: python -m opinion_trading.main --mode proxy-health (empty list = PASS)
   # Captcha solvers and login-session farms are NOT implemented.
   proxy_urls: []
   # Zhihu / Bilibili / Xiaohongshu / Weixin adapters exist but stay opt-in

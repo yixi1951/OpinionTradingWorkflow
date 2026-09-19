@@ -1,9 +1,58 @@
-# OpinionTrading microservices stack
-# Usage: docker compose up -d --build
-# API: http://localhost:8000/v1/status
-# Dashboard: http://localhost:8501
+# OpinionTrading compose
+#
+# One-click Streamlit UI (no API / collector / Prometheus):
+#   docker compose --profile ui up --build streamlit-ui
+#   → http://localhost:8501
+#   mounts ./data (rw) and ./config (ro). Keyword scoring by default (CI-safe).
+#
+# Full microservices stack:
+#   docker compose up -d --build
+#   API:         http://localhost:8000/v1/status
+#   Collector:   http://localhost:8001
+#   Inference:   http://localhost:8002
+#   Compute:     http://localhost:8003
+#   Dashboard:   http://localhost:8501  (depends on API)
+#   Prometheus:  http://localhost:9090
+#   Grafana:     http://localhost:3000  (admin/admin)
+#
+# Do not run --profile ui together with the full stack (both bind 8501).
+# Copy .env.example → .env for optional keys; never bake secrets into the image.
 
 services:
+  # Standalone Streamlit (profile "ui"). Does not start inference/collector.
+  streamlit-ui:
+    profiles: ["ui"]
+    build: .
+    command: >
+      streamlit run src/opinion_trading/ui_dashboard.py
+      --server.address=0.0.0.0
+      --server.port=8501
+      --server.headless=true
+    environment:
+      PYTHONPATH: /app/src
+      SCORING_MODE: ${SCORING_MODE:-keyword}
+      STREAMLIT_DASHBOARD_PASSWORD: ${STREAMLIT_DASHBOARD_PASSWORD:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      QWEN_API_KEY: ${QWEN_API_KEY:-}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config:ro
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health')",
+        ]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
+
   inference:
     build: .
     command: python -m opinion_trading.services.inference_app
@@ -93,11 +142,13 @@ services:
 
   dashboard:
     build: .
-    command: streamlit run src/opinion_trading/ui_dashboard.py --server.address=0.0.0.0 --server.port=8501
+    command: streamlit run src/opinion_trading/ui_dashboard.py --server.address=0.0.0.0 --server.port=8501 --server.headless=true
     environment:
       PYTHONPATH: /app/src
       INFERENCE_URL: http://inference:8002
       OPENCLAW_URL: http://inference:8002
+      SCORING_MODE: ${SCORING_MODE:-keyword}
+      STREAMLIT_DASHBOARD_PASSWORD: ${STREAMLIT_DASHBOARD_PASSWORD:-}
     ports:
       - "8501:8501"
     volumes:
@@ -105,6 +156,19 @@ services:
       - ./config:/app/config:ro
     depends_on:
       - api
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health')",
+        ]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
+
 
   prometheus:
     image: prom/prometheus:v2.54.1

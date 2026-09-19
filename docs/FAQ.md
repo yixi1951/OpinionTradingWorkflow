@@ -19,12 +19,12 @@ A: 有价表 + `signal_history.jsonl` 时进入 **Eval** 会自动跑 WF 并生�
 A: 否。`scoring.mode: keyword` 或 hybrid 在网关不可用时会回退关键词/Stub。可用 `python -m opinion_trading.main --mode gateway-health` 或 `scripts/check_gateway_health.py`：未配置 `OPENCLAW_URL` 时记 **HEALTH PASS [stub]**。
 
 **Q: 如何用 DeepSeek 做真实情绪打分？**  
-A: 设置 `DEEPSEEK_API_KEY`（可选 `DEEPSEEK_BASE_URL` 默认 `https://api.deepseek.com`，`DEEPSEEK_MODEL` 默认 `deepseek-chat`）。`config/settings.yaml` → `scoring.mode: ai`、`scoring.provider: deepseek`（密钥只走环境变量，不写 YAML）。本地：`python -m opinion_trading.main --mode deepseek-probe`；无 key 时 **NOT_CONFIGURED** 且 exit 2。`DEEPSEEK_REQUIRE=1` 时若请求了 live LLM 却缺 key 会抛明确中英错误；默认回退关键词。默认 CI（`.github/workflows/ci.yml`）使用 `SCORING_MODE=keyword`，不访问 DeepSeek。研究原型，不是收益承诺。
+A: 设置 `DEEPSEEK_API_KEY`（可选 `DEEPSEEK_BASE_URL` 默认 `https://api.deepseek.com`，`DEEPSEEK_MODEL` 默认 `deepseek-chat`）。`config/settings.yaml` → `scoring.mode: ai`、`scoring.provider: deepseek`（密钥只走环境变量，不写 YAML）。本地：`python -m opinion_trading.main --mode deepseek-probe`；无 key 时 **NOT_CONFIGURED** 且 exit 2。`DEEPSEEK_REQUIRE=1` 时若请求了 live LLM 却缺 key 会抛明确中英错误；默认回退关键词。默认 CI（`.github/workflows/ci.yml`）使用 `SCORING_MODE=keyword`，不访问 DeepSeek。若 live 调用失败，会可选走 `QWEN_API_KEY` / `DASHSCOPE_API_KEY`（OpenAI 兼容），再回退关键词，并打一条 `LLM_FAILOVER` 警告。研究原型，不是收益承诺。
 
 仓库里做一次真实探针（不把 key 发到聊天）：**Settings → Secrets and variables → Actions** 新建 secret，名称必须是 `DEEPSEEK_API_KEY`；然后 **Actions → DeepSeek probe → Run workflow**，选分支 `cursor/roadmap-p0-p5-7604`（工作流文件 `.github/workflows/deepseek-probe.yml`，仅手动触发）。
 
 **Q: 代理池怎么配？**  
-A: `config/settings.yaml` → `collection.proxy_urls` 或环境变量 `PROXY_POOL=url1,url2`。`ProxyRotator` 做 **round-robin + 失败跳过**，采集 GET 会带上 `proxies=`。**不做**验证码打码、登录态农场或代理质量探测。未配置时直连。
+A: `config/settings.yaml` → `collection.proxy_urls` 或环境变量 `PROXY_POOL=url1,url2`。`ProxyRotator` 做 **round-robin + 失败跳过**，采集 GET 会带上 `proxies=`。质量探测：`python -m opinion_trading.main --mode proxy-health`（或 `scripts/check_proxy_health.py`）对每个代理发短 HTTP GET；**空池 skip/PASS**。**不做**验证码打码或登录态农场。未配置时直连。
 
 ## 数据与质量
 

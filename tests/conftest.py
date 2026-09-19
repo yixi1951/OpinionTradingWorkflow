@@ -20,3 +20,5 @@ def _block_live_deepseek(monkeypatch):
     }:
         return
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("QWEN_API_KEY", raising=False)
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
