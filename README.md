@@ -267,6 +267,7 @@ pytest -q
 | 变量 | 说明 |
 |------|------|
 | `OPENCLAW_URL` / `OPENCLAW_GATEWAY_URL` | OpenClaw HTTP 地址（代理或 stub） |
+| `OPENCLAW_WS_URL` | 可选 WS 探针（`--mode gateway-health`） |
 | `OPENCLAW_TIMEOUT` | 单次 LLM 超时秒数（默认 90） |
 | `OPENCLAW_SKIP_ROW_SCORE` | `1` = 跳过逐帖打分，仅聚合层调用 LLM |
 | `COLLECT_PARALLEL` / `COLLECT_MAX_WORKERS` | daily 并行采集（默认开，6 线程） |

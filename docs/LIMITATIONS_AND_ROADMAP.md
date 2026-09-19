@@ -15,8 +15,8 @@
 
 | 评审点 | 已实现 | 未实现 / 长期 |
 |--------|--------|----------------|
-| 代理池 / 验证码 | 单 UA +  per-domain 限速 + 缓存 | 代理池、打码、登录态 |
-| 知乎/B 站/小红书/公众号 | 6 平台 + **知乎 best-effort adapter**（股吧/东财/新浪/微博/雪球/抖音；知乎默认不加入 daily 爬取列表） | B 站/小红书/公众号仍需独立 adapter |
+| 代理池 / 验证码 | 单 UA + per-domain 限速 + 缓存；**gateway health** CLI + `collection.proxy_urls` 配置钩子 | 生产级代理轮换、打码、登录态 |
+| 知乎/B 站/小红书/公众号 | 6 平台 + **知乎 / B 站 best-effort adapter**（股吧/东财/新浪/微博/雪球/抖音；知乎与 B 站默认不加入 daily 爬取列表） | 小红书/公众号仍需独立 adapter |
 | 评论/点赞/转发 | 帖子标题+正文为主 | 互动字段与热度权重 |
 | **去重** | `text_dedup.dedupe_raw_rows`（daily 采集后） | 跨日全局 dedup DB |
 | 水军识别 | 噪声规则 + quality 统计 | 账号图谱 / 行为模型 |
@@ -33,7 +33,7 @@
 | 反讽/黑话 | LLM + 关键词 | 领域微调 |
 | **多因子** | Multi-Agent：情绪+技术+基本面+共识 | 行业/宏观因子 |
 | **风控** | `risk_controls`、Kelly 上限、纸面市价 | 止盈止损、实盘 |
-| **交易成本** | `simulation` 模式 `slippage_bps`；纸面 note 含价源 | 手续费模型写入回测 |
+| **交易成本** | `execution.simulation_slippage_bps` / `fee_bps` 写入 **evaluate_signals 策略收益** 与纸面成交价（同一价表路径） | 券商佣金档位 / 印花税日历 |
 | 实时 9 分钟 | `row_level_llm: false` 默认；`--fast-daily` 演示 | 并行 LLM / 批处理 |
 
 ## 四、回测与过拟合
@@ -74,11 +74,11 @@
 
 | 优先级 | 方向 | 本仓库已做 | 下一步 |
 |--------|------|------------|--------|
-| **P0** | 扩大股票池与 signal 历史、稳定 WF | `universe.symbols`（约 17 只）；`--mode replay-batch` 在 **无多日 raw CSV 时自动 seed `tests/fixtures/raw_posts_YYYY-MM-DD.csv`**；短历史自动收缩 WF 窗口；`tests/fixtures/price_history_replay.csv` + CI/pytest smoke | 更长真实 raw 入库后用默认 60/20 窗口跑 WF |
-| **P1** | 样本外回测与纸面净值对齐 | Eval：信号评估 + WF 折表/CSV；**纸面净值曲线** 与 `evaluate_signals` **共用同一收盘价表**（`lookup_close` / `PRICE_FILE` / cache CSV）；`validate_paper_eval_price_alignment` | 手续费/滑点写入同一价表回测 |
-| **P2** | OpenClaw / 采集成功率 | 缓存、限速、并行采集日志、Hero fallback 告警 | 代理池、网关健康检查自动化 |
-| **P3** | 人工标注 + ML 基线 | `docs/annotation_instructions_zh.md`、`scripts/sample_annotation.py`、`scripts/compare_ml_baseline.py`（TF-IDF 质心 vs 关键词，fixture 可 CI smoke） | 更大标注集 + 与 hybrid LLM 对比 |
-| **P4** | 合规与实盘 | `docs/broker_integration.md`、`execution` dry_run | 券商沙箱对接 |
+| **P0** | 扩大股票池与 signal 历史、稳定 WF | `universe.symbols`（约 17 只）；`--mode replay-batch` 在 **无多日 raw CSV 时自动 seed `tests/fixtures/raw_posts_YYYY-MM-DD.csv`** 并 **按 weekday 扩展至 2026-03-23..2026-06-17（~87 日）**；默认 60/20 窗口在该 span 上不再收缩；`tests/fixtures/price_history_replay.csv`（同 span） | 更长真实 raw 入库后才能凑满 3 个互不重叠的 60/20 折（约需 240 日） |
+| **P1** | 样本外回测与纸面净值对齐 | Eval：信号评估 + WF 折表/CSV；**纸面净值曲线** 与 `evaluate_signals` **共用同一收盘价表**；可选 `slippage_bps`/`fee_bps` | 券商沙箱（P4） |
+| **P2** | OpenClaw / 采集成功率 | 缓存、限速、并行采集日志；**`scripts/check_gateway_health.py` / `--mode gateway-health`**（无 URL 时 Stub PASS）；`collection.proxy_urls` / `PROXY_POOL` 配置钩子 | 生产代理轮换、验证码 |
+| **P3** | 人工标注 + ML 基线 | `docs/annotation_instructions_zh.md`、`scripts/sample_annotation.py`、`scripts/compare_ml_baseline.py`（TF-IDF vs 关键词 vs **offline hybrid**；36 行平衡 fixture）；`scripts/train_eval.py` sklearn 可选 | 更大人工标注 + 有 key 时 hybrid LLM |
+| **P4** | 合规与实盘 | `docs/broker_integration.md`、`execution` dry_run；纸面滑点/费用 | **券商沙箱对接仍未做** |
 
 **P0 命令示例（无真实 raw 时也会从 `tests/fixtures` seed 多日 CSV + 价表）**
 
@@ -98,6 +98,8 @@ python -m opinion_trading.main --mode walk_forward --price-file data/reports/pri
 
 `--start-date` / `--end-date` 的 2025 默认值仅用于 **backtest/optimize**；replay-batch 省略日期时不再误过滤掉 2026 fixture。
 
+Fixture 日历跨度约 **2026-03-23 → 2026-06-17（~87 日）**：足够 **不收缩** 默认 60/20 窗口跑出至少一折；三个互不重叠的 60/20 折仍需约 240 日真实历史。
+
 **P1 价表对齐**
 
 - `evaluate_signals` 与纸面 MTM 都通过 `lookup_close` / `market_data` 本地价表读取同一 CSV（优先 `PRICE_FILE`，否则 `data/reports/price_history_cache.csv`，再否则 `tests/fixtures/price_history_replay.csv`）。
@@ -113,13 +115,39 @@ PYTHONPATH=src python scripts/compare_ml_baseline.py \
   --out data/reports/ml_baseline_comparison.md
 ```
 
-报告为研究对照，**不是**实盘收益承诺。
+报告为研究对照，**不是**实盘收益承诺。sklearn 路径（可选）：
 
-**P5 知乎 adapter**
+```bash
+# 需 pip install scikit-learn joblib；CI 无此包时单测 skip
+PYTHONPATH=src python scripts/train_eval.py \
+  --labels tests/fixtures/annotation_sample_labeled.csv \
+  --out_dir /tmp/ot-models --test_size 0.34 --n-estimators 8
+```
 
-- `RealPlatformSentimentProvider` 支持 `zhihu`（搜索页 HTML + stub fallback）。
-- 默认 `strategy.platforms` **不**包含知乎，避免 daily 强制外网；需要时在 `config/settings.yaml` 取消注释 `- zhihu`。
-- 单测使用 `tests/fixtures/zhihu_page.html`。
+**P2 网关健康检查**
+
+```bash
+# 无 OPENCLAW_URL：Stub PASS（离线/CI）
+PYTHONPATH=src python scripts/check_gateway_health.py --stub
+# 或
+python -m opinion_trading.main --mode gateway-health
+# 有网关：
+OPENCLAW_URL=http://127.0.0.1:18790 PYTHONPATH=src python scripts/check_gateway_health.py
+```
+
+`collection.proxy_urls` / `PROXY_POOL` 仅记录配置条数，不做轮换。
+
+**P5 知乎 / B 站 adapter**
+
+- `RealPlatformSentimentProvider` 支持 `zhihu` 与 `bilibili`（搜索页 HTML + stub fallback）。
+- 默认 `strategy.platforms` **不**包含二者，避免 daily 强制外网；需要时在 `config/settings.yaml` 取消注释 `- zhihu` / `- bilibili`。
+- 单测使用 `tests/fixtures/zhihu_page.html` 与 `tests/fixtures/bilibili_page.html`。
+
+**交易成本（P1/P4-adjacent）**
+
+- `evaluate_signals(..., slippage_bps=, fee_bps=)` 从策略收益中扣除单边成本；纸面成交价 `apply_fill_price` 对 BUY 上浮、SELL 下调。
+- 默认 `execution.simulation_slippage_bps: 5`，`fee_bps: 0`。MTM 仍用中间价（价表 close）。
+- **券商沙箱仍未实现**（见 `docs/broker_integration.md`）。
 
 ## 推荐答辩话术
 

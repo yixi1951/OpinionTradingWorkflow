@@ -26,7 +26,7 @@
    `python scripts/sample_annotation.py --infile tests/fixtures/raw_posts_smoke_min.csv --n 8`
 2. 在本地使用 Excel/Google Sheets 打开，填写 `label` 列并保存为 CSV。建议两位标注者独立标注并计算 Cohen's Kappa。
 3. 返回到仓库后，运行评估脚本合并标注并生成训练/测试集。
-4. **离线 ML 基线对照**（CI 可用 `tests/fixtures/annotation_sample_labeled.csv`，无需手工标注）：
+4. **离线 ML 基线对照**（CI 用 `tests/fixtures/annotation_sample_labeled.csv`，36 行平衡 **synthetic fixture** 标签）：
 
 ```bash
 export PYTHONPATH=src USE_LLM_GATEWAY=0 SCORING_MODE=keyword
@@ -35,7 +35,14 @@ python scripts/compare_ml_baseline.py \
   --out data/reports/ml_baseline_comparison.md
 ```
 
-该脚本训练字符 n-gram TF-IDF 质心分类器，并与关键词词典打分（bull/bear/neutral）对比，写出 Markdown/JSON。样本很小，**仅供研究对照，不是收益预测**。既有的 `scripts/train_eval.py`（sklearn SVM/RF）仍可用于更大标注集。
+该脚本训练字符 n-gram TF-IDF 质心分类器，并与关键词词典及 **offline hybrid fusion** 对比。无 `OPENCLAW_URL` / API key 时 hybrid **不会**调用 LLM。样本为研究对照，**不是收益预测**。
+
+可选 sklearn（`scripts/train_eval.py`，需 `pip install scikit-learn joblib`；CI 未装则 skip）：
+
+```bash
+PYTHONPATH=src python scripts/train_eval.py \
+  --labels tests/fixtures/annotation_sample_labeled.csv --out_dir /tmp/ot-models --n-estimators 8
+```
 
 标注示例行（CSV 列顺序）:
 id,platform,symbol,trade_date,text,label,notes

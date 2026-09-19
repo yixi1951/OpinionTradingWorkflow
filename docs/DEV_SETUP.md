@@ -46,8 +46,10 @@ streamlit run src/opinion_trading/ui_dashboard.py
 | `py -m opinion_trading.main --mode daily --fast-daily --date YYYY-MM-DD` | 跳过爬虫，重放已有 raw CSV |
 | `py -m opinion_trading.main --mode replay-batch --reset-paper` | P0：按 raw CSV 日期批量 fast-daily；无 raw 时 seed `tests/fixtures` |
 | `py -m opinion_trading.main --mode walk_forward` | 样本外 walk-forward；价表走 `resolve_price_csv`（cache / fixture） |
-| `py -m opinion_trading.main --mode evaluate` | 单次信号评估（与纸面净值同一价表） |
-| `python scripts/compare_ml_baseline.py --labels tests/fixtures/annotation_sample_labeled.csv` | P3：TF-IDF vs 关键词对照报告 |
+| `py -m opinion_trading.main --mode gateway-health` | P2：OpenClaw HTTP/WS 探针；无 URL 时 Stub PASS |
+| `python scripts/check_gateway_health.py --stub` | 同上（脚本入口） |
+| `py -m opinion_trading.main --mode evaluate` | 单次信号评估（与纸面净值同一价表；可含滑点/费用） |
+| `python scripts/compare_ml_baseline.py --labels tests/fixtures/annotation_sample_labeled.csv` | P3：TF-IDF vs 关键词 vs offline hybrid |
 
 `main.py` 与 Streamlit 启动时会自动加载项目根目录 **`.env`**（不覆盖已设置的环境变量）。
 

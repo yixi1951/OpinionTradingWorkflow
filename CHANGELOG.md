@@ -2,6 +2,25 @@
 
 ## Unreleased (2026-09)
 
+### P2 gateway health
+- `scripts/check_gateway_health.py` and `--mode gateway-health`: HTTP `/ready` + `/api/v1/sentiment`, optional WS.
+- No `OPENCLAW_URL` → Stub **HEALTH PASS** (offline/CI). Proxy pool is config-only (`collection.proxy_urls` / `PROXY_POOL`).
+
+### Longer walk-forward fixtures
+- Price table spans 2026-03-20..2026-06-18. Raw seed clones weekday CSVs 2026-03-23..2026-06-17 (~87 days).
+- Default 60/20 windows are not shrunk on that span; three non-overlapping 60/20 folds would still need ~240 days (documented).
+
+### P3 labeled set / hybrid
+- `tests/fixtures/annotation_sample_labeled.csv`: 36 synthetic rows, 12 per class.
+- `compare_ml_baseline` also reports offline hybrid fusion (LLM skipped without keys).
+- `scripts/train_eval.py` lazy-imports sklearn; CI smoke skips if missing.
+
+### P5 Bilibili adapter
+- Best-effort Bilibili search HTML + stub fallback; not on default daily platform list.
+
+### Transaction costs
+- `evaluate_signals` / paper fills honor `slippage_bps` + `fee_bps` on the shared price table. MTM stays mid. Broker sandbox still future.
+
 ### P0 replay / walk-forward
 - Multi-day fixture raw CSVs (`tests/fixtures/raw_posts_2026-06-1*.csv`) and `price_history_replay.csv`.
 - `--mode replay-batch` seeds fixtures when `data/raw` is empty; omits 2025 backtest date defaults so 2026 fixtures are not filtered out.

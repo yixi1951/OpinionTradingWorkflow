@@ -14,6 +14,8 @@ strategy:
   # 权威信源扩展位（adapter 可渐进接入，不强制爬取）
   # 知乎：已提供 best-effort HTML adapter + stub fallback（见 tests/fixtures/zhihu_page.html）
   # - zhihu
+  # B 站：best-effort 搜索页 HTML adapter + stub fallback（见 tests/fixtures/bilibili_page.html）
+  # - bilibili
   # - cninfo
   # - broker_report
   platform_weights:
@@ -24,6 +26,7 @@ strategy:
     weibo: 0.95
     douyin: 1.05
     zhihu: 1.05
+    bilibili: 1.0
     cninfo: 1.5
     broker_report: 1.45
   bearish_threshold: -0.6
@@ -100,6 +103,7 @@ platform_taxonomy:
   xueqiu: investor_community
   douyin: short_video
   zhihu: qa_community
+  bilibili: short_video
   cninfo: disclosure
   broker_report: research
 scoring_fusion:
@@ -120,6 +124,11 @@ execution:
   export_intents: true
   dry_run: true
   simulation_slippage_bps: 5.0
+  fee_bps: 0.0
+collection:
+  # Config-only proxy list (no rotation in this prototype). Also: PROXY_POOL=url1,url2
+  proxy_urls: []
+  # Bilibili / Zhihu adapters exist but stay opt-in (see strategy.platforms comments).
 sentiment_recency:
   enabled: true
   half_life_hours: 24.0

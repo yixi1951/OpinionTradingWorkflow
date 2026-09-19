@@ -18,8 +18,9 @@ Workflow: `.github/workflows/ci.yml`
 P0 多日路径由 pytest 覆盖（不依赖仓库内已有 `data/raw`）：
 
 - `tests/test_replay_walk_forward.py`：fixture seed → `replay-batch` → 短历史 `walk_forward`
-- 多日 raw：`tests/fixtures/raw_posts_2026-06-1{1,2,5,6,7}.csv`
-- 价表：`tests/fixtures/price_history_replay.csv`
+- 多日 raw：committed `raw_posts_2026-06-1*.csv` + seed 时按 weekday 扩展到 `2026-03-23..2026-06-17`
+- 价表：`tests/fixtures/price_history_replay.csv`（同 span，约 90 日历日）
+- 网关健康：`tests/test_gateway_health.py`（mock HTTP/WS，无外网）
 
 Local check (matches CI):
 

@@ -16,7 +16,10 @@ A: 并行采集会写 `data/reports/collect_progress_<date>.jsonl`（每任务�
 A: 有价表 + `signal_history.jsonl` 时进入 **Eval** 会自动跑 WF 并生成 `walk_forward_report.json`，界面展示各折训练/测试准确率表；也可点按钮重跑。
 
 **Q: OpenClaw 必须装吗？**  
-A: 否。`scoring.mode: keyword` 或 hybrid 在网关不可用时会回退关键词/Stub。
+A: 否。`scoring.mode: keyword` 或 hybrid 在网关不可用时会回退关键词/Stub。可用 `python -m opinion_trading.main --mode gateway-health` 或 `scripts/check_gateway_health.py`：未配置 `OPENCLAW_URL` 时记 **HEALTH PASS [stub]**。
+
+**Q: 代理池怎么配？**  
+A: `config/settings.yaml` → `collection.proxy_urls` 或环境变量 `PROXY_POOL=url1,url2`。当前只做配置枚举，不轮换、不验证连通。
 
 ## 数据与质量
 

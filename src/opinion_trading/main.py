@@ -51,6 +51,7 @@ def parse_args() -> argparse.Namespace:
             "sync_universe",
             "optimize",
             "visualize",
+            "gateway-health",
         ],
         help="Execution mode",
     )
@@ -205,6 +206,20 @@ def main() -> None:
         )
         return
 
+    if args.mode == "gateway-health":
+        from opinion_trading.core.gateway_health import check_gateway_health
+
+        result = check_gateway_health(config_path=args.config)
+        print(result.log_line())
+        print(
+            f"mode={result.mode} http_ready={result.http_ready} "
+            f"http_sentiment={result.http_sentiment} ws={result.ws_ok} "
+            f"proxy_pool={result.proxy_pool_configured}"
+        )
+        if not result.ok:
+            raise SystemExit(1)
+        return
+
     if args.mode == "evaluate":
         from opinion_trading.core.config_loader import load_runtime_config
         from opinion_trading.core.evaluation import evaluate_signals, save_evaluation
@@ -218,8 +233,17 @@ def main() -> None:
         signals = load_signals(signal_path)
         price_path = resolve_price_csv(args.price_file)
         prices = load_prices(price_path)
+        slip = (
+            runtime.execution.simulation_slippage_bps if runtime.execution else 0.0
+        )
+        fee = runtime.execution.fee_bps if runtime.execution else 0.0
         merged, summary = evaluate_signals(
-            signals, prices, args.start_date, args.end_date
+            signals,
+            prices,
+            args.start_date,
+            args.end_date,
+            slippage_bps=slip,
+            fee_bps=fee,
         )
         outputs = save_evaluation(runtime.report_dir, merged, summary)
         print("=== Evaluation Completed ===")
@@ -245,6 +269,8 @@ def main() -> None:
                 n_folds=wf.n_folds,
                 train_days=wf.train_days,
                 test_days=wf.test_days,
+                slippage_bps=slip,
+                fee_bps=fee,
             )
             wf_path = save_walk_forward_report(runtime.report_dir, wf_report)
             print("--- Walk-Forward (out-of-sample) ---")
@@ -383,12 +409,18 @@ def main() -> None:
             seeded = seed_price_fixture(str(Path(runtime.report_dir) / "price_history_cache.csv"))
             price_path = resolve_price_csv(seeded or args.price_file)
         prices = load_prices(price_path)
+        slip = (
+            runtime.execution.simulation_slippage_bps if runtime.execution else 0.0
+        )
+        fee = runtime.execution.fee_bps if runtime.execution else 0.0
         report = run_walk_forward(
             signal_path,
             prices,
             n_folds=wf.n_folds,
             train_days=wf.train_days,
             test_days=wf.test_days,
+            slippage_bps=slip,
+            fee_bps=fee,
         )
         out = save_walk_forward_report(runtime.report_dir, report)
         print("=== Walk-Forward Completed ===")
