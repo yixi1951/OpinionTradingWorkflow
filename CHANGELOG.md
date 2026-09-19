@@ -2,6 +2,13 @@
 
 ## Unreleased (2026-09)
 
+### Coverage + research scaffolds
+- CI `--cov-fail-under` raised to **52**; added `tests/test_engineering_slice.py` for new modules.
+- **Cross-day dedup**: optional SQLite fingerprint store (`collection.cross_day_dedup`, env `CROSS_DAY_DEDUP`); runs after in-day `text_dedup`.
+- **Sentiment winsorize**: optional percentile clip on row scores (`quality.sentiment_winsorize`, env `SENTIMENT_WINSORIZE`); off by default.
+- **Paper TP/SL scaffold**: `execution.paper_exit` uses shared price table, emits `paper_exit` events + paper `SELL` fills (research only).
+- **Broker docs / stubs**: expanded `docs/broker_integration.md`; `BaseBrokerAdapter` live hooks + `LiveBrokerAdapter` raise `NotImplementedError`.
+
 ### Deploy UX
 - `scripts/run_ui.sh`: Linux/macOS launcher (venv, `PYTHONPATH=src`, `--port`, `--no-browser`, optional keyword fast-daily).
 - `docker-compose.yml`: `docker compose --profile ui up --build streamlit-ui` → Streamlit on **:8501** with `./data` + `./config` mounts. Full microservices stack unchanged (`docker compose up`).

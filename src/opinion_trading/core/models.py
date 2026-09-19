@@ -136,6 +136,24 @@ class AnalysisConfig:
 
 
 @dataclass
+class SentimentWinsorizeConfig:
+    """Optional percentile clip for row-level sentiment scores."""
+
+    enabled: bool = False
+    lower_pct: float = 1.0
+    upper_pct: float = 99.0
+
+
+@dataclass
+class CrossDayDedupConfig:
+    """SQLite fingerprint store for cross-day duplicate posts."""
+
+    enabled: bool = False
+    db_path: str = "data/memory/cross_day_fingerprints.sqlite"
+    lookback_days: int = 30
+
+
+@dataclass
 class QualityConfig:
     """Raw data quality gates for sentiment confidence."""
 
@@ -145,6 +163,7 @@ class QualityConfig:
     fail_confidence_multiplier: float = 0.55
     block_signals_on_severe_failure: bool = True
     entity_match_rate_min: float = 0.70
+    sentiment_winsorize: SentimentWinsorizeConfig | None = None
 
 
 @dataclass
@@ -157,6 +176,15 @@ class RiskConfig:
 
 
 @dataclass
+class PaperExitConfig:
+    """Paper-only take-profit / stop-loss research scaffold."""
+
+    enabled: bool = False
+    take_profit_pct: float = 0.10
+    stop_loss_pct: float = 0.05
+
+
+@dataclass
 class ExecutionConfig:
     """Signal export / paper broker (no live trading by default)."""
 
@@ -165,6 +193,7 @@ class ExecutionConfig:
     dry_run: bool = True
     simulation_slippage_bps: float = 5.0
     fee_bps: float = 0.0
+    paper_exit: PaperExitConfig | None = None
 
 
 @dataclass
@@ -203,4 +232,5 @@ class RuntimeConfig:
     walk_forward: WalkForwardConfig | None = None
     risk: RiskConfig | None = None
     sentiment_recency: SentimentRecencyConfig | None = None
+    cross_day_dedup: CrossDayDedupConfig | None = None
     explanation_lang: str = "zh"

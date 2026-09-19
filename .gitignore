@@ -42,3 +42,5 @@ data/labels/annotation_combined*.csv
 data/labels/annotation_sample_review*.csv
 data/labels/*_rejected.csv
 data/labels/*_quality_report.csv
+.coverage
+data/db_fallback/

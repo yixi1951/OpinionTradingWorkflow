@@ -11,14 +11,20 @@ except ModuleNotFoundError:  # pragma: no cover
 
 from opinion_trading.core.models import (
     AnalysisConfig,
+    CrossDayDedupConfig,
     ExecutionConfig,
+    PaperExitConfig,
     QualityConfig,
     RiskConfig,
     RuntimeConfig,
+    SentimentWinsorizeConfig,
     StrategyConfig,
     SentimentRecencyConfig,
     WalkForwardConfig,
 )
+from opinion_trading.core.cross_day_dedup import load_cross_day_dedup_config
+from opinion_trading.core.paper_exit_rules import load_paper_exit_config
+from opinion_trading.core.sentiment_winsorize import load_sentiment_winsorize_config
 
 
 def _load_yaml(path: Path) -> Dict[str, Any]:
@@ -69,6 +75,7 @@ def load_runtime_config(config_path: str = "config/settings.yaml") -> RuntimeCon
         analysis_config = None
 
     quality_raw = raw.get("quality", {})
+    winsor_loaded = load_sentiment_winsorize_config(raw)
     quality_config = QualityConfig(
         enabled=bool(quality_raw.get("enabled", True)),
         max_fallback_rate=float(quality_raw.get("max_fallback_rate", 0.35)),
@@ -80,15 +87,26 @@ def load_runtime_config(config_path: str = "config/settings.yaml") -> RuntimeCon
             quality_raw.get("block_signals_on_severe_failure", True)
         ),
         entity_match_rate_min=float(quality_raw.get("entity_match_rate_min", 0.70)),
+        sentiment_winsorize=SentimentWinsorizeConfig(
+            enabled=winsor_loaded.enabled,
+            lower_pct=winsor_loaded.lower_pct,
+            upper_pct=winsor_loaded.upper_pct,
+        ),
     )
 
     exec_raw = raw.get("execution", {})
+    paper_exit_loaded = load_paper_exit_config(raw)
     execution_config = ExecutionConfig(
         mode=str(exec_raw.get("mode", "paper")),
         export_intents=bool(exec_raw.get("export_intents", True)),
         dry_run=bool(exec_raw.get("dry_run", True)),
         simulation_slippage_bps=float(exec_raw.get("simulation_slippage_bps", 5.0)),
         fee_bps=float(exec_raw.get("fee_bps", 0.0)),
+        paper_exit=PaperExitConfig(
+            enabled=paper_exit_loaded.enabled,
+            take_profit_pct=paper_exit_loaded.take_profit_pct,
+            stop_loss_pct=paper_exit_loaded.stop_loss_pct,
+        ),
     )
 
     risk_raw = raw.get("risk", {})
@@ -104,6 +122,13 @@ def load_runtime_config(config_path: str = "config/settings.yaml") -> RuntimeCon
     sentiment_recency_config = SentimentRecencyConfig(
         enabled=bool(rec_raw.get("enabled", True)),
         half_life_hours=float(rec_raw.get("half_life_hours", 24.0)),
+    )
+
+    cross_loaded = load_cross_day_dedup_config(raw)
+    cross_day_dedup_config = CrossDayDedupConfig(
+        enabled=cross_loaded.enabled,
+        db_path=cross_loaded.db_path,
+        lookback_days=cross_loaded.lookback_days,
     )
 
     wf_raw = raw.get("walk_forward", {})
@@ -139,6 +164,7 @@ def load_runtime_config(config_path: str = "config/settings.yaml") -> RuntimeCon
         execution=execution_config,
         walk_forward=walk_forward_config,
         sentiment_recency=sentiment_recency_config,
+        cross_day_dedup=cross_day_dedup_config,
         risk=risk_config,
         explanation_lang=expl_lang,
     )

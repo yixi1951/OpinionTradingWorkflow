@@ -40,9 +40,43 @@ class ExecutionIntent:
 
 
 class BaseBrokerAdapter(ABC):
+    """Contract for execution adapters. Default implementations are dry-run only."""
+
     @abstractmethod
     def submit_intents(self, intents: List[ExecutionIntent]) -> Dict[str, object]:
         ...
+
+    def fetch_account(self) -> Dict[str, object]:
+        raise NotImplementedError(
+            "Live broker account API is not implemented; use paper/sandbox with dry_run=true"
+        )
+
+    def fetch_positions(self) -> List[Dict[str, object]]:
+        raise NotImplementedError(
+            "Live broker positions API is not implemented; use paper state.json"
+        )
+
+    def cancel_order(self, order_id: str) -> Dict[str, object]:
+        raise NotImplementedError(
+            "Live broker cancel API is not implemented"
+        )
+
+    def place_live_order(self, intent: ExecutionIntent) -> Dict[str, object]:
+        raise NotImplementedError(
+            "Live order placement is not implemented; SandboxBrokerAdapter records intents only"
+        )
+
+
+class LiveBrokerAdapter(BaseBrokerAdapter):
+    """Explicit stub for future REST/FIX integration — never calls a real API in CI."""
+
+    def __init__(self, report_dir: str = "data/reports") -> None:
+        self.report_dir = Path(report_dir)
+
+    def submit_intents(self, intents: List[ExecutionIntent]) -> Dict[str, object]:
+        raise NotImplementedError(
+            "LiveBrokerAdapter.submit_intents is not wired; enable dry_run and use sandbox/paper"
+        )
 
 
 class PaperBrokerAdapter(BaseBrokerAdapter):
