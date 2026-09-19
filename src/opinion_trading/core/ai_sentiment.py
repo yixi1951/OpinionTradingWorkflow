@@ -10,7 +10,9 @@ from opinion_trading.core.openclaw_adapter import OpenClawClient
 
 logger = get_logger(__name__)
 
-SentimentSource = Literal["openclaw", "transformers", "keyword", "hybrid", "deepseek"]
+SentimentSource = Literal[
+    "openclaw", "transformers", "keyword", "hybrid", "deepseek", "qwen"
+]
 
 
 @dataclass(frozen=True)
@@ -81,7 +83,7 @@ class AISentimentAnalyzer:
     """Pluggable AI sentiment analyzer for A-share social text.
 
     Dual-track fusion (default hybrid):
-      1) OpenClaw / DeepSeek (or local transformers) as primary scorer
+      1) OpenClaw / DeepSeek (optional Qwen failover) or local transformers as primary
       2) Keyword lexicon as auxiliary / fallback
       blend = w_llm * llm + w_kw * keyword  when LLM succeeds;
       otherwise pure keyword with source=keyword.
@@ -237,46 +239,52 @@ class AISentimentAnalyzer:
     def _try_deepseek(
         self, texts_list: Sequence[str]
     ) -> Optional[List[SentimentResult]]:
-        """DeepSeek-first live scoring when DEEPSEEK_API_KEY is set."""
+        """DeepSeek-first live scoring; optional Qwen hop; keyword if all fail."""
         from opinion_trading.core.deepseek_client import (
             MissingDeepSeekKeyError,
-            deepseek_configured,
             deepseek_fallback_on_error,
             deepseek_require_key,
             live_llm_requested,
-            score_texts_deepseek,
+        )
+        from opinion_trading.core.llm_failover import (
+            any_live_key,
+            score_texts_with_failover,
         )
 
         wanted = live_llm_requested()
-        configured = deepseek_configured()
         if not wanted:
             return None
-        if not configured:
+        if not any_live_key():
             if deepseek_require_key():
                 raise MissingDeepSeekKeyError()
             logger.debug(
-                "DeepSeek key missing; using keyword/hybrid fallback "
+                "No DeepSeek/Qwen key; using keyword/hybrid fallback "
                 "(set DEEPSEEK_API_KEY for live scoring)"
             )
             return None
         try:
-            scores = score_texts_deepseek(texts_list)
+            outcome = score_texts_with_failover(texts_list)
         except MissingDeepSeekKeyError:
             if deepseek_require_key():
                 raise
             return None
         except Exception as exc:
-            logger.warning("DeepSeek scoring failed; fallback=%s", deepseek_fallback_on_error())
             if not deepseek_fallback_on_error():
                 raise
-            logger.debug("DeepSeek error: %s", exc)
+            logger.debug("live LLM error after failover: %s", exc)
             return None
+        if outcome is None:
+            if not deepseek_fallback_on_error():
+                raise RuntimeError("live LLM failed and DEEPSEEK_FALLBACK=0")
+            return None
+        provider, scores = outcome
         if len(scores) != len(texts_list):
             return None
+        source: SentimentSource = "qwen" if provider == "qwen" else "deepseek"
         return [
             SentimentResult(
                 score=clamp_score(float(s)),
-                source="deepseek",
+                source=source,
                 confidence=min(0.99, 0.55 + abs(float(s)) * 0.4),
             )
             for s in scores

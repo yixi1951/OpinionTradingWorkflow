@@ -52,10 +52,40 @@ python -m opinion_trading.main --mode score-sample
 
 ## Streamlit 仪表盘
 
+Linux / macOS（推荐）：
+
+```bash
+bash scripts/run_ui.sh
+# bash scripts/run_ui.sh --port 8502 --no-browser
+# bash scripts/run_ui.sh --skip-demo   # 有数据时跳过 fast-daily
+```
+
+脚本会设置 `PYTHONPATH=src`，优先使用 `.venv`，默认 http://localhost:8501。无 `realtime_picks_*.md` 时会先跑一次 keyword `--fast-daily` 回放（可用 `--skip-demo` 关掉）。
+
+Windows：
+
 ```powershell
 $env:PYTHONPATH = "src"
-streamlit run src/opinion_trading/ui_dashboard.py
+powershell -ExecutionPolicy Bypass -File .\scripts\run_ui.ps1
+# 或：streamlit run src/opinion_trading/ui_dashboard.py
 ```
+
+### Docker Compose（一键 UI）
+
+```bash
+# Streamlit only — port 8501, mounts ./data and ./config
+docker compose --profile ui up --build streamlit-ui
+```
+
+浏览器打开 http://localhost:8501。不要与全栈 `docker compose up` 同时跑（都会占用 8501）。
+
+全栈（API :8000、collector :8001、inference :8002、compute :8003、dashboard :8501、Prometheus :9090、Grafana :3000）：
+
+```bash
+docker compose up --build
+```
+
+密钥走 `.env` / 环境变量，不要写进镜像。
 
 ## 常用命令
 
@@ -67,6 +97,8 @@ streamlit run src/opinion_trading/ui_dashboard.py
 | `py -m opinion_trading.main --mode walk_forward` | 样本外 walk-forward；价表走 `resolve_price_csv`（cache / fixture） |
 | `python scripts/materialize_wf_history.py --dest /tmp/ot-honest-wf` | 生成 ~240 日 synthetic 价表+信号，供 3 折 60/20（不入库 raw） |
 | `py -m opinion_trading.main --mode gateway-health` | P2：OpenClaw HTTP/WS 探针；无 URL 时 Stub PASS |
+| `py -m opinion_trading.main --mode proxy-health` | P2：探测 `collection.proxy_urls` / `PROXY_POOL`；空池 skip/PASS |
+| `python scripts/check_proxy_health.py` | 同上（脚本入口）；全部失败 exit 1 |
 | `py -m opinion_trading.main --mode deepseek-probe` | DeepSeek 密钥探针；无 `DEEPSEEK_API_KEY` 时 `NOT_CONFIGURED`（exit 2，CI 不跑 live） |
 | `py -m opinion_trading.main --mode score-sample` | 有 key 时对 3 条中文 fixture 做 live 打分（研究原型，非收益预测） |
 | `python scripts/probe_deepseek.py` | 同上脚本入口；`--soft` 在未配置时 exit 0 |
@@ -78,6 +110,6 @@ Opt-in 采集平台（默认 daily 列表不含）：在 `config/settings.yaml` 
 
 `main.py` 与 Streamlit 启动时会自动加载项目根目录 **`.env`**（不覆盖已设置的环境变量）。
 
-Docker：`docker compose up --build`（见根目录 `docker-compose.yml`）。
+Docker：一键 UI 用 `docker compose --profile ui up --build streamlit-ui`（:8501）；全栈见根目录 `docker-compose.yml`。
 
 CI 配置见 [.github/workflows/ci.yml](../.github/workflows/ci.yml)（离线）。真实 DeepSeek 探针见 [.github/workflows/deepseek-probe.yml](../.github/workflows/deepseek-probe.yml)（手动 **DeepSeek probe**）。

@@ -54,6 +54,7 @@ def parse_args() -> argparse.Namespace:
             "gateway-health",
             "deepseek-probe",
             "score-sample",
+            "proxy-health",
         ],
         help="Execution mode",
     )
@@ -248,6 +249,15 @@ def main() -> None:
         if result.get("ok"):
             return
         raise SystemExit(2 if result.get("status") == "NOT_CONFIGURED" else 1)
+
+    if args.mode == "proxy-health":
+        from opinion_trading.core.proxy_health import check_proxy_health
+
+        report = check_proxy_health(config_path=args.config)
+        print("\n".join(report.table_lines()))
+        if not report.ok:
+            raise SystemExit(1)
+        return
 
     if args.mode == "evaluate":
         from opinion_trading.core.config_loader import load_runtime_config

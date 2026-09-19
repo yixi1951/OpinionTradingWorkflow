@@ -2,6 +2,24 @@
 
 ## Unreleased (2026-09)
 
+### Deploy UX
+- `scripts/run_ui.sh`: Linux/macOS launcher (venv, `PYTHONPATH=src`, `--port`, `--no-browser`, optional keyword fast-daily).
+- `docker-compose.yml`: `docker compose --profile ui up --build streamlit-ui` → Streamlit on **:8501** with `./data` + `./config` mounts. Full microservices stack unchanged (`docker compose up`).
+- `docs/DEV_SETUP.md` / README document both paths.
+
+### Proxy quality probe (P2)
+- `--mode proxy-health` and `scripts/check_proxy_health.py` probe `collection.proxy_urls` / `PROXY_POOL` with a short HTTP(S) GET.
+- Empty pool → skip/PASS (CI-safe). All configured proxies failing → exit 1.
+- No captcha solver, no login cookies. Unit tests inject a fake transport (no live network).
+
+### LLM failover skeleton
+- If DeepSeek live scoring fails after retries, optionally try Qwen/DashScope (`QWEN_API_KEY` / `DASHSCOPE_API_KEY`, OpenAI-compatible) then keyword.
+- Logs a single structured `LLM_FAILOVER {...}` warning. Keyword mode remains the CI default; pytest never needs live keys.
+
+### Docs honesty
+- Roadmap section 六 marks compose / `run_ui.sh` as landed; remaining gaps stay real broker API, captcha/login farm, large human labels, real crawl history.
+- README “下一步” no longer claims “更多平台适配、ML 基线” as the next slice.
+
 ### DeepSeek live sentiment
 - Env interface: `DEEPSEEK_API_KEY` (required for live), optional `DEEPSEEK_BASE_URL` / `DEEPSEEK_MODEL` / `DEEPSEEK_TIMEOUT`.
 - OpenAI-compatible `/v1/chat/completions` client with one retry; keyword fallback when the key is missing (or `DEEPSEEK_REQUIRE=1` for a bilingual error).

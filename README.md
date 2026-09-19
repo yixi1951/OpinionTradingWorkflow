@@ -138,10 +138,27 @@ $env:PYTHONPATH = "src"
 powershell -ExecutionPolicy Bypass -File .\scripts\run_ui.ps1
 ```
 
+Linux / macOS：
+
+```bash
+bash scripts/run_ui.sh
+# bash scripts/run_ui.sh --no-browser --port 8502
+```
+
 已有数据、仅启动 UI：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\run_ui.ps1 -NoBrowser
+```
+
+```bash
+bash scripts/run_ui.sh --skip-demo --no-browser
+```
+
+Docker（仅 Streamlit，挂载 `./data` + `./config`）：
+
+```bash
+docker compose --profile ui up --build streamlit-ui
 ```
 
 浏览器访问 http://localhost:8501 ，四个 Tab：**实时选股 · 舆情分析 · 评论依据 · 回测评估**。
@@ -227,7 +244,9 @@ pytest -q
 ├── openclaw_stub.py             # 本地 Stub（无 API 可演示）
 ├── config/settings.yaml         # 平台权重、股票池、阈值
 ├── scripts/
-│   ├── run_ui.ps1               # 一键打开 Streamlit 分析页
+│   ├── run_ui.ps1               # 一键打开 Streamlit 分析页（Windows）
+│   ├── run_ui.sh                # 一键打开 Streamlit 分析页（Linux/macOS）
+│   ├── check_proxy_health.py    # 代理短 HTTP 探测（空池 PASS）
 │   ├── run_demo.ps1             # Stub 一键演示
 │   ├── run_demo_openclaw.ps1    # OpenClaw 一键演示
 │   └── text_quality.py          # 噪声/ boilerplate 过滤
@@ -313,8 +332,8 @@ pytest -q
 ## 项目状态
 
 该项目为个人学习与作品展示，持续活跃开发中。
-- **最近更新**：并行采集与进度日志、帖子时间衰减、Walk-forward Eval 折表/CSV、Dashboard ZIP/密码/股票池编辑、中英可解释信号、CI fast-daily smoke（见 [CHANGELOG](CHANGELOG.md)）
-- **下一步**：更多平台适配、ML 基线、覆盖率提升
+- **最近更新**：P0–P5 脚手架（replay/WF fixtures、价表对齐、ML 基线、DeepSeek live、知乎/B 站/小红书/公众号 adapter、ProxyRotator、SandboxBroker stub）；**docker-compose 一键 UI**、`scripts/run_ui.sh`、**proxy-health**、DeepSeek→Qwen→关键词 failover（见 [CHANGELOG](CHANGELOG.md)）
+- **下一步（仍需人工/外部依赖）**：真实券商 REST/FIX、验证码/登录态农场、大规模人工标注、真实多日爬取历史（当前 WF 含 synthetic fixture）
 
 ---
 
