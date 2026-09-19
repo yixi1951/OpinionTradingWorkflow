@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Sequence, Tuple, Union
 
 import pandas as pd
 
@@ -76,8 +77,39 @@ def load_prices(price_csv: str) -> pd.DataFrame:
     return normalize_price_frame(df)
 
 
+def resolve_price_csv(explicit: Optional[str] = None) -> str:
+    """Pick a readable price CSV shared by evaluate_signals, walk_forward, and paper equity.
+
+    Order: explicit path → PRICE_FILE env → cache → replay fixture → template.
+    """
+    candidates: list[Path] = []
+    if explicit:
+        candidates.append(Path(explicit))
+    env_path = os.environ.get("PRICE_FILE", "").strip()
+    if env_path:
+        candidates.append(Path(env_path))
+    candidates.extend(
+        [
+            Path("data/reports/price_history_cache.csv"),
+            Path("tests/fixtures/price_history_replay.csv"),
+            Path("data/reports/price_history_template.csv"),
+        ]
+    )
+    seen: set[str] = set()
+    for cand in candidates:
+        key = str(cand)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        if cand.is_file():
+            return str(cand)
+    return str(candidates[0]) if candidates else "data/reports/price_history_template.csv"
+
+
 def normalize_price_frame(price_df: pd.DataFrame) -> pd.DataFrame:
     df = price_df.copy()
+    if df.empty:
+        return pd.DataFrame(columns=["date", "symbol", "close"])
     if (
         "date" not in df.columns
         or "symbol" not in df.columns
@@ -87,6 +119,50 @@ def normalize_price_frame(price_df: pd.DataFrame) -> pd.DataFrame:
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df = df.dropna(subset=["date", "symbol", "close"])
     return df
+
+
+def lookup_close(
+    price_df: pd.DataFrame,
+    symbol: str,
+    trade_date: Union[str, date, datetime, pd.Timestamp],
+    *,
+    direction: str = "backward",
+) -> Optional[float]:
+    """Same as-of close used by evaluate_signals (exact date, else nearest prior bar)."""
+    if price_df is None or price_df.empty:
+        return None
+    prices = normalize_price_frame(price_df)
+    if prices.empty:
+        return None
+    target = pd.Timestamp(trade_date)
+    sub = prices[prices["symbol"].astype(str) == str(symbol)].sort_values("date")
+    if sub.empty:
+        return None
+    exact = sub[sub["date"] == target]
+    if not exact.empty:
+        return float(exact.iloc[-1]["close"])
+    if direction == "backward":
+        prior = sub[sub["date"] <= target]
+        if prior.empty:
+            return None
+        return float(prior.iloc[-1]["close"])
+    later = sub[sub["date"] >= target]
+    if later.empty:
+        return None
+    return float(later.iloc[0]["close"])
+
+
+def closes_for_symbols(
+    price_df: pd.DataFrame,
+    symbols: Sequence[str],
+    trade_date: Union[str, date, datetime, pd.Timestamp],
+) -> Dict[str, tuple[Optional[float], str]]:
+    """Batch lookup against the Eval price table (source tag: price_table)."""
+    out: Dict[str, tuple[Optional[float], str]] = {}
+    for sym in symbols:
+        px = lookup_close(price_df, sym, trade_date)
+        out[sym] = (px, "price_table") if px is not None else (None, "unavailable")
+    return out
 
 
 def compute_next_returns(price_df: pd.DataFrame) -> pd.DataFrame:
@@ -127,7 +203,17 @@ def evaluate_signals(
         signal_df = signal_df[signal_df["trade_date"] <= pd.to_datetime(end_date)]
 
     # normalize and compute next-day returns for available prices
-    prices = normalize_price_frame(price_df)
+    if price_df is None or price_df.empty:
+        summary = EvalSummary(0, 0.0, 0.0, 0.0, 0.0)
+        return signal_df.copy(), summary
+    try:
+        prices = normalize_price_frame(price_df)
+    except ValueError:
+        summary = EvalSummary(0, 0.0, 0.0, 0.0, 0.0)
+        return signal_df.copy(), summary
+    if prices.empty:
+        summary = EvalSummary(0, 0.0, 0.0, 0.0, 0.0)
+        return signal_df.copy(), summary
     prices = compute_next_returns(prices)
     prices_full = prices.copy()
     prices = prices[["date", "symbol", "close", "next_return"]]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Dict
 
@@ -123,7 +124,9 @@ def load_runtime_config(config_path: str = "config/settings.yaml") -> RuntimeCon
         memory_dir=storage["memory_dir"],
         report_dir=storage["report_dir"],
         raw_dir=storage.get("raw_dir", "data/raw"),
-        scoring_mode=str(scoring.get("mode", "ai")),
+        scoring_mode=str(
+            os.environ.get("SCORING_MODE") or scoring.get("mode", "ai")
+        ),
         row_level_llm=bool(scoring.get("row_level_llm", True)),
         max_posts=int(scoring.get("max_posts", 20)),
         browser_enabled=bool(browser_raw.get("enabled", True)),

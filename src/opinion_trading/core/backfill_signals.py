@@ -19,17 +19,34 @@ def run_replay_batch(
     end_date: Optional[str] = None,
     raw_dir: Optional[str] = None,
     reset_paper: bool = False,
+    seed_fixtures: bool = True,
 ) -> Dict[str, object]:
     """Run --fast-daily for each date that has raw_posts_<date>.csv."""
     from opinion_trading.core.config_loader import load_runtime_config
+    from opinion_trading.core.market_data import load_local_price_table
+    from opinion_trading.core.replay_fixtures import ensure_replay_inputs
 
     runtime = load_runtime_config(config_path)
     rdir = raw_dir or runtime.raw_dir
     dates = discover_raw_trade_dates(rdir)
+    seeded_raw = False
+    if not dates and seed_fixtures:
+        info = ensure_replay_inputs(rdir, runtime.report_dir)
+        dates = list(info.get("dates") or [])
+        seeded_raw = bool(info.get("seeded_raw"))
+        logger.info(
+            "No live raw CSVs; seeded %d fixture dates from tests/fixtures",
+            len(dates),
+        )
     if start_date:
         dates = [d for d in dates if d >= start_date]
     if end_date:
         dates = [d for d in dates if d <= end_date]
+
+    try:
+        load_local_price_table()
+    except Exception as exc:
+        logger.debug("Price table load skipped: %s", exc)
 
     if reset_paper:
         from pathlib import Path
@@ -77,5 +94,6 @@ def run_replay_batch(
         "dates_run": len([r for r in results if r.get("ok")]),
         "dates_total": len(dates),
         "total_signals": total_signals,
+        "seeded_raw": seeded_raw,
         "results": results,
     }

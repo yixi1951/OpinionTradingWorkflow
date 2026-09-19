@@ -13,7 +13,7 @@ from opinion_trading.core.log_utils import configure_logging, get_logger
 load_dotenv_if_present(Path(__file__).resolve().parents[2])
 from opinion_trading.agents.workflow import OpinionTradingWorkflow
 from opinion_trading.core.backtest import StrategyBacktester
-from opinion_trading.core.evaluation import load_prices, load_signals
+from opinion_trading.core.evaluation import load_prices, load_signals, resolve_price_csv
 from opinion_trading.core.monthly_training import (
     build_monthly_training_frame,
     fetch_prices_with_timeout,
@@ -63,10 +63,16 @@ def parse_args() -> argparse.Namespace:
         help="Path to config file",
     )
     parser.add_argument(
-        "--start-date", type=str, default="2025-01-01", help="Backtest start date"
+        "--start-date",
+        type=str,
+        default=None,
+        help="Start date YYYY-MM-DD (backtest default 2025-01-01; replay-batch: all dates if omitted)",
     )
     parser.add_argument(
-        "--end-date", type=str, default="2025-12-31", help="Backtest end date"
+        "--end-date",
+        type=str,
+        default=None,
+        help="End date YYYY-MM-DD (backtest default 2025-12-31; replay-batch: all dates if omitted)",
     )
     parser.add_argument(
         "--bearish-threshold",
@@ -206,7 +212,8 @@ def main() -> None:
         runtime = load_runtime_config(args.config)
         signal_path = str(Path(runtime.memory_dir) / "signal_history.jsonl")
         signals = load_signals(signal_path)
-        prices = load_prices(args.price_file)
+        price_path = resolve_price_csv(args.price_file)
+        prices = load_prices(price_path)
         merged, summary = evaluate_signals(
             signals, prices, args.start_date, args.end_date
         )
@@ -342,6 +349,8 @@ def main() -> None:
         print("=== Replay Batch (P0) ===")
         print(f"Dates OK: {summary['dates_run']}/{summary['dates_total']}")
         print(f"Total signals appended: {summary['total_signals']}")
+        if summary.get("seeded_raw"):
+            print("Seeded missing raw CSVs from tests/fixtures (offline P0 path).")
         for row in summary.get("results", []):
             if row.get("ok"):
                 print(f"  {row['date']}: signals={row.get('signals', 0)}")
@@ -363,7 +372,13 @@ def main() -> None:
         runtime = load_runtime_config(args.config)
         wf = runtime.walk_forward or WalkForwardConfig()
         signal_path = str(Path(runtime.memory_dir) / "signal_history.jsonl")
-        prices = load_prices(args.price_file)
+        price_path = resolve_price_csv(args.price_file)
+        if not Path(price_path).is_file():
+            from opinion_trading.core.replay_fixtures import seed_price_fixture
+
+            seeded = seed_price_fixture(str(Path(runtime.report_dir) / "price_history_cache.csv"))
+            price_path = resolve_price_csv(seeded or args.price_file)
+        prices = load_prices(price_path)
         report = run_walk_forward(
             signal_path,
             prices,
@@ -423,8 +438,8 @@ def main() -> None:
         return
 
     backtester = StrategyBacktester(config_path=args.config)
-    start_date = backtester.parse_date(args.start_date)
-    end_date = backtester.parse_date(args.end_date)
+    start_date = backtester.parse_date(args.start_date or "2025-01-01")
+    end_date = backtester.parse_date(args.end_date or "2025-12-31")
 
     if args.mode == "backtest" and args.multi_agent:
         from opinion_trading.core.backtest_multi_agent import (
