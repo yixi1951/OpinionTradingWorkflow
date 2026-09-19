@@ -71,6 +71,12 @@ storage:
   backend: file
 scoring:
   mode: ai
+  # keyword = offline (CI default via SCORING_MODE=keyword).
+  # ai / hybrid = DeepSeek live scoring when DEEPSEEK_API_KEY is set.
+  # Keys never belong in this file — use env / gitignored .env (see .env.example).
+  # Env overrides: DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL, DEEPSEEK_TIMEOUT.
+  # Live requested without a key: fallback to keyword unless DEEPSEEK_REQUIRE=1.
+  provider: deepseek
   row_level_llm: true
   max_posts: 20
 browser:
@@ -83,6 +89,7 @@ ai_pipeline:
   screen_enabled: true
   score_enabled: true
   max_screen_batch: 12
+  # Batch sentiment uses scoring.provider=deepseek when DEEPSEEK_API_KEY is set.
 analysis:
   enabled: false
   sentiment_weight: 0.4

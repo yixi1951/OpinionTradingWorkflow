@@ -52,6 +52,8 @@ def parse_args() -> argparse.Namespace:
             "optimize",
             "visualize",
             "gateway-health",
+            "deepseek-probe",
+            "score-sample",
         ],
         help="Execution mode",
     )
@@ -219,6 +221,33 @@ def main() -> None:
         if not result.ok:
             raise SystemExit(1)
         return
+
+    if args.mode == "deepseek-probe":
+        from opinion_trading.core.deepseek_client import probe_deepseek
+
+        result = probe_deepseek()
+        print(f"DEEPSEEK {result.get('status')}")
+        print(result.get("message", ""))
+        if result.get("configured"):
+            print(
+                f"model={result.get('model')} base={result.get('base_url')} "
+                f"latency_ms={result.get('latency_ms')}"
+            )
+        if result.get("ok"):
+            return
+        raise SystemExit(2 if result.get("status") == "NOT_CONFIGURED" else 1)
+
+    if args.mode == "score-sample":
+        from opinion_trading.core.deepseek_client import score_sample
+
+        result = score_sample()
+        print(f"DEEPSEEK {result.get('status')}")
+        print(result.get("message", ""))
+        for text, score in zip(result.get("texts") or [], result.get("scores") or []):
+            print(f"  {float(score):+.3f}  {text[:80]}")
+        if result.get("ok"):
+            return
+        raise SystemExit(2 if result.get("status") == "NOT_CONFIGURED" else 1)
 
     if args.mode == "evaluate":
         from opinion_trading.core.config_loader import load_runtime_config
