@@ -20,6 +20,7 @@ if str(src) not in sys.path:
 
 # Keep the comparison offline (no LLM gateway).
 os.environ.setdefault("USE_LLM_GATEWAY", "0")
+os.environ.setdefault("HYBRID_USE_LLM", "0")
 os.environ.setdefault("SCORING_MODE", "keyword")
 os.environ.setdefault("OPENCLAW_SKIP_ROW_SCORE", "1")
 

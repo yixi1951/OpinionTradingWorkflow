@@ -6,7 +6,7 @@
   python scripts/sample_annotation.py --infile data/raw/raw_posts_*.csv
 
 输出：data/labels/annotation_sample.csv
-列：id,platform,symbol,trade_date,text,label,notes
+列：id,platform,symbol,trade_date,text,label,notes,label_source,annotator
 """
 from __future__ import annotations
 
@@ -42,7 +42,17 @@ def load_source(infile: str) -> pd.DataFrame:
 def sample_annotation_frame(df: pd.DataFrame, n: int, seed: int) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame(
-            columns=["id", "platform", "symbol", "trade_date", "text", "label", "notes"]
+            columns=[
+                "id",
+                "platform",
+                "symbol",
+                "trade_date",
+                "text",
+                "label",
+                "notes",
+                "label_source",
+                "annotator",
+            ]
         )
     work = df.copy()
     text_col = None
@@ -63,6 +73,8 @@ def sample_annotation_frame(df: pd.DataFrame, n: int, seed: int) -> pd.DataFrame
     out_df = out_df.rename(columns={text_col: "text"})
     out_df["label"] = ""
     out_df["notes"] = ""
+    out_df["label_source"] = ""
+    out_df["annotator"] = ""
     return out_df
 
 

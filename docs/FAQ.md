@@ -19,7 +19,7 @@ A: 有价表 + `signal_history.jsonl` 时进入 **Eval** 会自动跑 WF 并生�
 A: 否。`scoring.mode: keyword` 或 hybrid 在网关不可用时会回退关键词/Stub。可用 `python -m opinion_trading.main --mode gateway-health` 或 `scripts/check_gateway_health.py`：未配置 `OPENCLAW_URL` 时记 **HEALTH PASS [stub]**。
 
 **Q: 代理池怎么配？**  
-A: `config/settings.yaml` → `collection.proxy_urls` 或环境变量 `PROXY_POOL=url1,url2`。当前只做配置枚举，不轮换、不验证连通。
+A: `config/settings.yaml` → `collection.proxy_urls` 或环境变量 `PROXY_POOL=url1,url2`。`ProxyRotator` 做 **round-robin + 失败跳过**，采集 GET 会带上 `proxies=`。**不做**验证码打码、登录态农场或代理质量探测。未配置时直连。
 
 ## 数据与质量
 

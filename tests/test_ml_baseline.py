@@ -36,6 +36,8 @@ def test_sample_annotation_from_raw_csv(tmp_path):
         "text",
         "label",
         "notes",
+        "label_source",
+        "annotator",
     ]
     assert len(out) == 5
     assert (out["label"] == "").all()
@@ -70,6 +72,8 @@ def test_labeled_fixture_is_balanced():
     counts = df["label"].value_counts()
     assert counts.min() >= 10
     assert set(counts.index) == {"bull", "bear", "neutral"}
+    if "label_source" in df.columns:
+        assert (df["label_source"].astype(str).str.lower() == "synthetic").all()
 
 
 def _train_eval_mod():
@@ -100,3 +104,18 @@ def test_train_eval_sklearn_smoke(tmp_path):
     )
     assert "linear_svc" in results
     assert (tmp_path / "models" / "tfidf_vectorizer.joblib").is_file()
+
+
+def test_live_hybrid_skipped_without_keys(monkeypatch):
+    from opinion_trading.core.ml_baseline import live_hybrid_enabled
+
+    monkeypatch.setenv("HYBRID_USE_LLM", "1")
+    monkeypatch.setenv("USE_LLM_GATEWAY", "1")
+    monkeypatch.delenv("OPENCLAW_URL", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    assert live_hybrid_enabled() is False
+    monkeypatch.setenv("HYBRID_USE_LLM", "0")
+    monkeypatch.setenv("OPENCLAW_URL", "http://127.0.0.1:9")
+    assert live_hybrid_enabled() is False
+

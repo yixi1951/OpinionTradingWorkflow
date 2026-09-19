@@ -16,7 +16,35 @@ import numpy as np
 import pandas as pd
 
 LABELS = ("bull", "bear", "neutral")
-_SCHEMA_COLS = ("id", "platform", "symbol", "trade_date", "text", "label", "notes")
+_SCHEMA_COLS = (
+    "id",
+    "platform",
+    "symbol",
+    "trade_date",
+    "text",
+    "label",
+    "notes",
+    "label_source",
+    "annotator",
+)
+
+
+def live_hybrid_enabled() -> bool:
+    """Live LLM hybrid is opt-in; CI stays on synthetic labels + offline fusion.
+
+    Requires ``HYBRID_USE_LLM=1`` (or ``USE_LLM_GATEWAY=1``) **and** a gateway
+    URL / API key. Captcha solvers and paid label farms are out of scope.
+    """
+    flag = os.environ.get("HYBRID_USE_LLM")
+    if flag is None or str(flag).strip() == "":
+        flag = os.environ.get("USE_LLM_GATEWAY", "0")
+    if str(flag).strip().lower() in {"0", "false", "no", ""}:
+        return False
+    return bool(
+        os.environ.get("OPENCLAW_URL")
+        or os.environ.get("DEEPSEEK_API_KEY")
+        or os.environ.get("LLM_API_KEY")
+    )
 
 
 def load_labeled_csv(path: str | Path) -> pd.DataFrame:
@@ -236,12 +264,7 @@ def compare_tfidf_vs_keyword(
     tfidf_f1 = _per_class_f1(test_y, tfidf_pred)
     kw_f1 = _per_class_f1(test_y, kw_pred)
     hy_f1 = _per_class_f1(test_y, hy_pred)
-    llm_on = os.environ.get("USE_LLM_GATEWAY", "0").lower() not in {
-        "0",
-        "false",
-        "no",
-        "",
-    } and bool(os.environ.get("OPENCLAW_URL") or os.environ.get("DEEPSEEK_API_KEY"))
+    llm_on = live_hybrid_enabled()
     report = BaselineComparison(
         n_samples=n,
         n_train=len(train_texts),
@@ -259,7 +282,8 @@ def compare_tfidf_vs_keyword(
         note=(
             "Research prototype only — synthetic fixture labels, not a profitability claim. "
             "Keyword/hybrid remains the default scoring path. "
-            "Hybrid LLM is skipped unless OPENCLAW_URL / API keys are set."
+            "Hybrid LLM is skipped unless HYBRID_USE_LLM=1 (or USE_LLM_GATEWAY=1) "
+            "and OPENCLAW_URL / API keys are set. CI uses synthetic labels only."
         ),
     )
     return report, clf

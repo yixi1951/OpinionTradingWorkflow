@@ -10,6 +10,8 @@
 - text: 帖子文本（需足够展示给标注者）
 - label: 标注结果，取值之一：`bull` / `bear` / `neutral`（标注时填写）
 - notes: 可选，标注者备注
+- label_source: 可选，`synthetic`（CI fixture）或 `human`（人工）。CI **只用** synthetic。
+- annotator: 可选，标注者 ID；CI fixture 为 `ci-fixture`
 
 标注规则（简要）:
 1. Bull（看多）: 表达明确看涨或利好预期的文本，例如建议买入、预期股价上涨、积极的产品/业绩预期等。
@@ -29,13 +31,13 @@
 4. **离线 ML 基线对照**（CI 用 `tests/fixtures/annotation_sample_labeled.csv`，36 行平衡 **synthetic fixture** 标签）：
 
 ```bash
-export PYTHONPATH=src USE_LLM_GATEWAY=0 SCORING_MODE=keyword
+export PYTHONPATH=src USE_LLM_GATEWAY=0 HYBRID_USE_LLM=0 SCORING_MODE=keyword
 python scripts/compare_ml_baseline.py \
   --labels tests/fixtures/annotation_sample_labeled.csv \
   --out data/reports/ml_baseline_comparison.md
 ```
 
-该脚本训练字符 n-gram TF-IDF 质心分类器，并与关键词词典及 **offline hybrid fusion** 对比。无 `OPENCLAW_URL` / API key 时 hybrid **不会**调用 LLM。样本为研究对照，**不是收益预测**。
+该脚本训练字符 n-gram TF-IDF 质心分类器，并与关键词词典及 **offline hybrid fusion** 对比。无 `OPENCLAW_URL` / API key 时 hybrid **不会**调用 LLM。要试 live hybrid 需同时设 `HYBRID_USE_LLM=1`（或 `USE_LLM_GATEWAY=1`）和网关/密钥；**CI 保持关闭**。样本为研究对照，**不是收益预测**。
 
 可选 sklearn（`scripts/train_eval.py`，需 `pip install scikit-learn joblib`；CI 未装则 skip）：
 
@@ -45,6 +47,6 @@ PYTHONPATH=src python scripts/train_eval.py \
 ```
 
 标注示例行（CSV 列顺序）:
-id,platform,symbol,trade_date,text,label,notes
+id,platform,symbol,trade_date,text,label,notes,label_source,annotator
 
 文件位置：`data/labels/annotation_sample.csv`（由抽样脚本生成）
