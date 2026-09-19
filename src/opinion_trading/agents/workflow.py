@@ -64,9 +64,12 @@ class OpinionTradingWorkflow:
             reversal_min_delta=self.config.strategy.reversal_min_delta,
             platform_weights=self.config.strategy.platform_weights,
         )
+        ecfg = getattr(self.config, "execution", None)
         trader_skill = PaperTradingSkill(
             initial_cash=self.config.strategy.initial_cash,
             position_size_ratio=self.config.strategy.position_size_ratio,
+            slippage_bps=float(getattr(ecfg, "simulation_slippage_bps", 0.0) or 0.0),
+            fee_bps=float(getattr(ecfg, "fee_bps", 0.0) or 0.0),
         )
 
         self.collector = CollectorAgent(collector_skill)

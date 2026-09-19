@@ -172,6 +172,33 @@ def compute_next_returns(price_df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def transaction_cost_fraction(
+    slippage_bps: float = 0.0, fee_bps: float = 0.0
+) -> float:
+    """One-way cost as a fraction of notional (slippage + commission/tax)."""
+    return max(0.0, (float(slippage_bps) + float(fee_bps)) / 10_000.0)
+
+
+def apply_fill_price(
+    mid_price: float,
+    action: str,
+    *,
+    slippage_bps: float = 0.0,
+    fee_bps: float = 0.0,
+) -> float:
+    """BUY pays up, SELL receives down. Mid/MTM price is unchanged."""
+    px = float(mid_price)
+    cost = transaction_cost_fraction(slippage_bps, fee_bps)
+    if cost <= 0 or px <= 0:
+        return px
+    act = str(action).upper()
+    if act == "BUY":
+        return px * (1.0 + cost)
+    if act == "SELL":
+        return px * max(1e-12, 1.0 - cost)
+    return px
+
+
 def _signal_factor(row) -> float:
     """Map trade action + confidence to a signed factor score for IC."""
     conf = float(row.get("confidence", 0.0) or 0.0)
@@ -192,6 +219,9 @@ def evaluate_signals(
     price_df: pd.DataFrame,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    *,
+    slippage_bps: float = 0.0,
+    fee_bps: float = 0.0,
 ) -> Tuple[pd.DataFrame, EvalSummary]:
     if signal_df.empty:
         summary = EvalSummary(0, 0.0, 0.0, 0.0, 0.0)
@@ -320,6 +350,11 @@ def evaluate_signals(
 
     valid = valid.copy()
     valid["strategy_return"] = valid.apply(_signed_return, axis=1)
+    cost_frac = transaction_cost_fraction(slippage_bps, fee_bps)
+    if cost_frac:
+        valid["strategy_return"] = valid["strategy_return"] - cost_frac
+    merged = merged.copy()
+    merged.loc[valid.index, "strategy_return"] = valid["strategy_return"]
     rets = valid["strategy_return"]
     wins = rets[rets > 0]
     losses = rets[rets < 0]

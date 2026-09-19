@@ -88,6 +88,7 @@ def load_runtime_config(config_path: str = "config/settings.yaml") -> RuntimeCon
         export_intents=bool(exec_raw.get("export_intents", True)),
         dry_run=bool(exec_raw.get("dry_run", True)),
         simulation_slippage_bps=float(exec_raw.get("simulation_slippage_bps", 5.0)),
+        fee_bps=float(exec_raw.get("fee_bps", 0.0)),
     )
 
     risk_raw = raw.get("risk", {})

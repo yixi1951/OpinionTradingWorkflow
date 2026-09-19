@@ -19,11 +19,15 @@ class PaperTradingSkill:
         *,
         use_market_prices: bool = True,
         price_df=None,
+        slippage_bps: float = 0.0,
+        fee_bps: float = 0.0,
     ) -> None:
         self.initial_cash = initial_cash
         self.position_size_ratio = position_size_ratio
         self.use_market_prices = use_market_prices
         self.price_df = price_df
+        self.slippage_bps = float(slippage_bps)
+        self.fee_bps = float(fee_bps)
 
     def simulate(
         self,
@@ -50,12 +54,13 @@ class PaperTradingSkill:
             price, src = self._resolve_price(
                 signal.symbol, trade_date, today_aggregated, market_prices
             )
+            fill_px = self._fill_price(price, signal.action)
             if signal.action == "BUY":
                 budget = cash * self._size_ratio(signal)
-                shares = int(budget // price)
+                shares = int(budget // fill_px)
                 if shares <= 0:
                     continue
-                cash -= shares * price
+                cash -= shares * fill_px
                 positions[signal.symbol] = positions.get(signal.symbol, 0) + shares
                 trades.append(
                     PaperTrade(
@@ -63,9 +68,9 @@ class PaperTradingSkill:
                         symbol=signal.symbol,
                         action="BUY",
                         shares=shares,
-                        price=round(price, 2),
+                        price=round(fill_px, 2),
                         cash_after=round(cash, 2),
-                        note=self._trade_note(signal, price, src),
+                        note=self._trade_note(signal, fill_px, src),
                     )
                 )
 
@@ -73,7 +78,7 @@ class PaperTradingSkill:
                 shares = positions.get(signal.symbol, 0)
                 if shares <= 0:
                     continue
-                cash += shares * price
+                cash += shares * fill_px
                 positions[signal.symbol] = 0
                 trades.append(
                     PaperTrade(
@@ -81,9 +86,9 @@ class PaperTradingSkill:
                         symbol=signal.symbol,
                         action="SELL",
                         shares=shares,
-                        price=round(price, 2),
+                        price=round(fill_px, 2),
                         cash_after=round(cash, 2),
-                        note=self._trade_note(signal, price, src),
+                        note=self._trade_note(signal, fill_px, src),
                     )
                 )
 
@@ -131,6 +136,16 @@ class PaperTradingSkill:
         head = f"[price={price:.2f} src={source}]"
         body = (signal.explanation or signal.reason or "")[:400]
         return f"{head}\n{body}".strip()
+
+    def _fill_price(self, mid_price: float, action: str) -> float:
+        from opinion_trading.core.evaluation import apply_fill_price
+
+        return apply_fill_price(
+            mid_price,
+            action,
+            slippage_bps=self.slippage_bps,
+            fee_bps=self.fee_bps,
+        )
 
     def _resolve_price(
         self,
