@@ -114,8 +114,6 @@ class OpinionTradingWorkflow:
                 )
             logger.info("Fast daily: loaded %d rows from cache", len(raw_rows))
         else:
-            import os
-
             from opinion_trading.core.parallel_collect import collect_raw_posts_parallel
 
             parallel = os.environ.get("COLLECT_PARALLEL", "1").lower() not in (
