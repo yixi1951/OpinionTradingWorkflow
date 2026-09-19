@@ -164,6 +164,28 @@ class OpinionTradingWorkflow:
         if dup_removed:
             logger.info("Dedup removed %d duplicate raw rows", dup_removed)
 
+        try:
+            import yaml
+
+            settings_path = Path("config/settings.yaml")
+            settings_raw = (
+                yaml.safe_load(settings_path.read_text(encoding="utf-8"))
+                if settings_path.is_file()
+                else {}
+            )
+        except Exception:
+            settings_raw = {}
+        from opinion_trading.core.semantic_near_dedup import (
+            dedupe_near_semantic,
+            load_semantic_near_dedup_config,
+        )
+
+        snd_cfg = load_semantic_near_dedup_config(settings_raw)
+        if snd_cfg.enabled:
+            raw_rows, snd_removed = dedupe_near_semantic(raw_rows, config=snd_cfg)
+            if snd_removed:
+                logger.info("Semantic near-dedup removed %d rows", snd_removed)
+
         cdd = getattr(self.config, "cross_day_dedup", None)
         if cdd and cdd.enabled:
             from opinion_trading.core.cross_day_dedup import apply_cross_day_dedup
@@ -192,6 +214,17 @@ class OpinionTradingWorkflow:
 
         raw_rows, noise_stats = filter_noisy_rows(raw_rows, mark_only=True)
         raw_rows = enrich_raw_rows(raw_rows)
+
+        try:
+            from opinion_trading.core.multi_label_sentiment import (
+                enrich_rows_multi_label,
+                load_multi_label_sentiment_config,
+            )
+
+            ml_cfg = load_multi_label_sentiment_config(settings_raw)
+            raw_rows = enrich_rows_multi_label(raw_rows, config=ml_cfg)
+        except Exception:
+            pass
 
         # AI relevance screen + batch LLM sentiment (default on when scoring.mode=ai)
         ai_pipe_stats: Dict = {}

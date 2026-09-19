@@ -25,6 +25,15 @@ export PYTHONPATH=src
 python -m pytest tests/ -q
 ```
 
+### One-shot offline demo (no API keys)
+
+```bash
+bash scripts/run_demo.sh
+# bash scripts/run_demo.sh --skip-ui --with-wf
+```
+
+Starts `openclaw_stub` on `:18790`, runs gateway health + keyword `--fast-daily`, then Streamlit (unless `--skip-ui`). See `OPENCLAW_STUB_PORT` / `DEMO_DATE` in script header.
+
 ## 环境变量
 
 复制 [`.env.example`](../.env.example) 为 `.env` 并按需填写（DeepSeek、OpenClaw、采集并行、`STREAMLIT_DASHBOARD_PASSWORD` 等）。**不要提交 `.env` 或真实 API key。**
@@ -115,7 +124,10 @@ docker compose up --build
 | `python scripts/probe_deepseek.py` | 同上脚本入口；`--soft` 在未配置时 exit 0 |
 | `python scripts/check_gateway_health.py --stub` | 同上（脚本入口） |
 | `py -m opinion_trading.main --mode evaluate` | 单次信号评估（与纸面净值同一价表；可含滑点/费用；可选 `execution.transaction_costs`） |
+| `bash scripts/run_demo.sh` | Linux 一键：OpenClaw stub + keyword fast-daily + UI（无 live key） |
+| `bash scripts/run_ui.sh` | Streamlit 仪表盘（可选 fast-daily） |
 | `python scripts/compare_ml_baseline.py --labels tests/fixtures/annotation_sample_labeled.csv` | P3：TF-IDF vs 关键词 vs offline hybrid（CI 无 key） |
+| `python scripts/add_human_labels.py --infile tests/fixtures/raw_posts_smoke_min.csv --out data/labels/human_label_template.csv` | 人工标注 CSV 模板（见 `docs/human_labels_howto.md`） |
 
 Opt-in 采集平台（默认 daily 列表不含）：在 `config/settings.yaml` → `strategy.platforms` 取消注释 `zhihu` / `bilibili` / `xiaohongshu` / `weixin`。券商沙箱：`execution.mode: sandbox`（只记意图）。
 

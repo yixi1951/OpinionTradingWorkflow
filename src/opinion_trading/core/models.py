@@ -145,6 +145,8 @@ class SentimentWinsorizeConfig:
     enabled: bool = False
     lower_pct: float = 1.0
     upper_pct: float = 99.0
+    per_symbol: bool = False
+    adaptive: bool = False
 
 
 @dataclass

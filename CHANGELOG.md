@@ -2,6 +2,15 @@
 
 ## Unreleased (2026-09)
 
+### Engineering-complete (research prototype)
+
+- **Status**: In-repo implementable work declared complete; remaining roadmap items are external-deps only (see `docs/LIMITATIONS_AND_ROADMAP.md` § OUT OF SCOPE).
+- **`scripts/run_demo.sh`**: Linux one-shot OpenClaw stub + keyword offline demo; documented in `docs/DEV_SETUP.md`.
+- **Quality**: optional `collection.semantic_near_dedup` (Jaccard/SimHash); winsorize `per_symbol` / `adaptive`; `timezone_utils.normalize_trade_date`; transaction cost `min_commission_cny` / `transfer_fee_bps`.
+- **Scoring scaffolds**: `multi_label_sentiment`, `macro_industry_factors` stubs, `batch_scoring` chunked offline helper.
+- **Labels**: synthetic fixture expanded to **72** balanced rows; `docs/human_labels_howto.md` + `scripts/add_human_labels.py`.
+- CI coverage gate **54% → 55%** (measured ~57%).
+
 ### Transaction costs + UI settings preview
 - **`execution.transaction_costs`**: optional commission tiers + A-share-style seller stamp-duty calendar on the shared eval/paper fill path (`docs/transaction_costs_research.md`). Default **off**; env `TRANSACTION_COSTS=1` to enable.
 - Streamlit sidebar **read-only** settings preview via `opinion_trading.ui.settings_preview` (no config writes).

@@ -30,7 +30,7 @@ Or `TRANSACTION_COSTS=1` for a quick toggle without editing YAML.
 
 Fixture for unit tests: `tests/fixtures/transaction_cost_calendar.yaml`.
 
-## Still deferred
+## Still deferred (outside this repo)
 
-- Per-broker negotiated tiers, minimum commission (元), transfer fees, ETF/可转债 rules
-- Live broker fee APIs and settlement calendars
+- Per-broker negotiated tiers beyond the scaffold; live broker fee APIs and settlement calendars
+- **Implemented in scaffold (opt-in):** `min_commission_cny`, `transfer_fee_bps` on `execution.transaction_costs` when enabled

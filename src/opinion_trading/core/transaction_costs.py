@@ -38,12 +38,16 @@ class TransactionCostConfig:
     enabled: bool = False
     commission_tiers: List[CommissionTier] = field(default_factory=list)
     stamp_tax_calendar: List[StampTaxEntry] = field(default_factory=list)
+    min_commission_cny: float = 0.0
+    transfer_fee_bps: float = 0.0
 
     def summary(self) -> Dict[str, Any]:
         return {
             "enabled": self.enabled,
             "commission_tiers": len(self.commission_tiers),
             "stamp_tax_entries": len(self.stamp_tax_calendar),
+            "min_commission_cny": self.min_commission_cny,
+            "transfer_fee_bps": self.transfer_fee_bps,
         }
 
 
@@ -125,6 +129,8 @@ def load_transaction_cost_config(raw: Optional[dict] = None) -> TransactionCostC
         enabled=enabled,
         commission_tiers=tiers,
         stamp_tax_calendar=stamp_entries,
+        min_commission_cny=float(block.get("min_commission_cny", 0.0)),
+        transfer_fee_bps=float(block.get("transfer_fee_bps", 0.0)),
     )
 
 
@@ -156,6 +162,19 @@ def stamp_tax_bps_for_sell(
     return float(rate)
 
 
+def apply_minimum_commission_bps(
+    fee_bps: float, notional_cny: float, min_commission_cny: float
+) -> float:
+    """Raise effective bps when tier commission would fall below minimum (CNY)."""
+    notion = max(0.0, float(notional_cny))
+    if notion <= 0 or min_commission_cny <= 0:
+        return float(fee_bps)
+    implied = notion * float(fee_bps) / 10_000.0
+    if implied >= min_commission_cny:
+        return float(fee_bps)
+    return float(min_commission_cny) / notion * 10_000.0
+
+
 def resolve_one_way_fee_bps(
     base_fee_bps: float,
     *,
@@ -169,6 +188,11 @@ def resolve_one_way_fee_bps(
     if config is None or not config.enabled:
         return total
     total += commission_bps_for_notional(notional_cny, config.commission_tiers)
+    total += max(0.0, float(config.transfer_fee_bps))
+    if config.min_commission_cny > 0:
+        total = apply_minimum_commission_bps(
+            total, notional_cny, config.min_commission_cny
+        )
     if str(action).upper() == "SELL":
         total += stamp_tax_bps_for_sell(trade_date, config.stamp_tax_calendar)
     return total

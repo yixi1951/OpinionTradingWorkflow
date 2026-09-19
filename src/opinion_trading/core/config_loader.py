@@ -92,6 +92,8 @@ def load_runtime_config(config_path: str = "config/settings.yaml") -> RuntimeCon
             enabled=winsor_loaded.enabled,
             lower_pct=winsor_loaded.lower_pct,
             upper_pct=winsor_loaded.upper_pct,
+            per_symbol=winsor_loaded.per_symbol,
+            adaptive=winsor_loaded.adaptive,
         ),
     )
 

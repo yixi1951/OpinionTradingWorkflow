@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
 from opinion_trading.core.log_utils import get_logger
+from opinion_trading.core.timezone_utils import normalize_trade_date
 
 logger = get_logger(__name__)
 
@@ -197,6 +198,9 @@ class RawPostCsvStore:
 
     def _normalize_row(self, row: Dict) -> Dict:
         normalized = dict(row)
+        td = normalize_trade_date(normalized.get("trade_date"))
+        if td is not None:
+            normalized["trade_date"] = td.isoformat()
         normalized.setdefault(
             "summary",
             self._build_summary(
