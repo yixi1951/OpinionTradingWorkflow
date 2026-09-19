@@ -1,0 +1,15 @@
+execution:
+  fee_bps: 0.0
+  simulation_slippage_bps: 0.0
+  transaction_costs:
+    enabled: true
+    commission_tiers:
+      - min_notional_cny: 0
+        commission_bps: 3.0
+      - min_notional_cny: 100000
+        commission_bps: 2.0
+    stamp_tax_calendar:
+      - effective_from: "2023-08-27"
+        sell_stamp_bps: 10.0
+      - effective_from: "2023-08-28"
+        sell_stamp_bps: 5.0

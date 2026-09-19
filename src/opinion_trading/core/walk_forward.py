@@ -10,6 +10,7 @@ from typing import List, Optional, Tuple
 import pandas as pd
 
 from opinion_trading.core.evaluation import EvalSummary, evaluate_signals, load_signals
+from opinion_trading.core.transaction_costs import TransactionCostConfig
 from opinion_trading.core.log_utils import get_logger
 
 logger = get_logger(__name__)
@@ -46,6 +47,7 @@ def run_walk_forward(
     min_signals_per_fold: int = 3,
     slippage_bps: float = 0.0,
     fee_bps: float = 0.0,
+    transaction_costs: Optional[TransactionCostConfig] = None,
 ) -> WalkForwardReport:
     """Rolling train/test splits on calendar days (uses signal_history.jsonl)."""
     signals = load_signals(signal_path)
@@ -77,6 +79,7 @@ def run_walk_forward(
             end_date=train_end.isoformat(),
             slippage_bps=slippage_bps,
             fee_bps=fee_bps,
+            transaction_costs=transaction_costs,
         )
         _test_merged, test_sum = evaluate_signals(
             signals,
@@ -85,6 +88,7 @@ def run_walk_forward(
             end_date=test_end.isoformat(),
             slippage_bps=slippage_bps,
             fee_bps=fee_bps,
+            transaction_costs=transaction_costs,
         )
 
         if test_sum.total_signals < min_signals_per_fold and train_sum.total_signals < min_signals_per_fold:

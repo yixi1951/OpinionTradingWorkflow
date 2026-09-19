@@ -146,6 +146,22 @@ execution:
   dry_run: true
   simulation_slippage_bps: 5.0
   fee_bps: 0.0
+  # Optional A-share-style commission tiers + stamp-duty calendar (research; off by default).
+  # Not legal/tax advice — adds to fee_bps on evaluate / paper fills when enabled.
+  transaction_costs:
+    enabled: false
+    commission_tiers:
+      - min_notional_cny: 0
+        commission_bps: 2.5
+      - min_notional_cny: 50000
+        commission_bps: 1.8
+      - min_notional_cny: 200000
+        commission_bps: 1.2
+    stamp_tax_calendar:
+      - effective_from: "2008-04-24"
+        sell_stamp_bps: 10.0
+      - effective_from: "2023-08-28"
+        sell_stamp_bps: 5.0
   # Paper-only TP/SL research scaffold (uses shared price table; no live orders).
   paper_exit:
     enabled: false

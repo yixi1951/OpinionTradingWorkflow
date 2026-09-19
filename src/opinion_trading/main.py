@@ -276,6 +276,9 @@ def main() -> None:
             runtime.execution.simulation_slippage_bps if runtime.execution else 0.0
         )
         fee = runtime.execution.fee_bps if runtime.execution else 0.0
+        tx_costs = (
+            runtime.execution.transaction_costs if runtime.execution else None
+        )
         merged, summary = evaluate_signals(
             signals,
             prices,
@@ -283,6 +286,7 @@ def main() -> None:
             args.end_date,
             slippage_bps=slip,
             fee_bps=fee,
+            transaction_costs=tx_costs,
         )
         outputs = save_evaluation(runtime.report_dir, merged, summary)
         print("=== Evaluation Completed ===")
@@ -310,6 +314,7 @@ def main() -> None:
                 test_days=wf.test_days,
                 slippage_bps=slip,
                 fee_bps=fee,
+                transaction_costs=tx_costs,
             )
             wf_path = save_walk_forward_report(runtime.report_dir, wf_report)
             print("--- Walk-Forward (out-of-sample) ---")
@@ -452,6 +457,9 @@ def main() -> None:
             runtime.execution.simulation_slippage_bps if runtime.execution else 0.0
         )
         fee = runtime.execution.fee_bps if runtime.execution else 0.0
+        tx_costs = (
+            runtime.execution.transaction_costs if runtime.execution else None
+        )
         report = run_walk_forward(
             signal_path,
             prices,
@@ -460,6 +468,7 @@ def main() -> None:
             test_days=wf.test_days,
             slippage_bps=slip,
             fee_bps=fee,
+            transaction_costs=tx_costs,
         )
         out = save_walk_forward_report(runtime.report_dir, report)
         print("=== Walk-Forward Completed ===")

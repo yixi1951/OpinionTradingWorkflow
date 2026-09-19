@@ -25,6 +25,7 @@ from opinion_trading.core.models import (
 from opinion_trading.core.cross_day_dedup import load_cross_day_dedup_config
 from opinion_trading.core.paper_exit_rules import load_paper_exit_config
 from opinion_trading.core.sentiment_winsorize import load_sentiment_winsorize_config
+from opinion_trading.core.transaction_costs import load_transaction_cost_config
 
 
 def _load_yaml(path: Path) -> Dict[str, Any]:
@@ -96,6 +97,7 @@ def load_runtime_config(config_path: str = "config/settings.yaml") -> RuntimeCon
 
     exec_raw = raw.get("execution", {})
     paper_exit_loaded = load_paper_exit_config(raw)
+    tx_cost_loaded = load_transaction_cost_config(raw)
     execution_config = ExecutionConfig(
         mode=str(exec_raw.get("mode", "paper")),
         export_intents=bool(exec_raw.get("export_intents", True)),
@@ -107,6 +109,7 @@ def load_runtime_config(config_path: str = "config/settings.yaml") -> RuntimeCon
             take_profit_pct=paper_exit_loaded.take_profit_pct,
             stop_loss_pct=paper_exit_loaded.stop_loss_pct,
         ),
+        transaction_costs=tx_cost_loaded,
     )
 
     risk_raw = raw.get("risk", {})

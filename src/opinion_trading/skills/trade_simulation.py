@@ -7,6 +7,7 @@ from typing import Dict, List, Tuple
 from opinion_trading.core.log_utils import get_logger
 from opinion_trading.core.market_data import fetch_closes_for_symbols
 from opinion_trading.core.models import AggregatedSentiment, PaperTrade, TradeSignal
+from opinion_trading.core.transaction_costs import TransactionCostConfig
 
 logger = get_logger(__name__)
 
@@ -21,6 +22,7 @@ class PaperTradingSkill:
         price_df=None,
         slippage_bps: float = 0.0,
         fee_bps: float = 0.0,
+        transaction_costs: TransactionCostConfig | None = None,
     ) -> None:
         self.initial_cash = initial_cash
         self.position_size_ratio = position_size_ratio
@@ -28,6 +30,7 @@ class PaperTradingSkill:
         self.price_df = price_df
         self.slippage_bps = float(slippage_bps)
         self.fee_bps = float(fee_bps)
+        self.transaction_costs = transaction_costs
 
     def simulate(
         self,
@@ -54,7 +57,7 @@ class PaperTradingSkill:
             price, src = self._resolve_price(
                 signal.symbol, trade_date, today_aggregated, market_prices
             )
-            fill_px = self._fill_price(price, signal.action)
+            fill_px = self._fill_price(price, signal.action, trade_date=trade_date)
             if signal.action == "BUY":
                 budget = cash * self._size_ratio(signal)
                 shares = int(budget // fill_px)
@@ -137,7 +140,9 @@ class PaperTradingSkill:
         body = (signal.explanation or signal.reason or "")[:400]
         return f"{head}\n{body}".strip()
 
-    def _fill_price(self, mid_price: float, action: str) -> float:
+    def _fill_price(
+        self, mid_price: float, action: str, trade_date: date | None = None
+    ) -> float:
         from opinion_trading.core.evaluation import apply_fill_price
 
         return apply_fill_price(
@@ -145,6 +150,8 @@ class PaperTradingSkill:
             action,
             slippage_bps=self.slippage_bps,
             fee_bps=self.fee_bps,
+            trade_date=trade_date,
+            transaction_costs=self.transaction_costs,
         )
 
     def _resolve_price(

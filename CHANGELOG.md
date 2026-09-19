@@ -2,6 +2,12 @@
 
 ## Unreleased (2026-09)
 
+### Transaction costs + UI settings preview
+- **`execution.transaction_costs`**: optional commission tiers + A-share-style seller stamp-duty calendar on the shared eval/paper fill path (`docs/transaction_costs_research.md`). Default **off**; env `TRANSACTION_COSTS=1` to enable.
+- Streamlit sidebar **read-only** settings preview via `opinion_trading.ui.settings_preview` (no config writes).
+- Deploy: Nginx reverse-proxy checklist in `docs/DEV_SETUP.md`; example `deploy/nginx-streamlit.conf.example`.
+- CI coverage gate **54%** (measured ~56% after #19 slice).
+
 ### Coverage + research scaffolds
 - CI `--cov-fail-under` raised to **52**; added `tests/test_engineering_slice.py` for new modules.
 - **Cross-day dedup**: optional SQLite fingerprint store (`collection.cross_day_dedup`, env `CROSS_DAY_DEDUP`); runs after in-day `text_dedup`.
