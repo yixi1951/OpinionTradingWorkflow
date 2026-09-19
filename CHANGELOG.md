@@ -7,6 +7,7 @@
 - OpenAI-compatible `/v1/chat/completions` client with one retry; keyword fallback when the key is missing (or `DEEPSEEK_REQUIRE=1` for a bilingual error).
 - Wired first in `AISentimentAnalyzer` when `scoring.mode` is `ai`/`hybrid` (CI stays `SCORING_MODE=keyword`).
 - CLI: `--mode deepseek-probe`, `--mode score-sample`, `scripts/probe_deepseek.py`. pytest mocks HTTP and strips the key.
+- Manual GitHub Action **DeepSeek probe** (`.github/workflows/deepseek-probe.yml`, `workflow_dispatch` only) reads repo secret `DEEPSEEK_API_KEY`. Not on PR push.
 
 ### Opt-in Xiaohongshu / Weixin adapters
 - Best-effort HTML collectors + stub fallback for `xiaohongshu` (`xhs`) and `weixin` (`gongzhonghao` / `wechat_oa`).

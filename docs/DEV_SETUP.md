@@ -39,7 +39,14 @@ python -m opinion_trading.main --mode score-sample
 # daily / pipeline 在 scoring.mode=ai 且 key 存在时走 DeepSeek；否则回退关键词
 ```
 
-无 key 时探针打印 **NOT_CONFIGURED**（中英提示）。pytest 默认删掉 `DEEPSEEK_API_KEY` 并 mock HTTP，不发起真实请求。
+无 key 时探针打印 **NOT_CONFIGURED**（中英提示）。pytest / 默认 CI 删掉 `DEEPSEEK_API_KEY` 并 mock HTTP，不发起真实请求。
+
+**GitHub Actions 真实探针（密钥只放仓库 Secret，不要贴到聊天里）**
+
+1. Repo → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**
+2. Name 必须是 **`DEEPSEEK_API_KEY`**，Value 填 DeepSeek 密钥
+3. **Actions** → 工作流 **DeepSeek probe** → **Run workflow** → 选分支（例如 `cursor/roadmap-p0-p5-7604`）→ Run
+4. 文件：`.github/workflows/deepseek-probe.yml`（仅 `workflow_dispatch`，不会在每次 PR push 跑）
 
 终端采集进度条（需 `pip install tqdm`）：`COLLECT_SHOW_PROGRESS=1`
 
@@ -73,4 +80,4 @@ Opt-in 采集平台（默认 daily 列表不含）：在 `config/settings.yaml` 
 
 Docker：`docker compose up --build`（见根目录 `docker-compose.yml`）。
 
-CI 配置见 [.github/workflows/ci.yml](../.github/workflows/ci.yml)。
+CI 配置见 [.github/workflows/ci.yml](../.github/workflows/ci.yml)（离线）。真实 DeepSeek 探针见 [.github/workflows/deepseek-probe.yml](../.github/workflows/deepseek-probe.yml)（手动 **DeepSeek probe**）。
