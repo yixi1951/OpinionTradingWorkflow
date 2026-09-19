@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 from datetime import date, timedelta
 from pathlib import Path
@@ -15,9 +16,14 @@ _RAW_PREFIX = "raw_posts_"
 _PRICE_FIXTURE = "price_history_replay.csv"
 # Calendar span used when expanding dated copies of the template raw CSV.
 # ~87 days so default walk-forward 60/20 windows are not shrunk (needed=80).
-# Three non-overlapping 60/20 folds would still need ~240 days of history.
+# Three non-overlapping 60/20 folds still need ~240 calendar days of history —
+# that longer bundle is generated on demand (see materialize_honest_walk_forward)
+# so git does not store 170+ cloned raw CSVs.
 FIXTURE_SPAN_START = date(2026, 3, 23)
 FIXTURE_SPAN_END = date(2026, 6, 17)
+HONEST_WF_CALENDAR_DAYS = 240
+HONEST_WF_END = FIXTURE_SPAN_END
+HONEST_WF_START = HONEST_WF_END - timedelta(days=HONEST_WF_CALENDAR_DAYS - 1)
 _TEMPLATE_RAW = "raw_posts_2026-06-17.csv"
 
 
@@ -54,6 +60,136 @@ def weekday_span(start: date, end: date) -> List[date]:
 
 def fixture_span() -> Tuple[date, date]:
     return FIXTURE_SPAN_START, FIXTURE_SPAN_END
+
+
+def honest_wf_span() -> Tuple[date, date]:
+    """Calendar window long enough for 3 non-overlapping 60/20 folds (240 days)."""
+    return HONEST_WF_START, HONEST_WF_END
+
+
+def generate_synthetic_price_csv(
+    start: date,
+    end: date,
+    *,
+    symbols: Optional[List[str]] = None,
+) -> str:
+    """Compact deterministic OHL-less close table (all calendar days)."""
+    symbols = list(symbols or ["600519.SH", "000001.SZ"])
+    bases = {"600519.SH": 1600.0, "000001.SZ": 10.5}
+    lines = ["date,symbol,close"]
+    cur = start - timedelta(days=2)
+    last = end + timedelta(days=1)
+    while cur <= last:
+        day_num = (cur - start).days
+        for i, sym in enumerate(symbols):
+            base = bases.get(sym, 100.0)
+            close = round(base * (1.0 + 0.00035 * day_num + 0.0015 * ((day_num + i) % 5)), 4)
+            lines.append(f"{cur.isoformat()},{sym},{close}")
+        cur += timedelta(days=1)
+    return "\n".join(lines) + "\n"
+
+
+def generate_synthetic_signal_jsonl(
+    start: date,
+    end: date,
+    *,
+    symbol: str = "600519.SH",
+) -> str:
+    """One BUY/SELL row per calendar day so WF windows are fully populated."""
+    lines: List[str] = []
+    cur = start
+    toggle = True
+    while cur <= end:
+        lines.append(
+            json.dumps(
+                {
+                    "trade_date": cur.isoformat(),
+                    "symbol": symbol,
+                    "action": "BUY" if toggle else "SELL",
+                    "confidence": 0.7,
+                    "reason": "honest-wf-synthetic",
+                    "platforms": ["guba"],
+                },
+                ensure_ascii=False,
+            )
+        )
+        toggle = not toggle
+        cur += timedelta(days=1)
+    return "\n".join(lines) + "\n"
+
+
+def materialize_honest_walk_forward(
+    dest_dir: str | Path,
+    *,
+    include_raw: bool = False,
+    fixture_dir: Optional[str] = None,
+    overwrite: bool = True,
+    symbols: Optional[List[str]] = None,
+) -> dict:
+    """Write a ~240-day synthetic bundle into ``dest_dir`` (tmp, not git).
+
+    Default committed fixtures stay ~87 days so ``replay-batch`` stays small.
+    This path is for WF smoke that must keep 3×60/20 windows unshrunk.
+
+    Remaining gap vs production: rows are cloned/synthetic, not a real crawl.
+    """
+    dest = Path(dest_dir)
+    dest.mkdir(parents=True, exist_ok=True)
+    start, end = honest_wf_span()
+    price_path = dest / "price_history_honest_wf.csv"
+    if overwrite or not price_path.exists():
+        price_path.write_text(
+            generate_synthetic_price_csv(start, end, symbols=symbols),
+            encoding="utf-8",
+        )
+    signal_path = dest / "signal_history.jsonl"
+    if overwrite or not signal_path.exists():
+        signal_path.write_text(
+            generate_synthetic_signal_jsonl(start, end),
+            encoding="utf-8",
+        )
+    raw_dates: List[str] = []
+    if include_raw:
+        raw_dir = dest / "raw"
+        src_root = Path(fixture_dir) if fixture_dir else default_fixture_dir()
+        template = src_root / _TEMPLATE_RAW
+        if not template.is_file():
+            dated = list_fixture_raw_dates(str(src_root))
+            if dated:
+                template = src_root / f"{_RAW_PREFIX}{dated[-1]}.csv"
+        if template.is_file():
+            raw_dir.mkdir(parents=True, exist_ok=True)
+            for d in weekday_span(start, end):
+                date_str = d.isoformat()
+                target = raw_dir / f"{_RAW_PREFIX}{date_str}.csv"
+                if target.exists() and not overwrite:
+                    raw_dates.append(date_str)
+                    continue
+                _rewrite_raw_template(template, target, date_str)
+                raw_dates.append(date_str)
+        else:
+            logger.debug("No raw template to expand honest WF span from %s", src_root)
+    info = {
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "calendar_days": HONEST_WF_CALENDAR_DAYS,
+        "price_path": str(price_path),
+        "signal_path": str(signal_path),
+        "raw_dates": raw_dates,
+        "include_raw": include_raw,
+        "note": (
+            "Synthetic compact history for 3 non-overlapping 60/20 walk-forward folds. "
+            "Not real market or crawl history; research prototype only."
+        ),
+    }
+    logger.info(
+        "Materialized honest WF bundle %s → %s (%d calendar days, raw=%s)",
+        start,
+        end,
+        HONEST_WF_CALENDAR_DAYS,
+        include_raw,
+    )
+    return info
 
 
 def _rewrite_raw_template(src: Path, dest: Path, new_date: str) -> None:

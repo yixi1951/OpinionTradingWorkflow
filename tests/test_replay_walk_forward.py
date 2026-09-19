@@ -12,8 +12,11 @@ from opinion_trading.core.paper_equity import discover_raw_trade_dates
 from opinion_trading.core.replay_fixtures import (
     FIXTURE_SPAN_END,
     FIXTURE_SPAN_START,
+    HONEST_WF_CALENDAR_DAYS,
     ensure_replay_inputs,
+    honest_wf_span,
     list_fixture_raw_dates,
+    materialize_honest_walk_forward,
     seed_raw_fixtures,
     weekday_span,
 )
@@ -247,3 +250,41 @@ def test_replay_batch_seeds_when_raw_missing(tmp_path, monkeypatch):
     assert summary["seeded_raw"] is True
     assert summary["dates_run"] >= 1
     assert date.fromisoformat("2026-06-17")
+
+
+def test_honest_walk_forward_three_folds_without_shrink(tmp_path):
+    """On-demand ~240d synthetic bundle keeps default 60/20 and yields 3 folds."""
+    dest = tmp_path / "honest_wf"
+    info = materialize_honest_walk_forward(dest, include_raw=False)
+    start, end = honest_wf_span()
+    assert info["calendar_days"] == HONEST_WF_CALENDAR_DAYS
+    assert (end - start).days + 1 == HONEST_WF_CALENDAR_DAYS
+    prices = load_prices(info["price_path"])
+    report = run_walk_forward(
+        info["signal_path"],
+        prices,
+        n_folds=3,
+        train_days=60,
+        test_days=20,
+        min_signals_per_fold=3,
+    )
+    assert len(report.folds) == 3, report.recommendation
+    for fold in report.folds:
+        assert (fold.train_end - fold.train_start).days == 59
+        assert (fold.test_end - fold.test_start).days == 19
+    # Folds should not overlap on the test windows.
+    tests = [(f.test_start, f.test_end) for f in report.folds]
+    for i in range(len(tests)):
+        for j in range(i + 1, len(tests)):
+            a0, a1 = tests[i]
+            b0, b1 = tests[j]
+            overlap = max(a0, b0) <= min(a1, b1)
+            assert not overlap
+    # Optional raw clone stays out of git; a short include_raw smoke is enough.
+    mini = materialize_honest_walk_forward(
+        tmp_path / "honest_raw",
+        include_raw=True,
+        fixture_dir=str(FIXTURES),
+    )
+    assert len(mini["raw_dates"]) >= 100
+    assert Path(mini["price_path"]).is_file()
