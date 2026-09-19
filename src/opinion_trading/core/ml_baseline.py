@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 from collections import Counter
 from dataclasses import dataclass
@@ -127,6 +128,27 @@ def keyword_labels(texts: Sequence[str]) -> List[str]:
     return out
 
 
+def hybrid_labels(texts: Sequence[str]) -> List[str]:
+    """Hybrid fusion labels; LLM/OpenClaw skipped when gateway env is off.
+
+    Offline this path uses keyword (and optional local transformers) fusion.
+    It is not a live LLM comparison unless OPENCLAW_URL / API keys are set.
+    """
+    from opinion_trading.core.ai_sentiment import AISentimentAnalyzer
+
+    analyzer = AISentimentAnalyzer(enable_fusion=True)
+    results = analyzer.analyze_texts(list(texts))
+    out: List[str] = []
+    for res in results:
+        if res.score >= 0.15:
+            out.append("bull")
+        elif res.score <= -0.15:
+            out.append("bear")
+        else:
+            out.append("neutral")
+    return out
+
+
 def _accuracy(y_true: Sequence[str], y_pred: Sequence[str]) -> float:
     if not y_true:
         return 0.0
@@ -158,7 +180,11 @@ class BaselineComparison:
     keyword_macro_f1: float
     tfidf_per_class_f1: Dict[str, float]
     keyword_per_class_f1: Dict[str, float]
+    hybrid_accuracy: float
+    hybrid_macro_f1: float
+    hybrid_per_class_f1: Dict[str, float]
     note: str
+    hybrid_used_llm: bool = False
 
     def to_dict(self) -> Dict:
         return {
@@ -167,10 +193,14 @@ class BaselineComparison:
             "n_test": self.n_test,
             "tfidf_accuracy": self.tfidf_accuracy,
             "keyword_accuracy": self.keyword_accuracy,
+            "hybrid_accuracy": self.hybrid_accuracy,
             "tfidf_macro_f1": self.tfidf_macro_f1,
             "keyword_macro_f1": self.keyword_macro_f1,
+            "hybrid_macro_f1": self.hybrid_macro_f1,
             "tfidf_per_class_f1": self.tfidf_per_class_f1,
             "keyword_per_class_f1": self.keyword_per_class_f1,
+            "hybrid_per_class_f1": self.hybrid_per_class_f1,
+            "hybrid_used_llm": self.hybrid_used_llm,
             "note": self.note,
         }
 
@@ -201,22 +231,35 @@ def compare_tfidf_vs_keyword(
     clf.fit(train_texts, train_y)
     tfidf_pred = clf.predict(test_texts)
     kw_pred = keyword_labels(test_texts)
+    hy_pred = hybrid_labels(test_texts)
 
     tfidf_f1 = _per_class_f1(test_y, tfidf_pred)
     kw_f1 = _per_class_f1(test_y, kw_pred)
+    hy_f1 = _per_class_f1(test_y, hy_pred)
+    llm_on = os.environ.get("USE_LLM_GATEWAY", "0").lower() not in {
+        "0",
+        "false",
+        "no",
+        "",
+    } and bool(os.environ.get("OPENCLAW_URL") or os.environ.get("DEEPSEEK_API_KEY"))
     report = BaselineComparison(
         n_samples=n,
         n_train=len(train_texts),
         n_test=len(test_texts),
         tfidf_accuracy=_accuracy(test_y, tfidf_pred),
         keyword_accuracy=_accuracy(test_y, kw_pred),
+        hybrid_accuracy=_accuracy(test_y, hy_pred),
         tfidf_macro_f1=tfidf_f1["macro"],
         keyword_macro_f1=kw_f1["macro"],
+        hybrid_macro_f1=hy_f1["macro"],
         tfidf_per_class_f1=tfidf_f1,
         keyword_per_class_f1=kw_f1,
+        hybrid_per_class_f1=hy_f1,
+        hybrid_used_llm=llm_on,
         note=(
-            "Research prototype only — tiny labeled sample, not a profitability claim. "
-            "Keyword/hybrid remains the default scoring path."
+            "Research prototype only — synthetic fixture labels, not a profitability claim. "
+            "Keyword/hybrid remains the default scoring path. "
+            "Hybrid LLM is skipped unless OPENCLAW_URL / API keys are set."
         ),
     )
     return report, clf
@@ -231,22 +274,25 @@ def write_comparison_report(
     md_path.parent.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y-%m-%d %H:%M")
     lines = [
-        "# ML baseline vs keyword scoring",
+        "# ML baseline vs keyword / hybrid scoring",
         "",
         f"- Generated: {ts}",
         f"- Samples: **{report.n_samples}** (train {report.n_train} / test {report.n_test})",
         f"- TF-IDF centroid accuracy: **{report.tfidf_accuracy:.2%}** (macro F1 {report.tfidf_macro_f1:.3f})",
         f"- Keyword lexicon accuracy: **{report.keyword_accuracy:.2%}** (macro F1 {report.keyword_macro_f1:.3f})",
+        f"- Hybrid (offline fusion) accuracy: **{report.hybrid_accuracy:.2%}** (macro F1 {report.hybrid_macro_f1:.3f})",
+        f"- Hybrid used live LLM: **{report.hybrid_used_llm}**",
         "",
         report.note,
         "",
-        "| Label | TF-IDF F1 | Keyword F1 |",
-        "|---|---:|---:|",
+        "| Label | TF-IDF F1 | Keyword F1 | Hybrid F1 |",
+        "|---|---:|---:|---:|",
     ]
     for lab in LABELS:
         lines.append(
             f"| {lab} | {report.tfidf_per_class_f1.get(lab, 0):.3f} | "
-            f"{report.keyword_per_class_f1.get(lab, 0):.3f} |"
+            f"{report.keyword_per_class_f1.get(lab, 0):.3f} | "
+            f"{report.hybrid_per_class_f1.get(lab, 0):.3f} |"
         )
     md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     json_path = Path(out_json) if out_json else md_path.with_suffix(".json")

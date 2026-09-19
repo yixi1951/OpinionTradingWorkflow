@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 from opinion_trading.core.ml_baseline import (
     compare_tfidf_vs_keyword,
     load_labeled_csv,
@@ -49,8 +51,11 @@ def test_tfidf_vs_keyword_smoke(tmp_path, monkeypatch):
     assert set(df["label"]).issuperset({"bull", "bear", "neutral"})
     report, clf = compare_tfidf_vs_keyword(df, test_size=0.34, seed=0)
     assert report.n_samples == len(df)
+    assert report.n_samples >= 30
     assert 0.0 <= report.tfidf_accuracy <= 1.0
     assert 0.0 <= report.keyword_accuracy <= 1.0
+    assert 0.0 <= report.hybrid_accuracy <= 1.0
+    assert report.hybrid_used_llm is False
     preds = clf.predict(["继续看好龙头买入", "暴跌风险建议卖出"])
     assert len(preds) == 2
     assert all(p in {"bull", "bear", "neutral"} for p in preds)
@@ -58,3 +63,40 @@ def test_tfidf_vs_keyword_smoke(tmp_path, monkeypatch):
     assert Path(out["md"]).is_file()
     assert "TF-IDF" in Path(out["md"]).read_text(encoding="utf-8")
     assert Path(out["json"]).is_file()
+
+
+def test_labeled_fixture_is_balanced():
+    df = load_labeled_csv(FIXTURES / "annotation_sample_labeled.csv")
+    counts = df["label"].value_counts()
+    assert counts.min() >= 10
+    assert set(counts.index) == {"bull", "bear", "neutral"}
+
+
+def _train_eval_mod():
+    path = Path(__file__).resolve().parents[1] / "scripts" / "train_eval.py"
+    spec = importlib.util.spec_from_file_location("train_eval", path)
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_train_eval_loads_fixture_without_sklearn():
+    mod = _train_eval_mod()
+    df = mod.safe_load_labels(FIXTURES / "annotation_sample_labeled.csv")
+    assert len(df) >= 30
+    assert {"text", "label"} <= set(df.columns)
+
+
+def test_train_eval_sklearn_smoke(tmp_path):
+    sklearn = importlib.util.find_spec("sklearn")
+    joblib = importlib.util.find_spec("joblib")
+    if sklearn is None or joblib is None:
+        pytest.skip("scikit-learn/joblib optional; not installed in CI")
+    mod = _train_eval_mod()
+    df = mod.safe_load_labels(FIXTURES / "annotation_sample_labeled.csv")
+    results = mod.train_and_eval(
+        df, tmp_path / "models", test_size=0.34, random_state=0, n_estimators=8
+    )
+    assert "linear_svc" in results
+    assert (tmp_path / "models" / "tfidf_vectorizer.joblib").is_file()
