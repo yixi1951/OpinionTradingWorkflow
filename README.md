@@ -335,11 +335,13 @@ pytest -q
 
 | Done in repo | Needs external deps / ops |
 |--------------|---------------------------|
-| P0–P5 scaffolds, replay/WF fixtures, ML baseline, DeepSeek→Qwen failover, proxy-health, docker UI, cross-day dedup, winsorize, paper TP/SL, transaction costs, settings preview | Live broker REST/FIX & funded accounts |
-| `scripts/run_demo.sh` / `run_ui.sh`, semantic near-dup, multi-label & batch scoring scaffolds, 72-row synthetic labels | Captcha solvers / login-session farms |
-| SandboxBroker stub, nginx demo checklist | Large human annotation programs |
-| | Real multi-month crawl history replacing synthetic WF |
-| | Production OAuth / SSO |
+| P0–P5 scaffolds, replay/WF fixtures, ML baseline, DeepSeek→Qwen failover, proxy-health, docker UI | **Live** broker REST/FIX & funded accounts |
+| HTTP mock broker + `HttpSandboxBrokerAdapter` (`ENABLE_HTTP_BROKER_SANDBOX`, default off) | Broker API credentials & compliance sign-off |
+| `collect-persist` / `crawl-span`, `docs/crawl_persistence.md` | Months of scheduled real crawl (cron/ops) |
+| Human label export/import + baseline report | Crowd labeling / adjudication at scale |
+| OAuth SSO scaffolding (`deploy/oauth.md`, `STREAMLIT_AUTH_BACKEND=oauth`) | IdP registration + proxy SSO in production |
+| `deepseek-daily.yml` scheduled workflow + `run_deepseek_daily.sh` | `DEEPSEEK_API_KEY` in repo secrets |
+| SandboxBroker stub, nginx demo checklist | Captcha solvers / login-session farms |
 
 Details: [LIMITATIONS_AND_ROADMAP.md](docs/LIMITATIONS_AND_ROADMAP.md) · [CHANGELOG](CHANGELOG.md)
 
