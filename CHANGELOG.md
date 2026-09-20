@@ -2,6 +2,14 @@
 
 ## Unreleased (2026-09)
 
+### External-track scaffolds (ops-ready, credentials pending)
+
+- **Broker HTTP sandbox**: FastAPI mock (`mock_broker_server`), `HttpSandboxBrokerAdapter`, `--mode broker-sandbox-probe`, expanded `docs/broker_integration.md`.
+- **Crawl persistence**: `crawl_persistence` helpers, `--mode collect-persist` / `crawl-span`, `docs/crawl_persistence.md`.
+- **Human labels**: export/import scripts + `human-labels-*` CLI modes; expanded `docs/human_labels_howto.md`.
+- **Auth**: `dashboard_auth` OAuth stub + `deploy/oauth.md`; `STREAMLIT_AUTH_BACKEND` switch.
+- **DeepSeek daily**: scheduled `.github/workflows/deepseek-daily.yml` + `scripts/run_deepseek_daily.sh` (skips when secret missing).
+
 ### Engineering-complete (research prototype)
 
 - **Status**: In-repo implementable work declared complete; remaining roadmap items are external-deps only (see `docs/LIMITATIONS_AND_ROADMAP.md` § OUT OF SCOPE).

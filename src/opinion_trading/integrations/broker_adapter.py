@@ -209,9 +209,20 @@ def trade_signals_to_intents(
 
 
 def get_broker_adapter(name: str, report_dir: str) -> BaseBrokerAdapter:
+    import os
+
     key = (name or "paper").lower()
     if key in ("export", "csv"):
         return SignalExportAdapter(report_dir)
+    if key in ("http_sandbox", "http", "broker_http"):
+        from opinion_trading.integrations.http_sandbox_broker import (
+            HttpSandboxBrokerAdapter,
+            http_sandbox_enabled,
+        )
+
+        if http_sandbox_enabled() or os.environ.get("BROKER_SANDBOX_URL"):
+            return HttpSandboxBrokerAdapter(report_dir)
+        return SandboxBrokerAdapter(report_dir)
     if key in ("sandbox", "paper_sandbox", "dry_run"):
         return SandboxBrokerAdapter(report_dir)
     return PaperBrokerAdapter(report_dir)

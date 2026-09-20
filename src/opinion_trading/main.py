@@ -55,6 +55,11 @@ def parse_args() -> argparse.Namespace:
             "deepseek-probe",
             "score-sample",
             "proxy-health",
+            "broker-sandbox-probe",
+            "collect-persist",
+            "crawl-span",
+            "human-labels-export",
+            "human-labels-import",
         ],
         help="Execution mode",
     )
@@ -160,6 +165,41 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Reset paper state.json before replay-batch (P0 backfill)",
     )
+    parser.add_argument(
+        "--raw-dir",
+        type=str,
+        default=None,
+        help="Override raw CSV directory (crawl-span / human-labels-export)",
+    )
+    parser.add_argument(
+        "--infile",
+        type=str,
+        default=None,
+        help="Input raw CSV for human-labels-export",
+    )
+    parser.add_argument(
+        "--labels-in",
+        type=str,
+        default=None,
+        help="Input labeled CSV for human-labels-import",
+    )
+    parser.add_argument(
+        "--labels-out",
+        type=str,
+        default=None,
+        help="Output path for human-labels-export/import",
+    )
+    parser.add_argument(
+        "--prune-keep-days",
+        type=int,
+        default=None,
+        help="When set with collect-persist, prune raw CSVs older than N days",
+    )
+    parser.add_argument(
+        "--start-mock-broker",
+        action="store_true",
+        help="broker-sandbox-probe: spawn local mock broker on 127.0.0.1:8765",
+    )
     return parser.parse_args()
 
 
@@ -257,6 +297,113 @@ def main() -> None:
         print("\n".join(report.table_lines()))
         if not report.ok:
             raise SystemExit(1)
+        return
+
+    if args.mode == "broker-sandbox-probe":
+        import os
+        import subprocess
+        import sys
+        import time
+
+        from opinion_trading.integrations.http_sandbox_broker import probe_sandbox
+
+        base = os.environ.get("BROKER_SANDBOX_URL", "http://127.0.0.1:8765")
+        proc = None
+        if args.start_mock_broker or os.environ.get(
+            "BROKER_SANDBOX_START_MOCK", ""
+        ).strip().lower() in ("1", "true", "yes"):
+            proc = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-m",
+                    "opinion_trading.integrations.mock_broker_server",
+                ],
+                env={**os.environ, "PYTHONPATH": "src"},
+            )
+            time.sleep(1.5)
+        result = probe_sandbox(base)
+        print("=== Broker sandbox probe ===")
+        print(result)
+        if proc:
+            proc.terminate()
+        if not result.get("ok"):
+            raise SystemExit(1)
+        return
+
+    if args.mode == "collect-persist":
+        from opinion_trading.core.crawl_persistence import run_collect_persist
+
+        summary = run_collect_persist(
+            args.config,
+            args.date,
+            skip_crawl=args.fast_daily,
+            prune_keep_days=args.prune_keep_days,
+        )
+        print("=== Collect persist ===")
+        for key, val in summary.items():
+            if key != "span":
+                print(f"{key}: {val}")
+        if summary.get("span"):
+            from opinion_trading.core.crawl_persistence import format_span_report
+
+            print(format_span_report(summary["span"]))
+        if not summary.get("ok"):
+            raise SystemExit(1)
+        return
+
+    if args.mode == "crawl-span":
+        from opinion_trading.core.config_loader import load_runtime_config
+        from opinion_trading.core.crawl_persistence import (
+            format_span_report,
+            summarize_raw_span,
+        )
+
+        runtime = load_runtime_config(args.config)
+        raw_dir = args.raw_dir or runtime.raw_dir
+        summary = summarize_raw_span(raw_dir)
+        print("=== Raw crawl span ===")
+        print(format_span_report(summary))
+        return
+
+    if args.mode == "human-labels-export":
+        from opinion_trading.core.config_loader import load_runtime_config
+        from opinion_trading.core.human_labels_workflow import (
+            export_unlabeled_from_raw,
+            export_unlabeled_jsonl,
+        )
+
+        runtime = load_runtime_config(args.config)
+        out = args.labels_out or "data/labels/unlabeled_export.csv"
+        if args.infile:
+            info = export_unlabeled_from_raw(args.infile, out)
+        else:
+            raw_dir = args.raw_dir or runtime.raw_dir
+            info = export_unlabeled_jsonl(raw_dir, out)
+        print("=== Human labels export ===")
+        print(info)
+        return
+
+    if args.mode == "human-labels-import":
+        from opinion_trading.core.human_labels_workflow import (
+            import_human_labels_csv,
+            score_human_labels_report,
+            write_baseline_report_md,
+        )
+
+        src = args.labels_in or args.labels_out
+        if not src:
+            print("Provide --labels-in path to labeled CSV")
+            raise SystemExit(2)
+        dest = args.labels_out or "data/labels/human_imported.csv"
+        info = import_human_labels_csv(src, out_path=dest)
+        print("=== Human labels import ===")
+        print(info)
+        if not info.get("ok"):
+            raise SystemExit(1)
+        report = score_human_labels_report(dest)
+        report_path = Path("data/reports/human_labels_baseline.md")
+        write_baseline_report_md(report, report_path)
+        print(f"Baseline report: {report_path}")
         return
 
     if args.mode == "evaluate":

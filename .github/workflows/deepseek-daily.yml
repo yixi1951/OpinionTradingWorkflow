@@ -1,0 +1,58 @@
+name: DeepSeek daily scoring
+
+# Scheduled live probe — fork-friendly when secret missing.
+# Note: cron on default branch only; use workflow_dispatch for ad-hoc runs.
+on:
+  schedule:
+    # Weekdays ~09:30 Asia/Shanghai (01:30 UTC)
+    - cron: "30 1 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      score_sample:
+        description: Run score-sample after probe
+        type: boolean
+        default: true
+
+jobs:
+  daily:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      PYTHONPATH: src
+      SCORING_MODE: ai
+      DEEPSEEK_ALLOW_LIVE: "1"
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: DeepSeek daily (skip if secret missing)
+        run: |
+          STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+          export REPORT_DIR="data/reports/deepseek_daily_${STAMP}"
+          mkdir -p "$REPORT_DIR"
+          if [ -z "${DEEPSEEK_API_KEY}" ]; then
+            echo "DEEPSEEK_API_KEY not configured — skipping live probe."
+            echo "skipped" > "$REPORT_DIR/status.txt"
+            exit 0
+          fi
+          echo "::add-mask::${DEEPSEEK_API_KEY}"
+          bash scripts/run_deepseek_daily.sh
+
+      - name: Upload daily report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deepseek-daily-${{ github.run_id }}
+          path: data/reports/deepseek_daily_*/
+          if-no-files-found: ignore

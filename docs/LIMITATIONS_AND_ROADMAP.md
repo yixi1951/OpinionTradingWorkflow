@@ -59,11 +59,11 @@
 | 评审点 | 已实现 | 仍推迟 |
 |--------|--------|--------|
 | 仅 Windows 脚本 | **`docs/DEV_SETUP.md`** + **`scripts/run_ui.sh`** + **`scripts/run_demo.sh`**（OpenClaw stub + keyword 离线一键） | — |
-| 容器 | `Dockerfile` + **`docker-compose.yml`**：`docker compose --profile ui up --build streamlit-ui` → **:8501**（挂载 `./data`、`./config`）；默认 `docker compose up` 仍是 API/采集/Prometheus 全栈 | 生产 OAuth / 企业 SSO |
+| 容器 | `Dockerfile` + **`docker-compose.yml`**：`docker compose --profile ui up --build streamlit-ui` → **:8501**（挂载 `./data`、`./config`）；默认 `docker compose up` 仍是 API/采集/Prometheus 全栈 | 在 IdP 注册后的 **完整** OIDC 令牌流（见 `deploy/oauth.md`） |
 | UI 参数 | 侧边栏目录、Eval 价源；**策略配置只读预览**（`build_settings_preview`，不写 YAML） | 侧边栏在线改 `settings`（仍推迟） |
 | 导出 | reports CSV/MD、execution intents；侧边栏 ZIP | — |
 | 移动端 | Streamlit 响应式一般 | 未专门适配 |
-| **认证** | 可选 `STREAMLIT_DASHBOARD_PASSWORD`（演示级）；**`docs/DEV_SETUP.md` + `deploy/nginx-streamlit.conf.example`** 反代清单 | 生产 OAuth / SSO |
+| **认证** | 可选 `STREAMLIT_DASHBOARD_PASSWORD`；**`STREAMLIT_AUTH_BACKEND=oauth`** 脚手架 + **`deploy/oauth.md`**；反代清单 | IdP 注册、client secret 运维、企业 MFA 策略 |
 
 ## 七、安全
 
@@ -76,22 +76,24 @@
 
 | 优先级 | 方向 | 本仓库已做 | 下一步（仅 OUT OF SCOPE） |
 |--------|------|------------|---------------------------|
-| **P0** | 扩大股票池与 signal 历史、稳定 WF | replay-batch fixture seed、~87 日日历、3 折 synthetic bundle（`materialize_wf_history.py`） | 用**真实**多月 raw/价表替换 synthetic WF（需持续爬取与存储，非代码脚手架） |
-| **P1** | 样本外回测与纸面净值对齐 | Eval + WF + 共用价表 + 滑点/费用 + transaction_costs 脚手架 | **真实券商 REST/FIX / 资金账户** |
+| **P0** | 扩大股票池与 signal 历史、稳定 WF | replay-batch fixture seed、~87 日日历、3 折 synthetic bundle；**`collect-persist` / `crawl-span` / `docs/crawl_persistence.md`** | 数月真实 raw 积累（需 cron + 运维，非单次 PR） |
+| **P1** | 样本外回测与纸面净值对齐 | Eval + WF + 共用价表 + 滑点/费用 + transaction_costs；**HTTP mock broker + `HttpSandboxBrokerAdapter`** | **真实券商 REST/FIX / 资金账户**（凭证与合规） |
 | **P2** | OpenClaw / 采集成功率 | gateway-health、proxy-health、ProxyRotator、缓存限速 | **验证码打码、登录态农场** |
-| **P3** | 人工标注 + ML 基线 | 72 行 synthetic fixture、`compare_ml_baseline` / `train_eval`、`docs/human_labels_howto.md` | **大规模人工标注项目**（本仓库仅提供模板 CLI） |
-| **P4** | 合规与实盘 | broker 文档、SandboxBroker stub、dry_run | **真实柜台 API** |
+| **P3** | 人工标注 + ML 基线 | export/import CLI、`human-labels-*` modes、baseline 报告 | **大规模众包标注 / adjudication** |
+| **P4** | 合规与实盘 | broker 文档、HTTP sandbox、`broker-sandbox-probe` | **真实柜台 API + funded 账户** |
 | **P5** | 扩展平台 adapter | 知乎/B 站/小红书/公众号 best-effort | 登录墙后的稳定生产抓取 |
 
 ### OUT OF SCOPE（诚实边界）
 
-以下项 ** deliberately 不在本仓库实现**，需要外部密钥、人力或运营：
+以下项需要外部密钥、人力或运营；仓库仅提供 **脚手架 / ops-ready pending credentials**：
 
-1. Live broker REST/FIX 与 funded 交易账户  
+1. **Live** broker REST/FIX 与 funded 交易账户（HTTP mock + adapter 已可联调字段）  
 2. Captcha solvers / 登录 session 农场  
-3. 替代 synthetic WF 的**真实多月** crawl 历史（需长期数据采集）  
-4. 生产 OAuth / 企业 SSO  
-5. 大规模众包标注与 adjudication 流程（仅文档 + 小 CLI 模板）
+3. **数月真实 crawl 历史**自动积累（`collect-persist` + journal 已就绪，需 cron）  
+4. **完整** OAuth/OIDC 令牌交换与企业 SSO（`deploy/oauth.md` + 反代模式；非无 IdP 即用的生产认证）  
+5. 大规模众包标注与 adjudication（export/import + baseline 报告已就绪）
+
+**已脚手架（默认关 / CI 离线）：** `ENABLE_HTTP_BROKER_SANDBOX`、`collect-persist`、`human-labels-import`、`STREAMLIT_AUTH_BACKEND=oauth`、`.github/workflows/deepseek-daily.yml`。
 
 研究型未来（非承诺）：领域微调、账号图谱水军模型、Prometheus 级监控、分布式采集。
 

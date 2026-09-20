@@ -9,8 +9,9 @@
 | **Export** (`SignalExportAdapter`) | 否 | `signals_export_*.csv` | 人工 / OMS 导入 |
 | **Simulation** (`SimulationBrokerAdapter`) | 否 | `simulated_fills_*.jsonl` | 按参考价 + 滑点模拟撮合 |
 | **Live** (`LiveBrokerAdapter` stub) | **未实现** | — | 显式 `NotImplementedError`，CI 从不调用 |
+| **HTTP sandbox** (`HttpSandboxBrokerAdapter`) | 否（默认关） | 远程 mock/REST `POST /v1/intents` + 本地审计 JSONL | `ENABLE_HTTP_BROKER_SANDBOX=1` |
 
-配置：`config/settings.yaml` → `execution.mode`（`paper` | `export` | `simulation` | `sandbox`），`dry_run: true`。
+配置：`config/settings.yaml` → `execution.mode`（`paper` | `export` | `simulation` | `sandbox` | `http_sandbox`），`dry_run: true`。
 
 - **已实现**：sandbox / paper / export / simulation 全部 dry-run，只记意图或模拟成交。
 - **未实现**：真实券商 REST/FIX、登录态、资金划转、成交回报、撤单。接 API 前必须保留 `dry_run` 并通过风控评审。
@@ -52,9 +53,39 @@
 
 daily pipeline 在纸面前过滤信号，拒绝写入 `risk_reject` 事件。
 
-## 接入真实券商（仍未实现）
+## 本地 HTTP mock 柜台（脚手架）
 
-1. 子类化 `BaseBrokerAdapter`（或专用 REST/FIX 模块），实现 `submit_intents` 并映射 symbol → 柜台代码。
-2. 关闭 `dry_run` 前必须：风控、日损上限、幂等订单号、Secrets 与审计。
-3. 建议先跑 `SandboxBrokerAdapter` + `SimulationBrokerAdapter` 与纸面账户对齐后再接 API。
-4. **没有券商仿真柜台 / 资金账户对接**；当前仅研究原型。
+用于联调 REST 字段，**不会**连接真实交易所：
+
+```bash
+export PYTHONPATH=src
+python scripts/run_mock_broker.py   # 127.0.0.1:8765
+export ENABLE_HTTP_BROKER_SANDBOX=1 BROKER_SANDBOX_URL=http://127.0.0.1:8765
+python -m opinion_trading.main --mode broker-sandbox-probe
+python -m opinion_trading.main --mode broker-sandbox-probe --start-mock-broker
+```
+
+Mock API：
+
+- `GET /health`
+- `POST /v1/intents` — 幂等 `order_id`（`client_order_id` 或内容哈希）
+- `GET /v1/orders/{order_id}`
+
+`HttpSandboxBrokerAdapter` 始终默认 `dry_run`；`BROKER_SANDBOX_ALLOW_LIVE=1` 仅为文档化危险开关，mock 仍会拒绝真下单。
+
+## 接入真实券商 REST（仍未实现）
+
+| 检查项 | 说明 |
+|--------|------|
+| `BROKER_SANDBOX_URL` | 券商仿真或 UAT base URL |
+| Symbol 映射 | `000001.SZ` → 柜台代码表 |
+| 幂等键 | `client_order_id` / 策略批次 id |
+| 认证 | API Key / OAuth — **仅环境变量**，勿入库 |
+| 风控 | `risk_controls` + 日损上限 |
+| 审计 | 保留 `http_sandbox_intents_*.jsonl` 与 `event_log.jsonl` |
+
+步骤：
+
+1. 让 `HttpSandboxBrokerAdapter` 指向券商文档中的 dry-run 端点，或子类化 `BaseBrokerAdapter`。
+2. 在 funded 账户前：纸面 + mock HTTP + `SimulationBrokerAdapter` 对齐成交假设。
+3. **没有** 默认绑定的券商凭证；生产 REST/FIX 仍属 OUT OF SCOPE 直至你方签约与密钥配置。

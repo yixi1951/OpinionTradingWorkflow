@@ -3507,21 +3507,9 @@ def _render_walk_forward_panel(
 
 
 def _require_dashboard_auth() -> None:
-    expected = os.environ.get("STREAMLIT_DASHBOARD_PASSWORD", "").strip()
-    if not expected:
-        return
-    if st.session_state.get("dashboard_authenticated"):
-        return
-    st.markdown(f"### {t('auth_title')}")
-    st.caption(t("auth_env_hint"))
-    pwd = st.text_input(t("auth_prompt"), type="password", key="dashboard_pwd")
-    if st.button("OK", key="dashboard_auth_btn"):
-        if pwd == expected:
-            st.session_state["dashboard_authenticated"] = True
-            st.rerun()
-        else:
-            st.error(t("auth_wrong"))
-    st.stop()
+    from opinion_trading.core.dashboard_auth import require_dashboard_auth
+
+    require_dashboard_auth(st, t)
 
 
 def _render_collect_progress_expander(report_dir: str) -> None:
