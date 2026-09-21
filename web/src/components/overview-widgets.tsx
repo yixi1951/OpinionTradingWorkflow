@@ -63,6 +63,14 @@ type MemorySnippet = {
   rows?: Array<Record<string, unknown>>;
 };
 
+function StaticWidget({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="h-full">
+      <HoverCard className="relative h-full p-4">{children}</HoverCard>
+    </div>
+  );
+}
+
 function SortableWidget({
   id,
   children,
@@ -106,6 +114,7 @@ function healthBadge(status?: string) {
 }
 
 export function OverviewWidgets() {
+  const [dndReady, setDndReady] = useState(false);
   const [order, setOrder] = useState<WidgetId[]>(DEFAULT_ORDER);
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [snap, setSnap] = useState<Snapshot | null>(null);
@@ -115,6 +124,11 @@ export function OverviewWidgets() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    setDndReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!dndReady) return;
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
@@ -124,7 +138,7 @@ export function OverviewWidgets() {
     } catch {
       /* ignore */
     }
-  }, []);
+  }, [dndReady]);
 
   const persistOrder = useCallback((next: WidgetId[]) => {
     setOrder(next);
@@ -318,17 +332,25 @@ export function OverviewWidgets() {
       {!loading && !error && !status && (
         <EmptyState message="无法加载总览数据。" />
       )}
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-        <SortableContext items={order} strategy={rectSortingStrategy}>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {order.map((id) => (
-              <SortableWidget key={id} id={id}>
-                {widgetContent[id]}
-              </SortableWidget>
-            ))}
-          </div>
-        </SortableContext>
-      </DndContext>
+      {dndReady ? (
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+          <SortableContext items={order} strategy={rectSortingStrategy}>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {order.map((id) => (
+                <SortableWidget key={id} id={id}>
+                  {widgetContent[id]}
+                </SortableWidget>
+              ))}
+            </div>
+          </SortableContext>
+        </DndContext>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {order.map((id) => (
+            <StaticWidget key={id}>{widgetContent[id]}</StaticWidget>
+          ))}
+        </div>
+      )}
     </PageChrome>
   );
 }
