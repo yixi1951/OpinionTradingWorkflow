@@ -21,7 +21,6 @@ from opinion_trading.core.models import (
     StrategyConfig,
     SentimentRecencyConfig,
     WalkForwardConfig,
-    MemoryRecallConfig,
 )
 from opinion_trading.core.cross_day_dedup import load_cross_day_dedup_config
 from opinion_trading.core.paper_exit_rules import load_paper_exit_config
