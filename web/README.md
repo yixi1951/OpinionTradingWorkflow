@@ -1,6 +1,6 @@
 # Opinion Trading — Next.js dashboard
 
-Modern App Router UI for the FastAPI gateway (`/v1/*`).
+**Primary** dashboard UI (light theme, DnD overview, Framer Motion). Streamlit is legacy. See [docs/ui_nextjs.md](../docs/ui_nextjs.md).
 
 ## Setup
 

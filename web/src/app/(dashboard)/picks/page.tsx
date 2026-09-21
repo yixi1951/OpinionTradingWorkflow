@@ -9,11 +9,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState, ErrorState, LoadingBlock } from "@/components/data-states";
 import { apiGet } from "@/lib/api";
 import type { PicksResponse, PickRow } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
+import { PageChrome } from "@/components/page-chrome";
+import { HoverCard } from "@/components/hover-card";
 
 export default function PicksPage() {
   const [data, setData] = useState<PicksResponse | null>(null);
@@ -36,13 +38,10 @@ export default function PicksPage() {
   const picks: PickRow[] = data?.picks ?? (Array.isArray(data) ? data : []);
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Picks</h1>
-        <p className="text-sm text-muted-foreground">
-          Latest ranked signals from the compute service.
-        </p>
-      </div>
+    <PageChrome
+      title="选股"
+      description="最新排名信号（compute 服务；离线时可读 report CSV）。"
+    >
       {loading && <LoadingBlock />}
       {error && <ErrorState message={error} />}
       {data?.error && <ErrorState message={String(data.error)} />}
@@ -50,7 +49,7 @@ export default function PicksPage() {
         <EmptyState message="No picks yet — run the daily pipeline or check compute logs." />
       )}
       {picks.length > 0 && (
-        <Card>
+        <HoverCard>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-base">Top rankings</CardTitle>
             {data?.trade_date && (
@@ -85,8 +84,8 @@ export default function PicksPage() {
               </TableBody>
             </Table>
           </CardContent>
-        </Card>
+        </HoverCard>
       )}
-    </div>
+    </PageChrome>
   );
 }
