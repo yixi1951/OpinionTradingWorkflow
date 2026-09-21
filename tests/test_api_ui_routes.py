@@ -68,3 +68,33 @@ def test_auth_verify_password(monkeypatch):
     assert bad["ok"] is False
     good = client.post("/v1/auth/verify", json={"password": "secret"}).json()
     assert good["ok"] is True
+
+
+def test_dashboard_snapshot_and_workspace(monkeypatch, tmp_path: Path):
+    report = tmp_path / "reports"
+    report.mkdir()
+    (report / "realtime_picks_20260101_120000.csv").write_text(
+        "symbol,rank,score\n600519.SH,1,0.5\n",
+        encoding="utf-8",
+    )
+    users = tmp_path / "users"
+    users.mkdir()
+    monkeypatch.setenv("REPORT_DIR", str(report))
+    monkeypatch.setenv("USERS_DIR", str(users))
+    monkeypatch.setenv("MEMORY_DIR", str(tmp_path / "memory"))
+    from opinion_trading.services import api_app
+
+    client = TestClient(api_app.app)
+    snap = client.get("/v1/dashboard/snapshot").json()
+    assert snap["ok"] is True
+    assert len(snap["picks"]) == 1
+
+    profile = client.get("/v1/workspace/profile", params={"username": "demo"}).json()
+    assert profile["ok"] is True
+    assert "600519.SH" in profile["watchlist"]
+
+    added = client.post(
+        "/v1/workspace/watch/add",
+        json={"username": "demo", "symbol": "000001.SZ"},
+    ).json()
+    assert "000001.SZ" in added["watchlist"]

@@ -16,6 +16,8 @@ import { Button } from "@/components/ui/button";
 import { EmptyState, ErrorState, LoadingBlock } from "@/components/data-states";
 import { apiGet } from "@/lib/api";
 import type { SentimentRow } from "@/lib/types";
+import { PageChrome } from "@/components/page-chrome";
+import { HoverCard } from "@/components/hover-card";
 
 type SentimentResponse = {
   ok: boolean;
@@ -25,8 +27,8 @@ type SentimentResponse = {
 };
 
 function scoreColor(score: number) {
-  if (score > 0.15) return "text-emerald-400";
-  if (score < -0.15) return "text-rose-400";
+  if (score > 0.15) return "text-emerald-700";
+  if (score < -0.15) return "text-rose-600";
   return "text-muted-foreground";
 }
 
@@ -56,14 +58,10 @@ export default function SentimentPage() {
   }, []);
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Sentiment</h1>
-        <p className="text-sm text-muted-foreground">
-          Recent rows from <code className="text-xs">sentiment_history.jsonl</code>.
-        </p>
-      </div>
-
+    <PageChrome
+      title="舆情分析"
+      description="来自 sentiment_history.jsonl 的近期记录。"
+    >
       <form
         className="flex flex-wrap items-end gap-3"
         onSubmit={(e) => {
@@ -103,7 +101,7 @@ export default function SentimentPage() {
       )}
 
       {data && data.rows.length > 0 && (
-        <Card>
+        <HoverCard>
           <CardContent className="overflow-x-auto p-0 pt-4">
             <Table>
               <TableHeader>
@@ -133,8 +131,8 @@ export default function SentimentPage() {
               </TableBody>
             </Table>
           </CardContent>
-        </Card>
+        </HoverCard>
       )}
-    </div>
+    </PageChrome>
   );
 }

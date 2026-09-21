@@ -15,6 +15,27 @@ from opinion_trading.core.historical_memory import (
 )
 from opinion_trading.core.monthly_training import load_latest_monthly_training
 from opinion_trading.core.walk_forward_cache import load_walk_forward_json
+from opinion_trading.core.symbol_explain import explain_symbol_sentiment
+from opinion_trading.services.api_ui_data import (
+    analyst_payload,
+    comments_for_symbol,
+    load_latest_alerts,
+    load_latest_raw_posts,
+    load_latest_realtime_picks,
+    load_sentiment_history_df,
+    memory_dir as ui_memory_dir,
+    openclaw_dashboard_payload,
+    raw_pipeline_summary,
+    report_dir as ui_report_dir,
+    review_series,
+    symbol_daily_sentiment,
+    workspace_add_watch,
+    workspace_inbox,
+    workspace_profile,
+    workspace_remove_watch,
+    workspace_run_alerts,
+    workspace_upsert_alert,
+)
 
 
 def _memory_dir() -> str:
@@ -27,6 +48,24 @@ def _report_dir() -> str:
 
 class AuthVerifyRequest(BaseModel):
     password: str = ""
+
+
+class WatchMutation(BaseModel):
+    username: str = "demo"
+    symbol: str = ""
+
+
+class AlertRuleRequest(BaseModel):
+    username: str = "demo"
+    symbol: str = ""
+    score_high: float = 0.35
+    score_low: float = -0.35
+    heat_spike_ratio: float = 2.0
+    email: str = ""
+
+
+class AlertRunRequest(BaseModel):
+    username: str = "demo"
 
 
 def register_ui_routes(app) -> None:
@@ -127,3 +166,118 @@ def register_ui_routes(app) -> None:
         if not expected:
             return {"ok": True, "required": False}
         return {"ok": req.password == expected, "required": True}
+
+    @app.get("/v1/dashboard/snapshot")
+    def dashboard_snapshot() -> Dict[str, Any]:
+        picks, picks_path = load_latest_realtime_picks()
+        alerts, alerts_path = load_latest_alerts()
+        sentiment_df = load_sentiment_history_df()
+        raw_df, raw_path = load_latest_raw_posts()
+        platform_count = (
+            int(sentiment_df["platform"].nunique()) if not sentiment_df.empty else 0
+        )
+        pipeline = raw_pipeline_summary(raw_df)
+        return {
+            "ok": True,
+            "report_dir": ui_report_dir(),
+            "memory_dir": ui_memory_dir(),
+            "picks": picks,
+            "picks_path": picks_path,
+            "alerts": alerts,
+            "alerts_path": alerts_path,
+            "raw_path": raw_path,
+            "platform_count": platform_count,
+            "pipeline": pipeline,
+        }
+
+    @app.get("/v1/picks/file")
+    def picks_file() -> Dict[str, Any]:
+        rows, path = load_latest_realtime_picks()
+        return {"ok": bool(rows), "picks": rows, "source_path": path}
+
+    @app.get("/v1/alerts/latest")
+    def alerts_latest() -> Dict[str, Any]:
+        rows, path = load_latest_alerts()
+        return {"ok": bool(rows), "alerts": rows, "source_path": path}
+
+    @app.get("/v1/raw/summary")
+    def raw_summary() -> Dict[str, Any]:
+        raw_df, path = load_latest_raw_posts()
+        payload = raw_pipeline_summary(raw_df)
+        payload["source_path"] = path
+        return payload
+
+    @app.get("/v1/comments")
+    def comments(
+        symbol: str = Query(..., min_length=1),
+        top_n: int = Query(15, ge=1, le=50),
+    ) -> Dict[str, Any]:
+        return comments_for_symbol(symbol.strip(), top_n=top_n)
+
+    @app.get("/v1/openclaw/dashboard")
+    def openclaw_dashboard() -> Dict[str, Any]:
+        raw_df, _ = load_latest_raw_posts()
+        picks, _ = load_latest_realtime_picks()
+        return openclaw_dashboard_payload(raw_df, picks)
+
+    @app.get("/v1/watchlist/explain")
+    def watchlist_explain(
+        symbol: str = Query(..., min_length=1),
+    ) -> Dict[str, Any]:
+        sym = symbol.strip()
+        sentiment_df = load_sentiment_history_df()
+        raw_df, _ = load_latest_raw_posts()
+        expl = explain_symbol_sentiment(sym, sentiment_df=sentiment_df, raw_df=raw_df)
+        daily = symbol_daily_sentiment(sentiment_df, sym)
+        return {"ok": True, "symbol": sym, "explanation": expl, "sentiment_daily": daily}
+
+    @app.get("/v1/review/series")
+    def review(
+        symbol: str = Query(..., min_length=1),
+        lookback_days: int = Query(90, ge=30, le=365),
+    ) -> Dict[str, Any]:
+        return review_series(symbol.strip(), lookback_days=lookback_days)
+
+    @app.get("/v1/analyst")
+    def analyst() -> Dict[str, Any]:
+        return analyst_payload()
+
+    @app.get("/v1/workspace/profile")
+    def ws_profile(username: str = Query("demo")) -> Dict[str, Any]:
+        return workspace_profile(username.strip() or "demo")
+
+    @app.get("/v1/workspace/inbox")
+    def ws_inbox(
+        username: str = Query("demo"),
+        limit: int = Query(30, ge=1, le=100),
+    ) -> Dict[str, Any]:
+        return workspace_inbox(username.strip() or "demo", limit=limit)
+
+    @app.post("/v1/workspace/watch/add")
+    def ws_watch_add(req: WatchMutation) -> Dict[str, Any]:
+        if not req.symbol.strip():
+            raise HTTPException(status_code=400, detail="symbol required")
+        return workspace_add_watch(req.username.strip() or "demo", req.symbol)
+
+    @app.post("/v1/workspace/watch/remove")
+    def ws_watch_remove(req: WatchMutation) -> Dict[str, Any]:
+        if not req.symbol.strip():
+            raise HTTPException(status_code=400, detail="symbol required")
+        return workspace_remove_watch(req.username.strip() or "demo", req.symbol)
+
+    @app.post("/v1/workspace/alerts")
+    def ws_alerts_upsert(req: AlertRuleRequest) -> Dict[str, Any]:
+        if not req.symbol.strip():
+            raise HTTPException(status_code=400, detail="symbol required")
+        return workspace_upsert_alert(
+            req.username.strip() or "demo",
+            req.symbol.strip(),
+            req.score_high,
+            req.score_low,
+            req.heat_spike_ratio,
+            req.email,
+        )
+
+    @app.post("/v1/workspace/alerts/run")
+    def ws_alerts_run(req: AlertRunRequest) -> Dict[str, Any]:
+        return workspace_run_alerts(req.username.strip() or "demo")
