@@ -60,6 +60,8 @@ def parse_args() -> argparse.Namespace:
             "crawl-span",
             "human-labels-export",
             "human-labels-import",
+            "memory-query",
+            "memory-recall",
         ],
         help="Execution mode",
     )
@@ -194,6 +196,44 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=None,
         help="When set with collect-persist, prune raw CSVs older than N days",
+    )
+    parser.add_argument(
+        "--symbol",
+        type=str,
+        default=None,
+        help="Symbol for memory-query / memory-recall (e.g. 600519.SH)",
+    )
+    parser.add_argument(
+        "--memory-kind",
+        type=str,
+        default="sentiment",
+        choices=[
+            "signals",
+            "sentiment",
+            "trades",
+            "events",
+            "quality_gate",
+        ],
+        help="JSONL kind for memory-query mode",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=50,
+        help="Max rows for memory-query",
+    )
+    parser.add_argument(
+        "--lookback-days",
+        type=int,
+        default=14,
+        help="Lookback window for memory-recall",
+    )
+    parser.add_argument(
+        "--output-format",
+        type=str,
+        default="json",
+        choices=["json", "table"],
+        help="memory-query output format",
     )
     parser.add_argument(
         "--start-mock-broker",
@@ -349,6 +389,48 @@ def main() -> None:
             print(format_span_report(summary["span"]))
         if not summary.get("ok"):
             raise SystemExit(1)
+        return
+
+    if args.mode == "memory-query":
+        import json
+
+        from opinion_trading.core.config_loader import load_runtime_config
+        from opinion_trading.core.historical_memory import (
+            format_query_table,
+            query_memory,
+        )
+
+        runtime = load_runtime_config(args.config)
+        rows = query_memory(
+            runtime.memory_dir,
+            kind=args.memory_kind,
+            symbol=args.symbol,
+            start_date=args.start_date,
+            end_date=args.end_date,
+            limit=args.limit,
+        )
+        if args.output_format == "table":
+            print(format_query_table(rows))
+        else:
+            print(json.dumps(rows, ensure_ascii=False, indent=2))
+        return
+
+    if args.mode == "memory-recall":
+        import json
+
+        from opinion_trading.core.config_loader import load_runtime_config
+        from opinion_trading.core.historical_memory import recall_symbol_context
+
+        if not args.symbol:
+            print("Provide --symbol for memory-recall")
+            raise SystemExit(2)
+        runtime = load_runtime_config(args.config)
+        ctx = recall_symbol_context(
+            runtime.memory_dir,
+            args.symbol,
+            lookback_days=args.lookback_days,
+        )
+        print(json.dumps(ctx, ensure_ascii=False, indent=2))
         return
 
     if args.mode == "crawl-span":

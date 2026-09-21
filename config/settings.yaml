@@ -69,6 +69,14 @@ storage:
   raw_dir: data/raw
   # file | mysql | mongo | redis | multi （默认 file，DB 未配置时自动回退）
   backend: file
+memory:
+  # Attach compact JSONL recall into daily signal explanations (offline).
+  recall_enabled: false
+  # When true, enable recall only if data/memory has non-empty history (CI-safe).
+  recall_auto: false
+  lookback_days: 14
+  # Optional JSONL retention by trade_date; 0 = keep all (default).
+  prune_keep_days: 0
 scoring:
   mode: ai
   # keyword = offline (CI default via SCORING_MODE=keyword).

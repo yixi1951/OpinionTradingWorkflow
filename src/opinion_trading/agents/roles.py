@@ -44,6 +44,7 @@ class SentimentAnalystAgent:
         trade_date: date,
         snapshots: Sequence[OpinionSnapshot],
         platforms: Sequence[str],
+        symbol_recall: Optional[Dict[str, Dict]] = None,
     ) -> Tuple[
         List[TradeSignal],
         Dict[date, Dict[str, AggregatedSentiment]],
@@ -61,6 +62,10 @@ class SentimentAnalystAgent:
             aggregated_by_date=aggregated,
             platforms=best_combo,
         )
+        if symbol_recall:
+            from opinion_trading.core.historical_memory import apply_recall_to_signals
+
+            apply_recall_to_signals(signals, symbol_recall)
         return signals, aggregated, best_combo, combo_scores
 
 
@@ -116,6 +121,7 @@ class MultiAnalystAgent:
         snapshots: Sequence[OpinionSnapshot],
         platforms: Sequence[str],
         quality_gate: Optional["QualityGateResult"] = None,
+        symbol_recall: Optional[Dict[str, Dict]] = None,
     ) -> Tuple[
         List[TradeSignal],
         Dict[date, Dict[str, AggregatedSentiment]],
@@ -226,6 +232,15 @@ class MultiAnalystAgent:
                 sig.confidence = apply_quality_to_sentiment_confidence(
                     sig.confidence, quality_gate
                 )
+
+        if symbol_recall:
+            from opinion_trading.core.historical_memory import apply_recall_to_signals
+
+            apply_recall_to_signals(
+                signals,
+                symbol_recall,
+                lang=self._explanation_lang,
+            )
 
         return signals, aggregated, best_combo, combo_scores
 
