@@ -11,9 +11,36 @@ from opinion_trading.services.clients import (
     compute_client,
     inference_client,
 )
+from fastapi.middleware.cors import CORSMiddleware
+
+from opinion_trading.services.api_ui_routes import register_ui_routes
 from opinion_trading.services.common import create_service_app
 
 app, metrics = create_service_app("api")
+
+
+def _configure_cors() -> None:
+    import os
+
+    raw = os.environ.get("API_CORS_ENABLED", "1").strip().lower()
+    if raw in ("0", "false", "no", "off"):
+        return
+    origins_raw = os.environ.get(
+        "API_CORS_ORIGINS",
+        "http://localhost:3000,http://127.0.0.1:3000",
+    )
+    origins = [o.strip() for o in origins_raw.split(",") if o.strip()]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["*"],
+    )
+
+
+_configure_cors()
+register_ui_routes(app)
 
 
 class RunDailyRequest(BaseModel):

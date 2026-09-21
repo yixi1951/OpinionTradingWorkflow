@@ -1,6 +1,11 @@
 # OpinionTrading compose
 #
-# One-click Streamlit UI (no API / collector / Prometheus):
+# Preferred Next.js UI + API (profile "web"):
+#   docker compose --profile web up --build api web
+#   → Dashboard http://localhost:3000  API http://localhost:8000
+#   (Do not run Grafana on :3000 at the same time — use full stack OR profile web.)
+#
+# Legacy Streamlit UI (no API / collector / Prometheus):
 #   docker compose --profile ui up --build streamlit-ui
 #   → http://localhost:8501
 #   mounts ./data (rw) and ./config (ro). Keyword scoring by default (CI-safe).
@@ -118,12 +123,34 @@ services:
       COLLECTOR_URL: http://collector:8001
       INFERENCE_URL: http://inference:8002
       COMPUTE_URL: http://compute:8003
+      MEMORY_DIR: /app/data/memory
+      REPORT_DIR: /app/data/reports
+      API_CORS_ENABLED: ${API_CORS_ENABLED:-1}
+      API_CORS_ORIGINS: ${API_CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
     ports:
       - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config:ro
     depends_on:
       - collector
       - compute
       - inference
+
+  web:
+    profiles: ["web"]
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+      DASHBOARD_PASSWORD: ${STREAMLIT_DASHBOARD_PASSWORD:-}
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    depends_on:
+      - api
 
   scheduler:
     build: .
