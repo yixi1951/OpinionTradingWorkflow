@@ -375,11 +375,37 @@ class OpinionTradingWorkflow:
             "sentiment_history.jsonl", [x.to_dict() for x in snapshots]
         )
 
+        from opinion_trading.core.historical_memory import (
+            build_symbol_recall_map,
+            prune_memory_jsonl,
+            resolve_recall_enabled,
+        )
+
+        mem_cfg = getattr(self.config, "memory", None)
+        symbol_recall = None
+        if resolve_recall_enabled(self.config.memory_dir, mem_cfg):
+            lookback = mem_cfg.lookback_days if mem_cfg else 14
+            symbols = {snap.symbol for snap in snapshots}
+            symbols.update(self.config.symbols)
+            symbol_recall = build_symbol_recall_map(
+                self.config.memory_dir,
+                symbols,
+                lookback_days=lookback,
+                as_of=run_date,
+            )
+            logger.info(
+                "Historical recall enabled for %d symbols (lookback=%dd)",
+                len(symbol_recall),
+                lookback,
+            )
+
         analyst_kwargs = {
             "trade_date": run_date,
             "snapshots": snapshots,
             "platforms": self.config.strategy.platforms,
         }
+        if symbol_recall:
+            analyst_kwargs["symbol_recall"] = symbol_recall
         if isinstance(self.analyst, MultiAnalystAgent):
             analyst_kwargs["quality_gate"] = quality_gate
         signals, aggregated, best_combo, combo_scores = self.analyst.run(
@@ -626,6 +652,14 @@ class OpinionTradingWorkflow:
             trades=trades,
             state=updated_state,
         )
+
+        if mem_cfg and mem_cfg.prune_keep_days > 0:
+            removed = prune_memory_jsonl(
+                self.config.memory_dir,
+                keep_days=mem_cfg.prune_keep_days,
+            )
+            if any(removed.values()):
+                logger.info("Memory JSONL prune removed rows: %s", removed)
 
         return {
             "run_time": datetime.now().isoformat(),

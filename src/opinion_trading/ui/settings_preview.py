@@ -54,5 +54,10 @@ def build_settings_preview(cfg: RuntimeConfig) -> Dict[str, Any]:
         "walk_forward_enabled_in_evaluate": bool(
             wf and wf.enabled_in_evaluate
         ),
+        "memory_recall": {
+            "recall_enabled": bool(cfg.memory and cfg.memory.recall_enabled),
+            "recall_auto": bool(cfg.memory and cfg.memory.recall_auto),
+            "lookback_days": cfg.memory.lookback_days if cfg.memory else 14,
+        },
     }
     return preview

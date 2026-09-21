@@ -219,6 +219,16 @@ class WalkForwardConfig:
 
 
 @dataclass
+class MemoryRecallConfig:
+    """Historical JSONL recall for agents / CLI (offline)."""
+
+    recall_enabled: bool = False
+    recall_auto: bool = False
+    lookback_days: int = 14
+    prune_keep_days: int = 0
+
+
+@dataclass
 class RuntimeConfig:
     strategy: StrategyConfig
     symbols: List[str]
@@ -239,4 +249,5 @@ class RuntimeConfig:
     risk: RiskConfig | None = None
     sentiment_recency: SentimentRecencyConfig | None = None
     cross_day_dedup: CrossDayDedupConfig | None = None
+    memory: MemoryRecallConfig | None = None
     explanation_lang: str = "zh"

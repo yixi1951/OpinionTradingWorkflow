@@ -343,6 +343,13 @@ Connect OpenClaw via `OPENCLAW_URL` (see `scripts/run_demo_openclaw.ps1`). Sideb
         "event_log_empty": "No events yet — run daily after upgrade.",
         "event_log_filter": "Filter by event type",
         "event_log_all_types": "All types",
+        "historical_memory_title": "Historical memory (JSONL)",
+        "historical_memory_kind": "Kind",
+        "historical_memory_symbol": "Symbol filter (optional)",
+        "historical_memory_limit": "Row limit",
+        "historical_memory_recall_symbol": "Recall symbol",
+        "historical_memory_recall_btn": "Show recall context",
+        "historical_memory_empty": "No rows for this filter.",
         "export_zip": "Download reports bundle (ZIP)",
         "export_zip_hint": "Includes recent picks, summaries, signals, paper state, event log.",
         "collect_progress_title": "Latest parallel crawl log",
@@ -642,6 +649,13 @@ Connect OpenClaw via `OPENCLAW_URL` (see `scripts/run_demo_openclaw.ps1`). Sideb
         "event_log_empty": "暂无事件 — 升级后运行 daily 会写入 event_log.jsonl。",
         "event_log_filter": "按事件类型筛选",
         "event_log_all_types": "全部类型",
+        "historical_memory_title": "历史记忆（JSONL）",
+        "historical_memory_kind": "类型",
+        "historical_memory_symbol": "标的筛选（可选）",
+        "historical_memory_limit": "行数上限",
+        "historical_memory_recall_symbol": "回忆标的",
+        "historical_memory_recall_btn": "查看 compact 上下文",
+        "historical_memory_empty": "该筛选下暂无记录。",
         "export_zip": "下载报告打包 (ZIP)",
         "export_zip_hint": "含近期选股、日报、信号、纸面状态与审计流水。",
         "collect_progress_title": "最近并行采集日志",
@@ -3573,6 +3587,54 @@ def _render_event_log_panel(memory_dir: str) -> None:
         st.dataframe(pd.DataFrame(events), use_container_width=True, hide_index=True)
 
 
+def _render_historical_memory_panel(memory_dir: str) -> None:
+    from opinion_trading.core.historical_memory import (
+        KNOWN_KINDS,
+        query_memory,
+        recall_symbol_context,
+    )
+
+    with st.expander(t("historical_memory_title"), expanded=False):
+        kind = st.selectbox(
+            t("historical_memory_kind"),
+            list(KNOWN_KINDS),
+            index=list(KNOWN_KINDS).index("sentiment"),
+            key="hist_mem_kind",
+        )
+        sym_filter = st.text_input(
+            t("historical_memory_symbol"),
+            value="",
+            key="hist_mem_symbol_filter",
+        )
+        limit = st.number_input(
+            t("historical_memory_limit"),
+            min_value=5,
+            max_value=500,
+            value=40,
+            step=5,
+            key="hist_mem_limit",
+        )
+        rows = query_memory(
+            memory_dir,
+            kind=kind,
+            symbol=sym_filter or None,
+            limit=int(limit),
+        )
+        if not rows:
+            st.caption(t("historical_memory_empty"))
+        else:
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+        recall_sym = st.text_input(
+            t("historical_memory_recall_symbol"),
+            value=sym_filter or "600519.SH",
+            key="hist_mem_recall_symbol",
+        )
+        if st.button(t("historical_memory_recall_btn"), key="hist_mem_recall_btn"):
+            ctx = recall_symbol_context(memory_dir, recall_sym.strip())
+            st.json(ctx)
+
+
 def main() -> None:
     _bootstrap_openclaw_env()
     st.set_page_config(
@@ -4095,6 +4157,7 @@ def main() -> None:
     with tab_eval:
         _render_paper_account_panel(memory_dir)
         _render_quality_gate_history_chart(memory_dir)
+        _render_historical_memory_panel(memory_dir)
         _render_event_log_panel(memory_dir)
         st.markdown(f"#### {t('evaluation')}")
         price_source_mode = st.radio(

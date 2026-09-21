@@ -144,6 +144,10 @@ def load_runtime_config(config_path: str = "config/settings.yaml") -> RuntimeCon
         test_days=int(wf_raw.get("test_days", 20)),
     )
 
+    from opinion_trading.core.historical_memory import load_memory_recall_config
+
+    memory_recall_config = load_memory_recall_config(raw.get("memory"))
+
     expl_lang = str(raw.get("project", {}).get("explanation_lang", "zh")).strip() or "zh"
 
     browser_raw = raw.get("browser", {}) or {}
@@ -171,5 +175,6 @@ def load_runtime_config(config_path: str = "config/settings.yaml") -> RuntimeCon
         sentiment_recency=sentiment_recency_config,
         cross_day_dedup=cross_day_dedup_config,
         risk=risk_config,
+        memory=memory_recall_config,
         explanation_lang=expl_lang,
     )

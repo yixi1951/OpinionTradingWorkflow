@@ -2,6 +2,11 @@
 
 ## Unreleased (2026-09)
 
+### Historical memory (JSONL recall)
+
+- **`historical_memory`**: filtered `query_memory`, `recall_symbol_context`, optional JSONL prune; CLI `--mode memory-query` / `memory-recall`; Streamlit **历史记忆** panel; `docs/historical_memory.md`.
+- Settings `memory.recall_enabled` / `recall_auto` / `lookback_days`; env `MEMORY_RECALL=1`. Daily run can append recall snippets to signal `explanation` (default off).
+
 ### External-track scaffolds (ops-ready, credentials pending)
 
 - **Broker HTTP sandbox**: FastAPI mock (`mock_broker_server`), `HttpSandboxBrokerAdapter`, `--mode broker-sandbox-probe`, expanded `docs/broker_integration.md`.

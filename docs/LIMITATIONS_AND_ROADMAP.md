@@ -50,7 +50,7 @@
 |--------|------|
 | 串行 pipeline | daily 串行；适合个人项目 |
 | 分布式 | 未做 |
-| 存储 | JSONL/CSV + Parquet 行情缓存；`event_log.jsonl` 审计 |
+| 存储 | JSONL/CSV + Parquet 行情缓存；`event_log.jsonl` 审计；**历史记忆** CLI/UI 过滤查询（见 `docs/historical_memory.md`） |
 | 监控告警 | 日志 + realtime 告警 JSONL；无 Prometheus |
 | **测试** | pytest **120+**；CI GitHub Actions |
 
