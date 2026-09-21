@@ -130,7 +130,21 @@ $env:PYTHONPATH = "src"
 
 详细说明见 **[docs/DEV_SETUP.md](docs/DEV_SETUP.md)**（固定 venv、`PYTHONPATH`、CI 一致）。
 
-### 一键打开分析网页（推荐）
+### 一键打开分析网页（推荐 · Next.js）
+
+**首选 UI** 为 `web/` 下的 Next.js 仪表盘（见 **[docs/ui_nextjs.md](docs/ui_nextjs.md)**）：
+
+```bash
+docker compose up -d --build api collector compute inference
+cd web && npm install && NEXT_PUBLIC_API_BASE_URL=http://localhost:8000 npm run dev
+# → http://localhost:3000
+```
+
+或 Docker：`docker compose --profile web up --build api web`
+
+Streamlit（`ui_dashboard.py`）仍可用但已标记为 legacy，见下方 `--profile ui`。
+
+### 一键打开分析网页（Streamlit legacy）
 
 自动检测是否有选股数据；若无则先跑 Stub 演示，再启动 Streamlit 并打开浏览器：
 
