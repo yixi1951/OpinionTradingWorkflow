@@ -57,6 +57,7 @@ def load_runtime_config(config_path: str = "config/settings.yaml") -> RuntimeCon
     )
 
     scoring = raw.get("scoring", {})
+    collection_raw = raw.get("collection", {}) or {}
     analysis_raw = raw.get("analysis", {})
 
     if analysis_raw.get("enabled", False):
@@ -163,7 +164,11 @@ def load_runtime_config(config_path: str = "config/settings.yaml") -> RuntimeCon
             os.environ.get("SCORING_MODE") or scoring.get("mode", "ai")
         ),
         row_level_llm=bool(scoring.get("row_level_llm", True)),
-        max_posts=int(scoring.get("max_posts", 20)),
+        max_posts=int(
+            os.environ.get("OPENCLAW_MAX_POSTS")
+            or collection_raw.get("max_posts")
+            or scoring.get("max_posts", 50)
+        ),
         browser_enabled=bool(browser_raw.get("enabled", True)),
         ai_screen_enabled=bool(ai_pipe_raw.get("screen_enabled", True)),
         ai_score_enabled=bool(ai_pipe_raw.get("score_enabled", True)),

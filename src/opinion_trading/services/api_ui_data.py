@@ -5,12 +5,14 @@ from __future__ import annotations
 import glob
 import json
 import os
-from datetime import date, timedelta
+import re
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
+from opinion_trading.core.noise_filter import refresh_row_noise_flags
 from opinion_trading.core.symbol_explain import explain_symbol_sentiment
 from opinion_trading.core.user_workspace import AlertRule, UserWorkspace
 from opinion_trading.core.watchlist_alerts import run_watchlist_alert_cycle
@@ -20,8 +22,12 @@ from opinion_trading.ui_helpers import (
     build_sentiment_engine_stats,
     compute_raw_capture_rates,
     evidence_stats,
+    filter_comment_evidence,
+    flatten_comment_rows,
     top_comment_rows,
 )
+
+_RAW_DATE_RE = re.compile(r"raw_posts_(\d{4}-\d{2}-\d{2})(?:_|\.csv)")
 
 
 def memory_dir() -> str:
@@ -63,12 +69,71 @@ def load_latest_alerts(rd: Optional[str] = None) -> Tuple[List[Dict[str, Any]], 
     return df.fillna("").to_dict(orient="records"), path
 
 
-def load_latest_raw_posts(raw: Optional[str] = None) -> Tuple[pd.DataFrame, str]:
-    root = raw or raw_dir()
-    path = _latest_file(str(Path(root) / "raw_posts_*.csv"))
-    if not path:
+def _ui_raw_lookback_days() -> int:
+    return max(1, int(os.environ.get("UI_RAW_LOOKBACK_DAYS", "14")))
+
+
+def _parse_raw_trade_date(path: Path) -> Optional[date]:
+    m = _RAW_DATE_RE.search(path.name)
+    if not m:
+        return None
+    try:
+        return datetime.strptime(m.group(1), "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def load_dashboard_raw_posts(
+    raw: Optional[str] = None,
+    *,
+    lookback_days: Optional[int] = None,
+    include_noise: bool = False,
+) -> Tuple[pd.DataFrame, str]:
+    """Merge recent combined + by_source raw CSVs for dashboard evidence."""
+    root = Path(raw or raw_dir())
+    lookback = lookback_days if lookback_days is not None else _ui_raw_lookback_days()
+    cutoff = date.today() - timedelta(days=lookback)
+
+    paths: List[Path] = []
+    for pattern in ("raw_posts_*.csv", "by_source/raw_posts_*.csv"):
+        for p in sorted(root.glob(pattern)):
+            td = _parse_raw_trade_date(p)
+            if td is not None and td < cutoff:
+                continue
+            paths.append(p)
+
+    if not paths:
+        latest = _latest_file(str(root / "raw_posts_*.csv"))
+        if not latest:
+            return pd.DataFrame(), ""
+        paths = [Path(latest)]
+
+    frames: List[pd.DataFrame] = []
+    for p in paths:
+        try:
+            frames.append(pd.read_csv(p))
+        except Exception:
+            continue
+    if not frames:
         return pd.DataFrame(), ""
-    return pd.read_csv(path), path
+
+    df = pd.concat(frames, ignore_index=True)
+    if "url" in df.columns:
+        df = df.drop_duplicates(subset=["url"], keep="last")
+    elif "title" in df.columns and "platform" in df.columns:
+        df = df.drop_duplicates(subset=["platform", "title", "symbol"], keep="last")
+
+    rows, _ = refresh_row_noise_flags(
+        df.fillna("").to_dict(orient="records"),
+        drop_noise=not include_noise,
+    )
+    out = pd.DataFrame(rows) if rows else pd.DataFrame()
+    source_note = f"{root} (lookback={lookback}d, files={len(paths)})"
+    return out, source_note
+
+
+def load_latest_raw_posts(raw: Optional[str] = None) -> Tuple[pd.DataFrame, str]:
+    return load_dashboard_raw_posts(raw, include_noise=True)
 
 
 def load_sentiment_history_df(md: Optional[str] = None) -> pd.DataFrame:
@@ -294,13 +359,77 @@ def review_series(symbol: str, lookback_days: int = 90) -> Dict[str, Any]:
     }
 
 
-def comments_for_symbol(symbol: str, top_n: int = 15) -> Dict[str, Any]:
-    raw_df, path = load_latest_raw_posts()
+def comments_for_symbol(
+    symbol: str,
+    top_n: int = 15,
+    *,
+    include_noise: bool = False,
+    lookback_days: Optional[int] = None,
+) -> Dict[str, Any]:
+    raw_df, path = load_dashboard_raw_posts(
+        include_noise=include_noise,
+        lookback_days=lookback_days,
+    )
     if raw_df.empty:
         return {"ok": False, "message": "No raw posts CSV", "path": path, "rows": []}
-    rows = top_comment_rows(raw_df, symbol, top_n=top_n, include_reference=True)
+    bundle = top_comment_rows(
+        raw_df,
+        symbol,
+        top_n=top_n,
+        include_reference=True,
+        allow_noise=include_noise,
+    )
+    rows = flatten_comment_rows(bundle)
     stats = evidence_stats(raw_df, symbol)
-    return {"ok": True, "path": path, "stats": stats, "rows": rows}
+    stats["lookback_days"] = lookback_days if lookback_days is not None else _ui_raw_lookback_days()
+    stats["include_noise"] = include_noise
+    return {
+        "ok": True,
+        "path": path,
+        "stats": stats,
+        "rows": rows,
+        "count": len(rows),
+    }
+
+
+def sentiment_evidence_posts(
+    symbol: str,
+    *,
+    limit: int = 40,
+    include_noise: bool = False,
+    lookback_days: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    """Clean per-post rows for 舆情 dashboard (multi-day raw)."""
+    raw_df, _ = load_dashboard_raw_posts(
+        include_noise=include_noise,
+        lookback_days=lookback_days,
+    )
+    if raw_df.empty:
+        return []
+    sym = symbol.strip().upper()
+    base = raw_df[raw_df["symbol"].astype(str).str.upper() == sym]
+    if base.empty:
+        return []
+    comments = filter_comment_evidence(base)
+    if comments.empty:
+        return []
+    comments = comments.copy()
+    comments["ai_score"] = pd.to_numeric(comments.get("ai_score", 0), errors="coerce").fillna(
+        0.0
+    )
+    comments = comments.sort_values("ai_score", key=lambda s: s.abs(), ascending=False)
+    out: List[Dict[str, Any]] = []
+    for _, row in comments.head(limit).iterrows():
+        out.append(
+            {
+                "platform": row.get("platform"),
+                "title": row.get("_display") or row.get("title"),
+                "ai_score": float(row.get("ai_score") or 0.0),
+                "trade_date": row.get("trade_date"),
+                "url": row.get("url"),
+            }
+        )
+    return out
 
 
 def analyst_payload(md: Optional[str] = None, rd: Optional[str] = None) -> Dict[str, Any]:

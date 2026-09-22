@@ -28,7 +28,7 @@ export default function CommentsPage() {
     setError(null);
     try {
       const res = await apiGet<CommentsRes>(
-        `/v1/comments?symbol=${encodeURIComponent(symbol.trim())}&top_n=20`,
+        `/v1/comments?symbol=${encodeURIComponent(symbol.trim())}&top_n=30&lookback_days=14`,
       );
       setData(res);
     } catch (e) {
@@ -45,7 +45,7 @@ export default function CommentsPage() {
   return (
     <PageChrome
       title="评论依据"
-      description="选股证据链：正负向评论与参考文本（来自最新 raw_posts CSV）。"
+      description="选股证据链：近 14 日多源 raw 合并，默认剔除广告/噪声。"
       actions={
         <Button variant="outline" size="sm" onClick={load} disabled={loading}>
           查询

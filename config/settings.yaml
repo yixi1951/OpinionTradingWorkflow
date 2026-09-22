@@ -86,7 +86,7 @@ scoring:
   # Live requested without a key: fallback to keyword unless DEEPSEEK_REQUIRE=1.
   provider: deepseek
   row_level_llm: true
-  max_posts: 20
+  max_posts: 50
   # Optional multi-label tags (bullish/bearish/uncertainty); scalar keyword path unchanged unless attach_scalar.
   multi_label_sentiment:
     enabled: false
@@ -193,6 +193,10 @@ execution:
     take_profit_pct: 0.10
     stop_loss_pct: 0.05
 collection:
+  # Per-platform crawl depth (env OPENCLAW_MAX_POSTS overrides). Pair with noise_filter on ingest.
+  max_posts: 50
+  # Dashboard merges raw_posts + by_source within this window (env UI_RAW_LOOKBACK_DAYS).
+  ui_raw_lookback_days: 14
   # Round-robin / failover via ProxyRotator (HTTP crawl only). Also: PROXY_POOL=url1,url2
   # Quality probe: python -m opinion_trading.main --mode proxy-health (empty list = PASS)
   # Captcha solvers and login-session farms are NOT implemented.

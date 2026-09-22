@@ -20,6 +20,7 @@ from opinion_trading.services.api_ui_enrich import enrich_picks_payload, quotes_
 from opinion_trading.services.api_ui_data import (
     analyst_payload,
     comments_for_symbol,
+    load_dashboard_raw_posts,
     load_latest_alerts,
     load_latest_raw_posts,
     load_latest_realtime_picks,
@@ -29,6 +30,7 @@ from opinion_trading.services.api_ui_data import (
     raw_pipeline_summary,
     report_dir as ui_report_dir,
     review_series,
+    sentiment_evidence_posts,
     symbol_daily_sentiment,
     workspace_add_watch,
     workspace_inbox,
@@ -114,6 +116,9 @@ def register_ui_routes(app) -> None:
     def sentiment_history(
         symbol: Optional[str] = None,
         limit: int = Query(100, ge=1, le=500),
+        include_noise: int = Query(0, ge=0, le=1),
+        evidence_limit: int = Query(40, ge=0, le=120),
+        lookback_days: int = Query(14, ge=1, le=90),
     ) -> Dict[str, Any]:
         rows = query_memory(
             _memory_dir(),
@@ -127,11 +132,22 @@ def register_ui_routes(app) -> None:
             if r.get("sentiment_score") is not None
         ]
         avg = sum(scores) / len(scores) if scores else None
+        evidence: List[Dict[str, Any]] = []
+        if symbol and evidence_limit > 0:
+            evidence = sentiment_evidence_posts(
+                symbol.strip(),
+                limit=evidence_limit,
+                include_noise=bool(include_noise),
+                lookback_days=lookback_days,
+            )
         return {
             "ok": True,
             "rows": rows,
             "count": len(rows),
             "avg_score": round(avg, 4) if avg is not None else None,
+            "evidence_posts": evidence,
+            "evidence_count": len(evidence),
+            "lookback_days": lookback_days,
         }
 
     @app.get("/v1/eval/walk-forward")
@@ -173,7 +189,7 @@ def register_ui_routes(app) -> None:
         picks, picks_path = load_latest_realtime_picks()
         alerts, alerts_path = load_latest_alerts()
         sentiment_df = load_sentiment_history_df()
-        raw_df, raw_path = load_latest_raw_posts()
+        raw_df, raw_path = load_dashboard_raw_posts(include_noise=False)
         platform_count = (
             int(sentiment_df["platform"].nunique()) if not sentiment_df.empty else 0
         )
@@ -226,9 +242,16 @@ def register_ui_routes(app) -> None:
     @app.get("/v1/comments")
     def comments(
         symbol: str = Query(..., min_length=1),
-        top_n: int = Query(15, ge=1, le=50),
+        top_n: int = Query(20, ge=1, le=80),
+        include_noise: int = Query(0, ge=0, le=1),
+        lookback_days: int = Query(14, ge=1, le=90),
     ) -> Dict[str, Any]:
-        return comments_for_symbol(symbol.strip(), top_n=top_n)
+        return comments_for_symbol(
+            symbol.strip(),
+            top_n=top_n,
+            include_noise=bool(include_noise),
+            lookback_days=lookback_days,
+        )
 
     @app.get("/v1/openclaw/dashboard")
     def openclaw_dashboard() -> Dict[str, Any]:
