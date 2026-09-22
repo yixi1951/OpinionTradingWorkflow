@@ -124,6 +124,8 @@ def test_retry_once_on_connection_error(monkeypatch):
 
 
 def test_analyzer_uses_deepseek_when_key_present(monkeypatch):
+    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
+    monkeypatch.delenv("JEV_API_KEY", raising=False)
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test-not-real")
     monkeypatch.setenv("SCORING_MODE", "ai")
     monkeypatch.setenv("USE_LLM_GATEWAY", "0")

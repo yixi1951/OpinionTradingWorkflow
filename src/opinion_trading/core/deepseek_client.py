@@ -115,7 +115,16 @@ def deepseek_configured() -> bool:
 def live_llm_requested() -> bool:
     """True when settings/env ask for a live LLM (not CI keyword mode)."""
     mode = str(os.environ.get("SCORING_MODE", "ai")).strip().lower()
-    if mode in {"ai", "hybrid", "llm", "openclaw", "deepseek", "fuse", "fusion"}:
+    if mode in {
+        "ai",
+        "hybrid",
+        "llm",
+        "openclaw",
+        "deepseek",
+        "jev",
+        "fuse",
+        "fusion",
+    }:
         return True
     return _truthy("HYBRID_USE_LLM", "0")
 

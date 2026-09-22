@@ -11,7 +11,7 @@ from opinion_trading.core.openclaw_adapter import OpenClawClient
 logger = get_logger(__name__)
 
 SentimentSource = Literal[
-    "openclaw", "transformers", "keyword", "hybrid", "deepseek", "qwen"
+    "openclaw", "transformers", "keyword", "hybrid", "deepseek", "qwen", "jev"
 ]
 
 
@@ -83,7 +83,7 @@ class AISentimentAnalyzer:
     """Pluggable AI sentiment analyzer for A-share social text.
 
     Dual-track fusion (default hybrid):
-      1) OpenClaw / DeepSeek (optional Qwen failover) or local transformers as primary
+      1) TypeSafe Jev → DeepSeek (optional Qwen failover) → OpenClaw / transformers
       2) Keyword lexicon as auxiliary / fallback
       blend = w_llm * llm + w_kw * keyword  when LLM succeeds;
       otherwise pure keyword with source=keyword.
@@ -198,13 +198,13 @@ class AISentimentAnalyzer:
 
         keyword_results = [self._keyword_result(t) for t in texts_list]
 
-        ds = self._try_deepseek(texts_list)
-        if ds is not None:
+        live = self._try_live_cascade(texts_list)
+        if live is not None:
             if self.enable_fusion:
                 return [
-                    self._blend(primary, kw) for primary, kw in zip(ds, keyword_results)
+                    self._blend(primary, kw) for primary, kw in zip(live, keyword_results)
                 ]
-            return ds
+            return live
 
         # Prefer multi-model inference gateway when available
         gw = self._try_gateway(texts_list)
@@ -235,6 +235,76 @@ class AISentimentAnalyzer:
                 return tf
 
         return keyword_results
+
+    def _try_live_cascade(
+        self, texts_list: Sequence[str]
+    ) -> Optional[List[SentimentResult]]:
+        """Jev first, then DeepSeek/Qwen per scoring.provider cascade."""
+        from opinion_trading.core.deepseek_client import live_llm_requested
+        from opinion_trading.core.scoring_cascade import live_scoring_providers
+
+        if not live_llm_requested():
+            return None
+
+        for name in live_scoring_providers():
+            if name == "jev":
+                jev = self._try_jev(texts_list)
+                if jev is not None:
+                    return jev
+            elif name in {"deepseek", "llm"}:
+                ds = self._try_deepseek(texts_list)
+                if ds is not None:
+                    return ds
+            elif name == "openclaw":
+                oc = self._try_openclaw(texts_list)
+                if oc is not None:
+                    return oc
+            else:
+                logger.debug("unknown scoring provider %s — skipped", name)
+        return None
+
+    def _try_jev(
+        self, texts_list: Sequence[str]
+    ) -> Optional[List[SentimentResult]]:
+        from opinion_trading.core.jev_client import (
+            jev_configured,
+            jev_fallback_on_error,
+            jev_min_confidence,
+            load_jev_settings,
+            score_texts_jev,
+        )
+        from opinion_trading.core.deepseek_client import live_llm_requested
+
+        if not live_llm_requested() or not jev_configured():
+            return None
+        settings = load_jev_settings()
+        min_conf = jev_min_confidence()
+        try:
+            pairs = score_texts_jev(texts_list, settings=settings)
+        except Exception as exc:
+            if not jev_fallback_on_error():
+                raise
+            logger.debug("jev live scoring failed: %s", exc)
+            return None
+        if len(pairs) != len(texts_list):
+            return None
+        out: List[SentimentResult] = []
+        for scalar, conf in pairs:
+            if float(conf) < min_conf:
+                logger.debug(
+                    "jev confidence %.3f below threshold %.3f — failover",
+                    conf,
+                    min_conf,
+                )
+                return None
+            out.append(
+                SentimentResult(
+                    score=clamp_score(float(scalar)),
+                    source="jev",
+                    confidence=min(0.99, float(conf)),
+                )
+            )
+        return out
 
     def _try_deepseek(
         self, texts_list: Sequence[str]

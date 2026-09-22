@@ -1,8 +1,10 @@
-"""Optional live-LLM failover: DeepSeek → Qwen (OpenAI-compatible) → keyword.
+"""Live-LLM failover after Jev: DeepSeek → Qwen (OpenAI-compatible) → keyword.
 
-CI keeps ``SCORING_MODE=keyword`` and no API keys, so this module never hits
-the network in pytest. One structured warning is logged when a live provider
-fails and the next hop is used (Qwen or keyword).
+``AISentimentAnalyzer`` tries TypeSafe Jev first (see ``jev_client``), then
+calls ``score_texts_with_failover`` for DeepSeek/Qwen. CI keeps
+``SCORING_MODE=keyword`` and no API keys, so pytest never hits the network.
+One structured warning is logged when a live provider fails and the next hop
+is used (Qwen or keyword).
 """
 
 from __future__ import annotations
