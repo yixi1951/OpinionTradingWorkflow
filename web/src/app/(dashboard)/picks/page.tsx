@@ -16,6 +16,7 @@ import type { PicksResponse, PickRow } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { PageChrome } from "@/components/page-chrome";
 import { HoverCard } from "@/components/hover-card";
+import { StockQuoteInline, StockSymbolCell } from "@/components/stock-symbol";
 
 export default function PicksPage() {
   const [data, setData] = useState<PicksResponse | null>(null);
@@ -61,7 +62,8 @@ export default function PicksPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>#</TableHead>
-                  <TableHead>Symbol</TableHead>
+                  <TableHead>标的</TableHead>
+                  <TableHead className="text-right">行情</TableHead>
                   <TableHead>Score</TableHead>
                   <TableHead>Action</TableHead>
                   <TableHead className="min-w-[240px]">Reason</TableHead>
@@ -71,7 +73,12 @@ export default function PicksPage() {
                 {picks.map((row, idx) => (
                   <TableRow key={`${row.symbol}-${idx}`}>
                     <TableCell>{row.rank ?? idx + 1}</TableCell>
-                    <TableCell className="font-mono font-medium">{row.symbol}</TableCell>
+                    <TableCell>
+                      <StockSymbolCell symbol={row.symbol} name={row.name} />
+                    </TableCell>
+                    <TableCell>
+                      <StockQuoteInline quote={row.quote} />
+                    </TableCell>
                     <TableCell>
                       {row.score != null ? Number(row.score).toFixed(3) : "—"}
                     </TableCell>

@@ -135,6 +135,43 @@ class SymbolMapper:
     def aliases_for(self, symbol: str) -> List[str]:
         return list(self.symbol_to_aliases.get(str(symbol).strip().upper(), []))
 
+    def primary_name(self, symbol: str) -> str:
+        """Best-effort Chinese display name (first non-code alias)."""
+        for alias in self.aliases_for(symbol):
+            if alias.isdigit():
+                continue
+            if alias.isascii() and len(alias) <= 6 and any(ch.isdigit() for ch in alias):
+                continue
+            return alias
+        return ""
+
+
+_CODE6_RE = re.compile(r"^\d{6}$")
+
+
+def normalize_a_share_symbol(symbol: str, mapper: Optional[SymbolMapper] = None) -> str:
+    """Normalize to ``CODE.SH`` / ``CODE.SZ`` when possible."""
+    raw = str(symbol or "").strip().upper()
+    if not raw:
+        return raw
+    m = mapper or get_symbol_mapper()
+    if "." in raw:
+        return raw
+    if _CODE6_RE.match(raw):
+        mapped = m.alias_to_symbol.get(raw)
+        if mapped:
+            return mapped
+        if raw.startswith(("5", "6", "9")):
+            return f"{raw}.SH"
+        return f"{raw}.SZ"
+    return raw
+
+
+def primary_display_name(symbol: str, mapper: Optional[SymbolMapper] = None) -> str:
+    m = mapper or get_symbol_mapper()
+    sym = normalize_a_share_symbol(symbol, mapper=m)
+    return m.primary_name(sym)
+
 
 _GLOBAL_MAPPER: Optional[SymbolMapper] = None
 
