@@ -119,13 +119,26 @@ def parse_platform_scores(raw_value) -> Dict[str, float]:
     return out
 
 
-def is_fallback_row(row: pd.Series) -> bool:
+def is_fallback_row(row: pd.Series, *, allow_noise: bool = False) -> bool:
     status = str(row.get("capture_status", "")).lower()
     if status == "fallback":
         return True
-    noise = row.get("is_noise")
-    if noise is True or str(noise).lower() in {"true", "1"}:
-        return True
+    if not allow_noise:
+        noise = row.get("is_noise")
+        if noise is True or str(noise).lower() in {"true", "1"}:
+            return True
+        from opinion_trading.core.noise_filter import classify_noise
+
+        blob = f"{row.get('title', '')} {row.get('summary', '')} {row.get('content', '')}"
+        noisy, _ = classify_noise(
+            {
+                "title": row.get("title", ""),
+                "content": blob,
+                "is_noise": False,
+            }
+        )
+        if noisy:
+            return True
     blob = f"{row.get('title', '')} {row.get('summary', '')} {row.get('content', '')}"
     markers = (
         "Fallback row generated",
@@ -158,11 +171,11 @@ def clean_comment_text(row: pd.Series) -> str:
     return text
 
 
-def filter_usable_raw(raw_df: pd.DataFrame) -> pd.DataFrame:
+def filter_usable_raw(raw_df: pd.DataFrame, *, allow_noise: bool = False) -> pd.DataFrame:
     if raw_df.empty:
         return raw_df
     view = raw_df.copy()
-    mask = ~view.apply(is_fallback_row, axis=1)
+    mask = ~view.apply(lambda r: is_fallback_row(r, allow_noise=allow_noise), axis=1)
     view = view[mask].copy()
     view["full_text"] = view.apply(full_comment_text, axis=1)
     view["_display"] = view.apply(clean_comment_text, axis=1)
@@ -394,8 +407,10 @@ def classify_content_type(row: pd.Series) -> str:
     return "reference"
 
 
-def _prepare_comment_view(raw_df: pd.DataFrame, symbol: str) -> pd.DataFrame:
-    usable = filter_usable_raw(raw_df)
+def _prepare_comment_view(
+    raw_df: pd.DataFrame, symbol: str, *, allow_noise: bool = False
+) -> pd.DataFrame:
+    usable = filter_usable_raw(raw_df, allow_noise=allow_noise)
     if usable.empty:
         return usable
     view = usable[usable["symbol"] == symbol].copy()
@@ -418,8 +433,9 @@ def top_comment_rows(
     *,
     include_reference: bool = True,
     ref_n: int = 4,
+    allow_noise: bool = False,
 ) -> Dict[str, pd.DataFrame]:
-    all_view = _prepare_comment_view(raw_df, symbol)
+    all_view = _prepare_comment_view(raw_df, symbol, allow_noise=allow_noise)
     if all_view.empty:
         return {
             "positive": pd.DataFrame(),
@@ -469,6 +485,31 @@ def top_comment_rows(
                 )
 
     return {"positive": positive, "negative": negative, "reference": reference}
+
+
+def flatten_comment_rows(bundle: Dict[str, pd.DataFrame]) -> List[Dict[str, object]]:
+    """Serialize top_comment_rows buckets for JSON APIs."""
+    out: List[Dict[str, object]] = []
+    for kind in ("positive", "negative", "reference"):
+        frame = bundle.get(kind)
+        if frame is None or frame.empty:
+            continue
+        for _, row in frame.iterrows():
+            out.append(
+                {
+                    "kind": kind,
+                    "polarity": kind if kind != "reference" else "reference",
+                    "platform": row.get("platform"),
+                    "title": row.get("display_text") or row.get("title"),
+                    "text": row.get("full_text") or row.get("display_text"),
+                    "ai_score": row.get("ai_score"),
+                    "score": row.get("ai_score"),
+                    "score_source": row.get("score_source"),
+                    "url": row.get("url"),
+                    "content_type": row.get("content_type"),
+                }
+            )
+    return out
 
 
 def build_openclaw_summary(raw_df: pd.DataFrame, picks_df: pd.DataFrame) -> Dict[str, object]:

@@ -19,11 +19,22 @@ import type { SentimentRow } from "@/lib/types";
 import { PageChrome } from "@/components/page-chrome";
 import { HoverCard } from "@/components/hover-card";
 
+type EvidencePost = {
+  platform?: string;
+  title?: string;
+  ai_score?: number;
+  trade_date?: string;
+  url?: string;
+};
+
 type SentimentResponse = {
   ok: boolean;
   rows: SentimentRow[];
   count: number;
   avg_score: number | null;
+  evidence_posts?: EvidencePost[];
+  evidence_count?: number;
+  lookback_days?: number;
 };
 
 function scoreColor(score: number) {
@@ -42,7 +53,11 @@ export default function SentimentPage() {
     setLoading(true);
     setError(null);
     try {
-      const q = new URLSearchParams({ limit: "80" });
+      const q = new URLSearchParams({
+        limit: "120",
+        evidence_limit: "50",
+        lookback_days: "14",
+      });
       if (sym?.trim()) q.set("symbol", sym.trim().toUpperCase());
       const res = await apiGet<SentimentResponse>(`/v1/sentiment/history?${q}`);
       setData(res);
@@ -60,7 +75,7 @@ export default function SentimentPage() {
   return (
     <PageChrome
       title="舆情分析"
-      description="来自 sentiment_history.jsonl 的近期记录。"
+      description="聚合舆情历史 + 近 14 日去噪后的评论证据（多日 raw）。"
     >
       <form
         className="flex flex-wrap items-end gap-3"
@@ -122,6 +137,47 @@ export default function SentimentPage() {
                       <TableCell>{row.platform ?? "—"}</TableCell>
                       <TableCell
                         className={`font-mono ${s != null ? scoreColor(Number(s)) : ""}`}
+                      >
+                        {s != null ? Number(s).toFixed(3) : "—"}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </HoverCard>
+      )}
+
+      {(data?.evidence_posts?.length ?? 0) > 0 && (
+        <HoverCard className="mt-6">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">
+              评论证据（近 {data?.lookback_days ?? 14} 日，已过滤广告/噪声）
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="overflow-x-auto p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>日期</TableHead>
+                  <TableHead>平台</TableHead>
+                  <TableHead>摘要</TableHead>
+                  <TableHead>分</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data!.evidence_posts!.map((row, i) => {
+                  const s = row.ai_score;
+                  return (
+                    <TableRow key={i}>
+                      <TableCell className="text-xs">{row.trade_date ?? "—"}</TableCell>
+                      <TableCell>{row.platform ?? "—"}</TableCell>
+                      <TableCell className="max-w-lg text-sm">
+                        <p className="line-clamp-2">{row.title ?? "—"}</p>
+                      </TableCell>
+                      <TableCell
+                        className={`font-mono text-xs ${s != null ? scoreColor(Number(s)) : ""}`}
                       >
                         {s != null ? Number(s).toFixed(3) : "—"}
                       </TableCell>

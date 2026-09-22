@@ -53,7 +53,11 @@ class OpinionTradingWorkflow:
         self.reporter = DailyReportBuilder(self.config.report_dir)
         self.raw_store = RawPostCsvStore(self.config.raw_dir)
         self.quality_reporter = QualityReportBuilder(self.config.report_dir)
-        self.provider = RealPlatformSentimentProvider()
+        self.provider = RealPlatformSentimentProvider(
+            max_posts=int(getattr(self.config, "max_posts", 50) or 50)
+        )
+        if not os.environ.get("OPENCLAW_MAX_POSTS"):
+            os.environ["OPENCLAW_MAX_POSTS"] = str(self.provider.max_posts)
         self.alert_notifier = AlertNotifier()
 
         collector_skill = SentimentCollectionSkill(self.provider)

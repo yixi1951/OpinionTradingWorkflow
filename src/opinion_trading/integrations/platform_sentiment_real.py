@@ -155,7 +155,7 @@ class RealPlatformSentimentProvider:
                 "true",
                 "yes",
             )
-        self.max_posts = max_posts or int(os.environ.get("OPENCLAW_MAX_POSTS", "20"))
+        self.max_posts = max_posts or int(os.environ.get("OPENCLAW_MAX_POSTS", "50"))
         self.min_content_chars = int(os.environ.get("PARSE_MIN_CONTENT_CHARS", "40"))
         self.stub = StubProvider()
         # AI sentiment analyzer (optional local transformers pipeline)
@@ -248,7 +248,7 @@ class RealPlatformSentimentProvider:
         platform = self._canonical_platform(platform)
         if max_posts is None:
             max_posts = getattr(self, "max_posts", None) or int(
-                os.environ.get("OPENCLAW_MAX_POSTS", "20")
+                os.environ.get("OPENCLAW_MAX_POSTS", "50")
             )
         logger.info("Collecting %s/%s max_posts=%d", platform, symbol, max_posts)
         list_url = self._build_url(platform=platform, symbol=symbol)
@@ -1239,10 +1239,14 @@ class RealPlatformSentimentProvider:
         return True
 
     def _is_noise_text(self, text: str) -> bool:
+        from opinion_trading.core.noise_filter import is_spam_or_ad, is_water_post
+
         low = self._clean_text(text).lower()
         if not low:
             return True
         if is_boilerplate(text):
+            return True
+        if is_spam_or_ad(text) or is_water_post(text):
             return True
         if len(low) < 12:
             return True

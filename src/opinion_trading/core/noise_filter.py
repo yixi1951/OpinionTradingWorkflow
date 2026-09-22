@@ -8,21 +8,55 @@ from typing import Any, Dict, Iterable, List, Tuple
 # Ads / spam / water posts
 SPAM_MARKERS = (
     "加微信",
-    "加V",
+    "加v",
     "加vx",
+    "加薇",
+    "加我微信",
     "免费荐股",
+    "荐股",
     "荐股群",
+    "带单",
+    "跟单",
     "内部消息私聊",
     "扫码进群",
+    "扫码关注",
+    "扫码领取",
+    "开户链接",
+    "极速开户",
+    "开户福利",
+    "开户即送",
+    "证券开户",
+    "期货开户",
     "代操",
+    "代客理财",
     "稳赚不赔",
     "百分百收益",
     "点击领取",
+    "免费领取",
+    "限时领取",
     "优惠券",
     "推广",
     "广告",
     "刷单",
     "加我好友",
+    "私信领取",
+    "私信我",
+    "实盘指导",
+    "涨停密码",
+    "内幕消息",
+    "福利群",
+    "交流群",
+    "投顾",
+    "老师带",
+    "老师微信",
+)
+
+# Broker soft-ads and promo templates (regex on normalized text)
+_SPAM_REGEXES = (
+    re.compile(r"(开户|入金).{0,12}(送|领|福利|红包)"),
+    re.compile(r"(扫码|长按).{0,8}(加|进|领|关注)"),
+    re.compile(r"(http|https)://\S{4,80}(点击|领取|进群|开户)"),
+    re.compile(r"(加|进).{0,6}(微信|v|vx|群).{0,20}(领|送|荐)"),
 )
 
 WATER_PATTERNS = (
@@ -38,11 +72,18 @@ def is_spam_or_ad(text: str) -> bool:
     if not s:
         return True
     low = s.lower()
-    if any(m.lower() in low for m in SPAM_MARKERS):
+    if any(m in low for m in SPAM_MARKERS):
         return True
-    # URL-heavy short posts
-    if s.count("http") >= 1 and len(s) < 40:
+    compact = re.sub(r"\s+", "", s)
+    if any(p.search(compact) for p in _SPAM_REGEXES):
         return True
+    # URL-heavy short posts or URL + CTA without substance
+    if s.count("http") >= 1:
+        if len(s) < 48:
+            return True
+        cta = ("点击", "领取", "进群", "开户", "扫码", "加微信", "私信")
+        if len(s) < 90 and any(c in s for c in cta):
+            return True
     return False
 
 
@@ -121,3 +162,12 @@ def filter_noisy_rows(
         "clean_rate": reasons["clean"] / total if total else 0.0,
     }
     return out, stats
+
+
+def refresh_row_noise_flags(
+    rows: Iterable[Dict[str, Any]],
+    *,
+    drop_noise: bool = False,
+) -> Tuple[List[Dict[str, Any]], Dict[str, float]]:
+    """Re-run spam/water/duplicate rules (e.g. before API serve)."""
+    return filter_noisy_rows(rows, mark_only=not drop_noise)
