@@ -17,7 +17,6 @@ One POST per post text (``state``); all questions are evaluated in one round tri
 
 from __future__ import annotations
 
-import json
 import os
 import time
 from dataclasses import dataclass
