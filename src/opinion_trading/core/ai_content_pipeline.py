@@ -225,11 +225,15 @@ def score_sentiment(
         for i, res in zip(batch_idxs, results):
             out[i]["ai_score"] = float(res.score)
             src = str(res.source)
-            if src in {"openclaw", "transformers", "hybrid", "deepseek"}:
+            if src in {"openclaw", "transformers", "hybrid", "deepseek", "jev", "qwen"}:
                 if src == "transformers":
                     out[i]["score_source"] = "transformers"
                 elif src == "deepseek":
                     out[i]["score_source"] = "deepseek"
+                elif src == "jev":
+                    out[i]["score_source"] = "jev"
+                elif src == "qwen":
+                    out[i]["score_source"] = "qwen"
                 else:
                     out[i]["score_source"] = "openclaw" if src != "hybrid" else "hybrid"
             elif src == "keyword":

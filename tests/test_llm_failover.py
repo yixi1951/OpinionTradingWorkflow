@@ -130,6 +130,8 @@ def test_keyword_mode_skips_live_even_with_keys(monkeypatch):
 
 
 def test_analyzer_qwen_source_after_deepseek_fail(monkeypatch):
+    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
+    monkeypatch.delenv("JEV_API_KEY", raising=False)
     monkeypatch.setenv("SCORING_MODE", "ai")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-ds-test")
     monkeypatch.setenv("QWEN_API_KEY", "sk-qw-test")
@@ -154,6 +156,8 @@ def test_analyzer_qwen_source_after_deepseek_fail(monkeypatch):
 
 
 def test_analyzer_keyword_after_all_live_fail(monkeypatch):
+    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
+    monkeypatch.delenv("JEV_API_KEY", raising=False)
     monkeypatch.setenv("SCORING_MODE", "ai")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-ds-test")
     monkeypatch.setenv("DEEPSEEK_RETRY_SLEEP", "0")
