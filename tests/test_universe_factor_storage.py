@@ -18,6 +18,7 @@ from opinion_trading.core.universe import load_index_constituents
 
 def test_symbol_mapper_maotai():
     m = SymbolMapper()
+    assert m.primary_name("600519.SH") == "贵州茅台"
     ok, tokens = m.match_symbol("今天茅台放量了", "600519.SH")
     assert ok
     assert tokens

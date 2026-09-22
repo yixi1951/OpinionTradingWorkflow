@@ -13,6 +13,8 @@ from opinion_trading.services.clients import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 
+from opinion_trading.services.api_ui_data import load_latest_realtime_picks
+from opinion_trading.services.api_ui_enrich import enrich_picks_payload
 from opinion_trading.services.api_ui_routes import register_ui_routes
 from opinion_trading.services.common import create_service_app
 
@@ -92,9 +94,17 @@ def run_daily(req: RunDailyRequest) -> Dict[str, Any]:
 @app.get("/v1/picks")
 def picks(top_n: int = 5) -> Dict[str, Any]:
     try:
-        return compute_client().get(f"/v1/picks/latest?top_n={top_n}")
+        payload = compute_client().get(f"/v1/picks/latest?top_n={top_n}")
     except Exception as exc:
-        return {"ok": False, "error": str(exc)[:200], "picks": []}
+        rows, path = load_latest_realtime_picks()
+        payload = {
+            "ok": bool(rows),
+            "error": str(exc)[:200],
+            "picks": rows[:top_n],
+            "source_path": path,
+            "fallback": "report_csv",
+        }
+    return enrich_picks_payload(payload)
 
 
 class ScoreProxyRequest(BaseModel):

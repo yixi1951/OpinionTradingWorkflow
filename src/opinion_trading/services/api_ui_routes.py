@@ -16,6 +16,7 @@ from opinion_trading.core.historical_memory import (
 from opinion_trading.core.monthly_training import load_latest_monthly_training
 from opinion_trading.core.walk_forward_cache import load_walk_forward_json
 from opinion_trading.core.symbol_explain import explain_symbol_sentiment
+from opinion_trading.services.api_ui_enrich import enrich_picks_payload, quotes_for_symbols
 from opinion_trading.services.api_ui_data import (
     analyst_payload,
     comments_for_symbol,
@@ -177,23 +178,38 @@ def register_ui_routes(app) -> None:
             int(sentiment_df["platform"].nunique()) if not sentiment_df.empty else 0
         )
         pipeline = raw_pipeline_summary(raw_df)
-        return {
-            "ok": True,
-            "report_dir": ui_report_dir(),
-            "memory_dir": ui_memory_dir(),
-            "picks": picks,
-            "picks_path": picks_path,
-            "alerts": alerts,
-            "alerts_path": alerts_path,
-            "raw_path": raw_path,
-            "platform_count": platform_count,
-            "pipeline": pipeline,
-        }
+        return enrich_picks_payload(
+            {
+                "ok": True,
+                "report_dir": ui_report_dir(),
+                "memory_dir": ui_memory_dir(),
+                "picks": picks,
+                "picks_path": picks_path,
+                "alerts": alerts,
+                "alerts_path": alerts_path,
+                "raw_path": raw_path,
+                "platform_count": platform_count,
+                "pipeline": pipeline,
+            }
+        )
 
     @app.get("/v1/picks/file")
     def picks_file() -> Dict[str, Any]:
         rows, path = load_latest_realtime_picks()
-        return {"ok": bool(rows), "picks": rows, "source_path": path}
+        return enrich_picks_payload(
+            {"ok": bool(rows), "picks": rows, "source_path": path}
+        )
+
+    @app.get("/v1/quotes")
+    def market_quotes(
+        symbols: str = Query(..., min_length=1, description="Comma-separated A-share codes"),
+    ) -> Dict[str, Any]:
+        parts = [s.strip() for s in symbols.split(",") if s.strip()]
+        if not parts:
+            raise HTTPException(status_code=400, detail="symbols required")
+        if len(parts) > 50:
+            raise HTTPException(status_code=400, detail="max 50 symbols per request")
+        return quotes_for_symbols(parts)
 
     @app.get("/v1/alerts/latest")
     def alerts_latest() -> Dict[str, Any]:

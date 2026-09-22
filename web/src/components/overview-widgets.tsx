@@ -24,7 +24,8 @@ import { Badge } from "@/components/ui/badge";
 import { HoverCard } from "@/components/hover-card";
 import { EmptyState, ErrorState, LoadingBlock } from "@/components/data-states";
 import { apiGet, API_BASE } from "@/lib/api";
-import type { StatusResponse } from "@/lib/types";
+import type { PickRow, StatusResponse } from "@/lib/types";
+import { StockQuoteInline, StockSymbolCell } from "@/components/stock-symbol";
 import { PageChrome } from "@/components/page-chrome";
 
 const STORAGE_KEY = "otw-dashboard-widget-order-v1";
@@ -48,7 +49,7 @@ const DEFAULT_ORDER: WidgetId[] = [
 
 type Snapshot = {
   ok?: boolean;
-  picks?: Array<Record<string, unknown>>;
+  picks?: PickRow[];
   alerts?: unknown[];
   platform_count?: number;
   pipeline?: { total?: number };
@@ -227,11 +228,14 @@ export function OverviewWidgets() {
           </Link>
         </div>
         {(snap?.picks ?? []).slice(0, 3).map((p, i) => (
-          <div key={i} className="flex justify-between text-sm">
-            <span className="font-mono font-medium">{String(p.symbol ?? "—")}</span>
-            <span className="text-muted-foreground">
-              {p.score != null ? Number(p.score).toFixed(3) : "—"}
-            </span>
+          <div key={i} className="flex items-start justify-between gap-3 text-sm">
+            <StockSymbolCell symbol={p.symbol} name={p.name} className="flex-1" />
+            <div className="shrink-0 text-right">
+              <StockQuoteInline quote={p.quote} />
+              <div className="mt-1 text-[10px] text-muted-foreground">
+                信号 {p.score != null ? Number(p.score).toFixed(3) : "—"}
+              </div>
+            </div>
           </div>
         ))}
         {!(snap?.picks?.length) && (
