@@ -13,16 +13,33 @@ from opinion_trading.core.bullishness import bullishness_from_rows
 from opinion_trading.core.signal_weights import combined_post_weight
 from opinion_trading.core.time_decay import weighted_mean_scores
 
+# Formal thesis scorers only. OpenClaw is for free-model crawl validation,
+# keyword/hybrid/platform-weights are not substitutes for Jev/DeepSeek scores.
+THESIS_LLM_SOURCES = frozenset({"jev", "deepseek"})
+
 
 def _usable_row(row: Mapping[str, Any]) -> bool:
     if bool(row.get("is_noise")):
         return False
     status = str(row.get("capture_status", "") or "").lower()
-    if status in {"error", "blocked", "empty"}:
+    if status in {"error", "blocked", "empty", "openclaw_reject"}:
         return False
     if "ai_relevant" in row and row.get("ai_relevant") is False:
         return False
+    # OpenClaw authenticity gate when column present
+    if "openclaw_validated" in row:
+        val = str(row.get("openclaw_validated", "")).strip().lower()
+        if val in {"0", "false", "no"}:
+            return False
     return True
+
+
+def _source_of(row: Mapping[str, Any]) -> str:
+    return str(row.get("score_source", "") or "").strip().lower()
+
+
+def _is_thesis_llm_row(row: Mapping[str, Any]) -> bool:
+    return _source_of(row) in THESIS_LLM_SOURCES
 
 
 def _plain_mean(
@@ -30,11 +47,16 @@ def _plain_mean(
     *,
     score_key: str,
     fallback_key: str = "keyword_score",
+    require_llm_source: bool = False,
 ) -> float:
     vals: List[float] = []
     for row in rows:
+        if require_llm_source and not _is_thesis_llm_row(row):
+            continue
         raw = row.get(score_key)
         if raw is None or raw == "":
+            if require_llm_source:
+                continue
             raw = row.get(fallback_key, 0.0)
         try:
             vals.append(float(raw))
@@ -43,7 +65,6 @@ def _plain_mean(
     if not vals:
         return 0.0
     return max(-1.0, min(1.0, sum(vals) / len(vals)))
-
 
 def _parse_trade_date(value: Any) -> Optional[date]:
     if value is None or value == "":
@@ -63,14 +84,26 @@ def measures_for_group(
     half_life_hours: float = 24.0,
     bull_threshold: float = 0.05,
 ) -> Dict[str, float]:
-    """Compute Mean / Inf / Dict / LLM / Bullishness for one (date, symbol)."""
+    """Compute Mean / Inf / Dict / LLM / Bullishness for one (date, symbol).
+
+    ``sent_llm`` averages only rows with ``score_source`` in {jev, deepseek}.
+    Keyword / OpenClaw / influence-weighting are not thesis scoring substitutes.
+    """
     usable = [r for r in rows if _usable_row(r)]
     if not usable:
         usable = list(rows)
+    llm_rows = [r for r in usable if _is_thesis_llm_row(r)]
+    # Mean / Inf aggregate the best available scalar for diagnostics; main paper
+    # tables should prefer sent_llm once DS/Jev coverage is adequate.
     sent_mean = _plain_mean(usable, score_key="ai_score", fallback_key="keyword_score")
     sent_dict = _plain_mean(usable, score_key="keyword_score", fallback_key="keyword_score")
-    sent_llm = _plain_mean(usable, score_key="ai_score", fallback_key="ai_score")
-    # Influence = recency × authority/event/user (existing weighted_mean_scores)
+    sent_llm = _plain_mean(
+        llm_rows,
+        score_key="ai_score",
+        fallback_key="ai_score",
+        require_llm_source=True,
+    )
+    # Influence = recency × authority/event/user (aggregation robustness only)
     sent_inf = weighted_mean_scores(
         list(usable),
         trade_date,
@@ -78,11 +111,13 @@ def measures_for_group(
         score_key="ai_score",
         fallback_key="keyword_score",
     )
+    # Bullishness for the main path uses LLM rows when available.
+    bull_base = llm_rows if llm_rows else usable
     bull = bullishness_from_rows(
-        usable,
+        bull_base,
         threshold=bull_threshold,
         score_key="ai_score",
-        fallback_key="keyword_score",
+        fallback_key="keyword_score" if not llm_rows else "ai_score",
     )
     out = {
         "sent_mean": float(sent_mean),
@@ -92,13 +127,13 @@ def measures_for_group(
         "bullishness": float(bull["bullishness"]),
         "agreement": float(bull["agreement"]),
         "attention_m": float(bull["attention_m"]),
-        "n_posts": float(bull["n_posts"]),
+        "n_posts": float(len(usable)),
+        "n_llm_posts": float(len(llm_rows)),
         "n_bull": float(bull["n_bull"]),
         "n_bear": float(bull["n_bear"]),
         "n_neutral": float(bull["n_neutral"]),
     }
     out["sent_x_m"] = float(sent_inf) * float(bull["attention_m"])
-    # Keep a diagnostic mean weight for debugging
     try:
         out["mean_post_weight"] = float(
             sum(combined_post_weight(r) for r in usable) / max(1, len(usable))
@@ -106,7 +141,6 @@ def measures_for_group(
     except Exception:
         out["mean_post_weight"] = 1.0
     return out
-
 
 def build_sentiment_panel(
     rows: Iterable[Mapping[str, Any]],
@@ -147,6 +181,7 @@ def build_sentiment_panel(
                 "agreement",
                 "attention_m",
                 "n_posts",
+                "n_llm_posts",
                 "n_bull",
                 "n_bear",
                 "n_neutral",

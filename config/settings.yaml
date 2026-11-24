@@ -79,14 +79,14 @@ memory:
   prune_keep_days: 0
 scoring:
   mode: ai
-  # keyword = offline (CI default via SCORING_MODE=keyword).
-  # ai / hybrid / jev = live scoring when API keys are set (see .env.example).
-  # Cascade (default): jev → deepseek → keyword. Override: SCORING_PROVIDER or list below.
-  # Keys never belong in this file — use env / gitignored .env (see .env.example).
+  # Thesis pipeline:
+  #   OpenClaw free model = crawl authenticity gate (scripts/validate_raw_openclaw.py)
+  #   Formal scores = Jev → DeepSeek only (scripts/rescore_raw_cascade.py)
+  # keyword / influence-weighting are NOT thesis scoring substitutes.
+  # Override: SCORING_PROVIDER. Keys never belong in this file — use env / .env.
   # Jev: TYPESAFE_API_KEY (alias JEV_API_KEY), JEV_MODEL, JEV_MIN_CONFIDENCE, JEV_TIMEOUT.
   # DeepSeek: DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL, DEEPSEEK_TIMEOUT.
-  # Live requested without a key: fallback to keyword unless DEEPSEEK_REQUIRE=1.
-  provider: jev,deepseek,keyword
+  provider: jev,deepseek
   row_level_llm: true
   max_posts: 50
   # Optional multi-label tags (bullish/bearish/uncertainty); scalar keyword path unchanged unless attach_scalar.

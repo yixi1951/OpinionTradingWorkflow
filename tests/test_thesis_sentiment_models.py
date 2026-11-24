@@ -45,6 +45,8 @@ def test_measures_for_group_columns():
         {
             "ai_score": 0.5,
             "keyword_score": 0.2,
+            "score_source": "jev",
+            "openclaw_validated": 1,
             "post_time": "2026-03-15 10:00:00",
             "authority_weight": 1.2,
             "event_type": "earnings",
@@ -52,6 +54,8 @@ def test_measures_for_group_columns():
         {
             "ai_score": -0.4,
             "keyword_score": -0.3,
+            "score_source": "deepseek",
+            "openclaw_validated": 1,
             "post_time": "2026-03-15 12:00:00",
             "authority_weight": 0.9,
             "event_type": "general",
@@ -66,8 +70,39 @@ def test_measures_for_group_columns():
         "bullishness",
         "attention_m",
         "sent_x_m",
+        "n_llm_posts",
     ):
         assert key in m
+    assert m["n_llm_posts"] == 2.0
+    assert abs(m["sent_llm"] - 0.05) < 1e-9
+
+
+def test_sent_llm_ignores_keyword_and_openclaw():
+    rows = [
+        {
+            "ai_score": 0.9,
+            "keyword_score": 0.9,
+            "score_source": "keyword",
+            "post_time": "2026-03-15 10:00:00",
+        },
+        {
+            "ai_score": 0.8,
+            "keyword_score": 0.1,
+            "score_source": "openclaw",
+            "openclaw_validated": 1,
+            "post_time": "2026-03-15 11:00:00",
+        },
+        {
+            "ai_score": 0.2,
+            "keyword_score": 0.0,
+            "score_source": "jev",
+            "openclaw_validated": 1,
+            "post_time": "2026-03-15 12:00:00",
+        },
+    ]
+    m = measures_for_group(rows, date(2026, 3, 15))
+    assert m["n_llm_posts"] == 1.0
+    assert abs(m["sent_llm"] - 0.2) < 1e-9
 
 
 def test_build_sentiment_panel_and_models():
@@ -80,6 +115,8 @@ def test_build_sentiment_panel_and_models():
                     "symbol": sym,
                     "ai_score": 0.2 * (i - 2),
                     "keyword_score": 0.1 * (i - 2),
+                    "score_source": "jev" if i % 2 == 0 else "deepseek",
+                    "openclaw_validated": 1,
                     "post_time": f"{d} 09:30:00",
                     "authority_weight": 1.0,
                     "event_type": "general",
@@ -92,6 +129,8 @@ def test_build_sentiment_panel_and_models():
                     "symbol": sym,
                     "ai_score": -0.1 * (i - 2),
                     "keyword_score": -0.05 * (i - 2),
+                    "score_source": "jev",
+                    "openclaw_validated": 1,
                     "post_time": f"{d} 14:00:00",
                     "authority_weight": 1.1,
                     "event_type": "policy",

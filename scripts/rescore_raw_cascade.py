@@ -1,15 +1,18 @@
-"""Re-score data/raw posts via live cascade: Jev → DeepSeek/Qwen → keyword.
+"""Re-score data/raw posts via thesis cascade: Jev → DeepSeek (optional Qwen).
 
-Keeps ``keyword_score`` intact; writes LLM/Jev scalars into ``ai_score`` and
-``score_source`` (jev / deepseek / qwen / keyword). Thesis panel then separates
-``sent_dict`` (keyword) from ``sent_llm`` (ai_score).
+Pipeline context:
+  OpenClaw free model = crawl authenticity gate (validate_raw_openclaw.py)
+  This script = formal paper scores (Jev / DeepSeek only by default)
+
+Keeps ``keyword_score`` intact; writes scalars into ``ai_score`` and
+``score_source`` (jev / deepseek). Thesis ``sent_llm`` only counts these sources.
 
 Usage:
   SCORING_MODE=ai TYPESAFE_API_KEY=... DEEPSEEK_API_KEY=... \\
     PYTHONPATH=src python3 scripts/rescore_raw_cascade.py --since 2026-09-15
 
-  # Thesis default: Jev first (matches config/settings.yaml scoring.provider)
-  SCORING_PROVIDER=jev,deepseek,keyword PYTHONPATH=src python3 scripts/rescore_raw_cascade.py \\
+  # Thesis default: Jev → DeepSeek (no keyword paper path)
+  SCORING_PROVIDER=jev,deepseek PYTHONPATH=src python3 scripts/rescore_raw_cascade.py \\
     --max-total-rows 80 --per-symbol 1
 """
 from __future__ import annotations
@@ -31,7 +34,9 @@ from opinion_trading.core.jev_client import jev_configured  # noqa: E402
 from opinion_trading.core.llm_failover import any_live_key  # noqa: E402
 
 
-LIVE_SOURCES = frozenset({"jev", "deepseek", "qwen", "openclaw", "hybrid", "gateway", "cursor_llm"})
+# Formal thesis sources. OpenClaw / pending_llm / keyword still need this script.
+THESIS_SOURCES = frozenset({"jev", "deepseek"})
+LIVE_SOURCES = frozenset({"jev", "deepseek", "qwen", "cursor_llm"})
 
 
 def _text_for_row(row: pd.Series) -> str:
@@ -59,7 +64,8 @@ def _needs_rescore(row: pd.Series, *, force: bool) -> bool:
     if force:
         return True
     src = str(row.get("score_source", "keyword") or "keyword").lower()
-    return src not in LIVE_SOURCES
+    # Prefer re-scoring anything that is not yet Jev/DeepSeek for the thesis path.
+    return src not in THESIS_SOURCES
 
 
 def _list_raw_csvs(
@@ -234,8 +240,8 @@ def rescore_file(
 
 def ensure_live_ready(*, require: bool) -> None:
     os.environ.setdefault("SCORING_MODE", "ai")
-    # Thesis landing path: Jev primary, DeepSeek failover (settings.yaml).
-    os.environ.setdefault("SCORING_PROVIDER", "jev,deepseek,keyword")
+    # Thesis landing path: Jev → DeepSeek only (OpenClaw is validate-only).
+    os.environ.setdefault("SCORING_PROVIDER", "jev,deepseek")
     has_jev = jev_configured()
     has_llm = any_live_key()
     print(f"SCORING_MODE={os.environ.get('SCORING_MODE')}")
@@ -248,10 +254,9 @@ def ensure_live_ready(*, require: bool) -> None:
         )
     if require and not has_jev:
         print(
-            "WARNING: Jev not configured — cascade will skip to DeepSeek/keyword. "
-            "Thesis target is score_source=jev; add JEV_API_KEY / TYPESAFE_API_KEY."
+            "WARNING: Jev not configured — cascade will use DeepSeek. "
+            "Thesis prefers score_source=jev; add JEV_API_KEY / TYPESAFE_API_KEY."
         )
-
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Jev→DeepSeek cascade rescore for raw CSVs")

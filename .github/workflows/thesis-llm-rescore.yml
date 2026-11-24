@@ -27,9 +27,9 @@ on:
         type: string
         default: "1"
       provider:
-        description: Cascade (thesis default jev,deepseek,keyword)
+        description: Cascade (thesis default jev,deepseek — OpenClaw is validate-only)
         type: string
-        default: "jev,deepseek,keyword"
+        default: "jev,deepseek"
       commit_back:
         description: Commit rescored CSVs + thesis tables back to the branch
         type: boolean

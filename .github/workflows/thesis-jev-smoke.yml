@@ -28,7 +28,7 @@ jobs:
     env:
       PYTHONPATH: src
       SCORING_MODE: ai
-      SCORING_PROVIDER: jev,keyword
+      SCORING_PROVIDER: jev
       JEV_API_KEY: ${{ secrets.JEV_API_KEY }}
       TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
     steps:
