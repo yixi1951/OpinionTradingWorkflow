@@ -10,6 +10,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 import time
@@ -335,6 +336,40 @@ def crawl_symbol(
     return rows
 
 
+def live_score_rows(rows: List[Dict[str, Any]], *, batch_size: int = 8) -> List[Dict[str, Any]]:
+    """Optional Jev→DeepSeek cascade; keeps keyword_score, fills ai_score."""
+    if not rows:
+        return rows
+    os.environ.setdefault("SCORING_MODE", "ai")
+    os.environ.setdefault("SCORING_PROVIDER", "jev,deepseek,keyword")
+    from opinion_trading.core.ai_sentiment import AISentimentAnalyzer
+    from opinion_trading.core.jev_client import jev_configured
+    from opinion_trading.core.llm_failover import any_live_key
+
+    if not (jev_configured() or any_live_key()):
+        print("Live score skipped: no TYPESAFE/JEV/DEEPSEEK key")
+        return rows
+    analyzer = AISentimentAnalyzer()
+    scored = 0
+    for start in range(0, len(rows), batch_size):
+        chunk = rows[start : start + batch_size]
+        texts = [clean_text(r.get("title") or r.get("content") or "") for r in chunk]
+        try:
+            results = analyzer.analyze_texts(texts)
+        except Exception as exc:
+            print(f"  live score batch failed: {exc}")
+            continue
+        if len(results) != len(chunk):
+            continue
+        for row, result in zip(chunk, results):
+            row["ai_score"] = float(result.score)
+            row["score_source"] = str(result.source)
+            scored += 1
+        print(f"  live-scored {min(start + batch_size, len(rows))}/{len(rows)}")
+    print(f"Live cascade scored {scored}/{len(rows)} rows")
+    return rows
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Bulk crawl guba via JSON API")
     parser.add_argument("--config", type=str, default=str(DEFAULT_CONFIG))
@@ -353,6 +388,11 @@ def main() -> None:
         type=str,
         default="",
         help="Stop a symbol once oldest post on a page is before this YYYY-MM-DD",
+    )
+    parser.add_argument(
+        "--with-live-score",
+        action="store_true",
+        help="After crawl, score via Jev→DeepSeek cascade when API keys are set",
     )
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
@@ -401,6 +441,9 @@ def main() -> None:
         print("by_symbol:\n", by_sym.to_string())
         print("by_date span:", by_day.index.min(), "->", by_day.index.max(), "days", len(by_day))
         return
+
+    if args.with_live_score:
+        all_rows = live_score_rows(all_rows)
 
     written = merge_rows_by_date(raw_dir, all_rows)
     new_total = sum(written.values())

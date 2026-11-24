@@ -1,0 +1,250 @@
+"""Re-score data/raw posts via live cascade: Jev → DeepSeek/Qwen → keyword.
+
+Keeps ``keyword_score`` intact; writes LLM/Jev scalars into ``ai_score`` and
+``score_source`` (jev / deepseek / qwen / keyword). Thesis panel then separates
+``sent_dict`` (keyword) from ``sent_llm`` (ai_score).
+
+Usage:
+  SCORING_MODE=ai TYPESAFE_API_KEY=... DEEPSEEK_API_KEY=... \\
+    PYTHONPATH=src python3 scripts/rescore_raw_cascade.py --since 2026-09-15
+
+  # DeepSeek-only bulk (skip Jev even if key present)
+  SCORING_PROVIDER=deepseek,keyword PYTHONPATH=src python3 scripts/rescore_raw_cascade.py
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+import time
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Sequence, Set
+
+import pandas as pd
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from opinion_trading.core.ai_sentiment import AISentimentAnalyzer  # noqa: E402
+from opinion_trading.core.jev_client import jev_configured  # noqa: E402
+from opinion_trading.core.llm_failover import any_live_key  # noqa: E402
+
+
+LIVE_SOURCES = frozenset({"jev", "deepseek", "qwen", "openclaw", "hybrid", "gateway"})
+
+
+def _text_for_row(row: pd.Series) -> str:
+    parts = [str(row.get("title", "") or ""), str(row.get("content", "") or "")]
+    text = " ".join(p for p in parts if p.strip()).strip()
+    return text or str(row.get("title", "") or "")
+
+
+def _is_noise_row(row: pd.Series) -> bool:
+    if str(row.get("is_noise", "")).lower() in {"true", "1", "yes"}:
+        return True
+    return str(row.get("capture_status", "")).lower() in {
+        "fallback",
+        "error",
+        "blocked",
+        "empty",
+    }
+
+
+def _needs_rescore(row: pd.Series, *, force: bool) -> bool:
+    if _is_noise_row(row):
+        return False
+    if not _text_for_row(row):
+        return False
+    if force:
+        return True
+    src = str(row.get("score_source", "keyword") or "keyword").lower()
+    return src not in LIVE_SOURCES
+
+
+def _list_raw_csvs(
+    raw_dir: Path,
+    *,
+    since: Optional[str],
+    until: Optional[str],
+) -> List[Path]:
+    files = sorted(raw_dir.glob("raw_posts_*.csv"))
+    out: List[Path] = []
+    for path in files:
+        day = path.stem.replace("raw_posts_", "")
+        if since and day < since:
+            continue
+        if until and day > until:
+            continue
+        out.append(path)
+    return out
+
+
+def rescore_file(
+    path: Path,
+    analyzer: AISentimentAnalyzer,
+    *,
+    batch_size: int,
+    max_rows: int,
+    force: bool,
+    retries: int,
+    sleep_s: float,
+) -> Dict[str, Any]:
+    df = pd.read_csv(path)
+    if "keyword_score" not in df.columns:
+        df["keyword_score"] = 0.0
+    if "ai_score" not in df.columns:
+        df["ai_score"] = df["keyword_score"]
+    if "score_source" not in df.columns:
+        df["score_source"] = "keyword"
+
+    pending = [idx for idx, row in df.iterrows() if _needs_rescore(row, force=force)]
+    if max_rows > 0:
+        pending = pending[:max_rows]
+
+    stats: Dict[str, Any] = {
+        "file": path.name,
+        "total": len(df),
+        "pending": len(pending),
+        "scored": 0,
+        "by_source": {},
+        "failed_batches": 0,
+    }
+    if not pending:
+        print(f"{path.name}: nothing pending ({len(df)} rows)")
+        return stats
+
+    total_batches = (len(pending) + batch_size - 1) // batch_size
+    print(
+        f"{path.name}: rescoring {len(pending)}/{len(df)} "
+        f"(batch={batch_size}, batches≈{total_batches})"
+    )
+
+    for start in range(0, len(pending), batch_size):
+        chunk_idx = pending[start : start + batch_size]
+        texts = [_text_for_row(df.loc[i]) for i in chunk_idx]
+        batch_no = start // batch_size + 1
+        results = None
+        for attempt in range(retries + 1):
+            t0 = time.time()
+            try:
+                results = analyzer.analyze_texts(texts)
+            except Exception as exc:
+                print(
+                    f"  batch {batch_no}/{total_batches}: error {exc!r} "
+                    f"(attempt {attempt + 1}/{retries + 1})"
+                )
+                results = None
+            elapsed = round(time.time() - t0, 1)
+            if results is not None and len(results) == len(chunk_idx):
+                sources = sorted({r.source for r in results})
+                print(
+                    f"  batch {batch_no}/{total_batches}: ok {elapsed}s "
+                    f"sources={sources}"
+                )
+                break
+            time.sleep(max(0.5, sleep_s) * (attempt + 1))
+
+        if results is None or len(results) != len(chunk_idx):
+            stats["failed_batches"] += 1
+            print(f"  batch {batch_no}: failed — keep prior scores")
+            continue
+
+        for offset, (i, result) in enumerate(zip(chunk_idx, results)):
+            # Preserve dictionary score; LLM/Jev goes to ai_score only.
+            prev_kw = df.at[i, "keyword_score"]
+            if prev_kw is None or prev_kw == "" or (isinstance(prev_kw, float) and pd.isna(prev_kw)):
+                df.at[i, "keyword_score"] = float(
+                    analyzer._keyword_result(texts[offset]).score
+                )
+            df.at[i, "ai_score"] = float(result.score)
+            df.at[i, "score_source"] = str(result.source)
+            stats["scored"] += 1
+            src = str(result.source)
+            stats["by_source"][src] = int(stats["by_source"].get(src, 0)) + 1
+
+        df.to_csv(path, index=False, encoding="utf-8-sig")
+        done = min(start + batch_size, len(pending))
+        print(f"  saved {done}/{len(pending)} -> {path.name}")
+        if sleep_s > 0:
+            time.sleep(sleep_s)
+
+    return stats
+
+
+def ensure_live_ready(*, require: bool) -> None:
+    os.environ.setdefault("SCORING_MODE", "ai")
+    # Prefer repo default cascade when unset.
+    os.environ.setdefault("SCORING_PROVIDER", "jev,deepseek,keyword")
+    has_jev = jev_configured()
+    has_llm = any_live_key()
+    print(f"SCORING_MODE={os.environ.get('SCORING_MODE')}")
+    print(f"SCORING_PROVIDER={os.environ.get('SCORING_PROVIDER')}")
+    print(f"jev_configured={has_jev} any_live_key={has_llm}")
+    if require and not (has_jev or has_llm):
+        raise SystemExit(
+            "No live scorer configured. Set TYPESAFE_API_KEY/JEV_API_KEY "
+            "and/or DEEPSEEK_API_KEY (optional QWEN_API_KEY)."
+        )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Jev→DeepSeek cascade rescore for raw CSVs")
+    parser.add_argument("--raw-dir", default=str(ROOT / "data" / "raw"))
+    parser.add_argument("--since", default="", help="Inclusive YYYY-MM-DD")
+    parser.add_argument("--until", default="", help="Inclusive YYYY-MM-DD")
+    parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument("--max-rows-per-file", type=int, default=0, help="0 = all pending")
+    parser.add_argument("--max-files", type=int, default=0, help="0 = all matching files")
+    parser.add_argument("--force", action="store_true", help="Rescore even if already live")
+    parser.add_argument("--retries", type=int, default=2)
+    parser.add_argument("--sleep", type=float, default=0.15, help="Pause between batches")
+    parser.add_argument(
+        "--allow-keyword-fallback",
+        action="store_true",
+        help="Do not exit when no API keys (will write keyword sources)",
+    )
+    args = parser.parse_args()
+
+    ensure_live_ready(require=not args.allow_keyword_fallback)
+    analyzer = AISentimentAnalyzer()
+
+    files = _list_raw_csvs(
+        Path(args.raw_dir),
+        since=args.since.strip() or None,
+        until=args.until.strip() or None,
+    )
+    if args.max_files > 0:
+        files = files[: args.max_files]
+    if not files:
+        raise SystemExit("No raw_posts_*.csv matched filters")
+
+    print(f"Files to process: {len(files)} ({files[0].name} .. {files[-1].name})")
+    summaries: List[Dict[str, Any]] = []
+    t0 = time.time()
+    for path in files:
+        stats = rescore_file(
+            path,
+            analyzer,
+            batch_size=max(1, args.batch_size),
+            max_rows=max(0, args.max_rows_per_file),
+            force=bool(args.force),
+            retries=max(0, args.retries),
+            sleep_s=max(0.0, args.sleep),
+        )
+        summaries.append(stats)
+
+    elapsed = time.time() - t0
+    scored = sum(int(s["scored"]) for s in summaries)
+    failed = sum(int(s["failed_batches"]) for s in summaries)
+    by_src: Dict[str, int] = {}
+    for s in summaries:
+        for k, v in (s.get("by_source") or {}).items():
+            by_src[k] = by_src.get(k, 0) + int(v)
+    print(
+        f"Done in {elapsed:.1f}s | scored={scored} failed_batches={failed} "
+        f"by_source={by_src}"
+    )
+
+
+if __name__ == "__main__":
+    main()
