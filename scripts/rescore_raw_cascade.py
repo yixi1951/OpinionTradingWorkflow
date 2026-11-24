@@ -79,15 +79,61 @@ def _list_raw_csvs(
     return out
 
 
+def _pending_indices(df: pd.DataFrame, *, force: bool) -> List[Any]:
+    return [idx for idx, row in df.iterrows() if _needs_rescore(row, force=force)]
+
+
+def _stratified_take(
+    df: pd.DataFrame,
+    pending: Sequence[Any],
+    *,
+    limit: int,
+    per_symbol: int,
+) -> List[Any]:
+    """Prefer diverse symbols; caps total and optional per-symbol quota."""
+    if limit <= 0 and per_symbol <= 0:
+        return list(pending)
+    by_sym: Dict[str, List[Any]] = {}
+    for idx in pending:
+        sym = str(df.at[idx, "symbol"] if "symbol" in df.columns else "").upper() or "_"
+        by_sym.setdefault(sym, []).append(idx)
+    picked: List[Any] = []
+    # Round-robin across symbols for panel coverage with few API calls.
+    queues = {s: list(idxs) for s, idxs in by_sym.items()}
+    per_counts = {s: 0 for s in queues}
+    while queues:
+        progress = False
+        for sym in list(queues.keys()):
+            if limit > 0 and len(picked) >= limit:
+                return picked
+            if per_symbol > 0 and per_counts[sym] >= per_symbol:
+                queues.pop(sym, None)
+                continue
+            bucket = queues.get(sym) or []
+            if not bucket:
+                queues.pop(sym, None)
+                continue
+            picked.append(bucket.pop(0))
+            per_counts[sym] += 1
+            progress = True
+            if not bucket:
+                queues.pop(sym, None)
+        if not progress:
+            break
+    return picked
+
+
 def rescore_file(
     path: Path,
     analyzer: AISentimentAnalyzer,
     *,
     batch_size: int,
     max_rows: int,
+    per_symbol: int,
     force: bool,
     retries: int,
     sleep_s: float,
+    budget_left: Optional[int] = None,
 ) -> Dict[str, Any]:
     df = pd.read_csv(path)
     if "keyword_score" not in df.columns:
@@ -97,9 +143,23 @@ def rescore_file(
     if "score_source" not in df.columns:
         df["score_source"] = "keyword"
 
-    pending = [idx for idx, row in df.iterrows() if _needs_rescore(row, force=force)]
-    if max_rows > 0:
-        pending = pending[:max_rows]
+    pending = _pending_indices(df, force=force)
+    file_cap = max_rows if max_rows > 0 else 0
+    if budget_left is not None:
+        if budget_left <= 0:
+            return {
+                "file": path.name,
+                "total": len(df),
+                "pending": 0,
+                "scored": 0,
+                "by_source": {},
+                "failed_batches": 0,
+                "skipped_budget": True,
+            }
+        file_cap = budget_left if file_cap <= 0 else min(file_cap, budget_left)
+    pending = _stratified_take(
+        df, pending, limit=file_cap, per_symbol=max(0, per_symbol)
+    )
 
     stats: Dict[str, Any] = {
         "file": path.name,
@@ -173,8 +233,8 @@ def rescore_file(
 
 def ensure_live_ready(*, require: bool) -> None:
     os.environ.setdefault("SCORING_MODE", "ai")
-    # Prefer repo default cascade when unset.
-    os.environ.setdefault("SCORING_PROVIDER", "jev,deepseek,keyword")
+    # Default to DeepSeek (batched) to save cost; override for Jev-first.
+    os.environ.setdefault("SCORING_PROVIDER", "deepseek,keyword")
     has_jev = jev_configured()
     has_llm = any_live_key()
     print(f"SCORING_MODE={os.environ.get('SCORING_MODE')}")
@@ -192,12 +252,24 @@ def main() -> None:
     parser.add_argument("--raw-dir", default=str(ROOT / "data" / "raw"))
     parser.add_argument("--since", default="", help="Inclusive YYYY-MM-DD")
     parser.add_argument("--until", default="", help="Inclusive YYYY-MM-DD")
-    parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument("--batch-size", type=int, default=12)
     parser.add_argument("--max-rows-per-file", type=int, default=0, help="0 = all pending")
+    parser.add_argument(
+        "--max-total-rows",
+        type=int,
+        default=0,
+        help="Hard cap across all files (0 = unlimited). Use for frugal runs.",
+    )
+    parser.add_argument(
+        "--per-symbol",
+        type=int,
+        default=0,
+        help="Max rows per symbol inside each file (0 = no per-symbol cap)",
+    )
     parser.add_argument("--max-files", type=int, default=0, help="0 = all matching files")
     parser.add_argument("--force", action="store_true", help="Rescore even if already live")
-    parser.add_argument("--retries", type=int, default=2)
-    parser.add_argument("--sleep", type=float, default=0.15, help="Pause between batches")
+    parser.add_argument("--retries", type=int, default=1)
+    parser.add_argument("--sleep", type=float, default=0.1, help="Pause between batches")
     parser.add_argument(
         "--allow-keyword-fallback",
         action="store_true",
@@ -218,20 +290,36 @@ def main() -> None:
     if not files:
         raise SystemExit("No raw_posts_*.csv matched filters")
 
-    print(f"Files to process: {len(files)} ({files[0].name} .. {files[-1].name})")
+    budget = max(0, args.max_total_rows)
+    print(
+        f"Files to process: {len(files)} ({files[0].name} .. {files[-1].name}) "
+        f"| max_total_rows={budget or '∞'} per_symbol={args.per_symbol or '∞'}"
+    )
     summaries: List[Dict[str, Any]] = []
     t0 = time.time()
-    for path in files:
+    # Newest days first — more relevant for short thesis windows.
+    for path in reversed(files):
+        if budget > 0 and budget <= 0:
+            print("Hit --max-total-rows budget; stopping.")
+            break
+        left = None if budget <= 0 else budget
         stats = rescore_file(
             path,
             analyzer,
             batch_size=max(1, args.batch_size),
             max_rows=max(0, args.max_rows_per_file),
+            per_symbol=max(0, args.per_symbol),
             force=bool(args.force),
             retries=max(0, args.retries),
             sleep_s=max(0.0, args.sleep),
+            budget_left=left,
         )
         summaries.append(stats)
+        if budget > 0:
+            budget -= int(stats.get("scored") or 0)
+            if budget <= 0:
+                print("Hit --max-total-rows budget; stopping.")
+                break
 
     elapsed = time.time() - t0
     scored = sum(int(s["scored"]) for s in summaries)

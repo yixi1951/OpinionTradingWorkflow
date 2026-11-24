@@ -1,26 +1,36 @@
 name: Thesis LLM/Jev rescore
 
-# Live cascade rescore for thesis raw panels (Jev → DeepSeek → keyword).
-# Requires repo secret DEEPSEEK_API_KEY; optional TYPESAFE_API_KEY / JEV_API_KEY.
+# Frugal live rescore for thesis panels.
+# Default: DeepSeek batched only (skip Jev — 1 POST/text is costly).
+# Hard cap ~1200 rows across a short window for panel coverage.
+# Requires repo secret DEEPSEEK_API_KEY; optional JEV/TYPESAFE if you force jev.
 on:
   workflow_dispatch:
     inputs:
       since:
         description: Inclusive start date YYYY-MM-DD
         type: string
-        default: "2026-09-15"
+        default: "2026-11-10"
       until:
         description: Inclusive end date YYYY-MM-DD
         type: string
-        default: ""
+        default: "2026-11-21"
       batch_size:
-        description: Texts per DeepSeek request (Jev still 1 POST/text inside batch)
+        description: Texts per DeepSeek request
         type: string
-        default: "8"
-      max_rows_per_file:
-        description: Cap pending rows per daily CSV (0 = all)
+        default: "12"
+      max_total_rows:
+        description: Hard cap of live-scored rows (frugal default)
         type: string
-        default: "0"
+        default: "1200"
+      per_symbol:
+        description: Max rows per symbol per day file
+        type: string
+        default: "3"
+      provider:
+        description: Cascade override (default deepseek,keyword)
+        type: string
+        default: "deepseek,keyword"
       commit_back:
         description: Commit rescored CSVs + thesis tables back to the branch
         type: boolean
@@ -39,13 +49,12 @@ concurrency:
 jobs:
   rescore:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 60
     permissions:
       contents: write
     env:
       PYTHONPATH: src
       SCORING_MODE: ai
-      SCORING_PROVIDER: jev,deepseek,keyword
       DEEPSEEK_ALLOW_LIVE: "1"
       DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
       TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
@@ -82,15 +91,24 @@ jobs:
           print("provider", os.environ.get("SCORING_PROVIDER"))
           PY
 
-      - name: Cascade rescore raw posts
+      - name: Frugal cascade rescore
         run: |
-          SINCE="${{ github.event.inputs.since || '2026-09-15' }}"
-          UNTIL="${{ github.event.inputs.until || '' }}"
-          BATCH="${{ github.event.inputs.batch_size || '8' }}"
-          MAXR="${{ github.event.inputs.max_rows_per_file || '0' }}"
-          ARGS=(--since "$SINCE" --batch-size "$BATCH" --max-rows-per-file "$MAXR" --sleep 0.1)
-          if [ -n "$UNTIL" ]; then ARGS+=(--until "$UNTIL"); fi
-          python scripts/rescore_raw_cascade.py "${ARGS[@]}"
+          SINCE="${{ github.event.inputs.since || '2026-11-10' }}"
+          UNTIL="${{ github.event.inputs.until || '2026-11-21' }}"
+          BATCH="${{ github.event.inputs.batch_size || '12' }}"
+          MAXT="${{ github.event.inputs.max_total_rows || '1200' }}"
+          PERS="${{ github.event.inputs.per_symbol || '3' }}"
+          PROV="${{ github.event.inputs.provider || 'deepseek,keyword' }}"
+          export SCORING_PROVIDER="$PROV"
+          echo "Frugal rescore: since=$SINCE until=$UNTIL max_total=$MAXT per_symbol=$PERS provider=$PROV"
+          python scripts/rescore_raw_cascade.py \
+            --since "$SINCE" \
+            --until "$UNTIL" \
+            --batch-size "$BATCH" \
+            --max-total-rows "$MAXT" \
+            --per-symbol "$PERS" \
+            --sleep 0.08 \
+            --retries 1
 
       - name: Refresh thesis panel + FM/Logit
         run: |
@@ -98,17 +116,18 @@ jobs:
           from opinion_trading.core.sentiment_panel import build_sentiment_panel, load_raw_rows_from_dir
           from opinion_trading.core.thesis_models import run_thesis_models, save_thesis_model_reports
           from opinion_trading.core.evaluation import load_prices
+          import pandas as pd
           rows = load_raw_rows_from_dir("data/raw")
           panel = build_sentiment_panel(rows)
           panel.to_csv("data/reports/sentiment_panel.csv", index=False)
           prices = load_prices("data/reports/price_history_cache.csv")
           results = run_thesis_models(panel, prices)
           save_thesis_model_reports(results, "data/reports")
-          src = panel  # noqa: silence
-          import pandas as pd
           raw = pd.DataFrame(rows)
           if "score_source" in raw.columns:
               print("score_source counts:\n", raw["score_source"].value_counts().to_string())
+          live = raw[raw["score_source"].isin(["deepseek", "jev", "qwen", "hybrid", "openclaw"])] if "score_source" in raw.columns else raw.iloc[0:0]
+          print("live_scored_rows", len(live))
           print("panel", panel.shape, "merged", results["panel_merged"].shape)
           print(results["fama_macbeth"].to_string(index=False))
           PY
@@ -119,7 +138,6 @@ jobs:
         with:
           name: thesis-llm-rescore-${{ github.run_id }}
           path: |
-            data/raw/raw_posts_*.csv
             data/reports/sentiment_panel.csv
             data/reports/thesis_*.csv
             data/reports/thesis_models.md
@@ -140,5 +158,5 @@ jobs:
             echo "No changes to commit"
             exit 0
           fi
-          git commit -m "Rescore thesis raw panel with Jev/DeepSeek cascade"
+          git commit -m "Frugal DeepSeek rescore sample for thesis panel"
           git push
