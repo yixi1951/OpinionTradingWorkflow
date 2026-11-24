@@ -1,20 +1,23 @@
-# TypeSafe Jev sentiment cascade
+# Jev (jevmodel.org) sentiment cascade
 
 Live A-share social sentiment uses this failover order (configurable):
 
-1. **Jev** (`POST https://api.typesafe.ai/v1/systemone`) when `TYPESAFE_API_KEY` or `JEV_API_KEY` is set
+1. **Jev** (`POST https://jevmodel.org/v1/systemone`) when `JEVMODEL_API_KEY` / `JEV_API_KEY` / `TYPESAFE_API_KEY` is set
 2. **DeepSeek** → optional **Qwen** (existing `llm_failover`)
 3. **Keyword** lexicon (always available; sole path when `SCORING_MODE=keyword`)
+
+Console docs use `Authorization: Bearer $JEVMODEL_API_KEY`. Default host is **jevmodel.org** (not the legacy `api.typesafe.ai`).
 
 ## Configuration
 
 | Variable | Purpose |
 |----------|---------|
 | `SCORING_MODE` | `ai` / `jev` / `hybrid` = live cascade; `keyword` = offline (CI) |
-| `SCORING_PROVIDER` | Override order, e.g. `jev,deepseek,keyword` |
+| `SCORING_PROVIDER` | Override order, e.g. `jev,deepseek` |
 | `config/settings.yaml` → `scoring.provider` | Default chain when env unset |
-| `TYPESAFE_API_KEY` / `JEV_API_KEY` | Jev auth |
-| `JEV_MODEL` / `TYPESAFE_MODEL` | Model pin (`jev-latest` default) |
+| `JEVMODEL_API_KEY` / `JEV_API_KEY` / `TYPESAFE_API_KEY` | Jev auth |
+| `JEV_API_URL` | Override endpoint (default `https://jevmodel.org/v1/systemone`) |
+| `JEV_MODEL` | Model pin (`jev-latest` default) |
 | `JEV_MIN_CONFIDENCE` | Below threshold → DeepSeek (default `0.40`) |
 | `JEV_FALLBACK` | `0` disables failover on HTTP/parse errors |
 
