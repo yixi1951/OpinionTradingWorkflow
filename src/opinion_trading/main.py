@@ -664,7 +664,6 @@ def main() -> None:
 
     if args.mode == "walk_forward":
         from opinion_trading.core.config_loader import load_runtime_config
-        from opinion_trading.core.evaluation import load_prices
         from opinion_trading.core.walk_forward import (
             run_walk_forward,
             save_walk_forward_report,
@@ -759,7 +758,6 @@ def main() -> None:
             MultiAgentBacktester,
             comparison_to_dataframe,
         )
-        from opinion_trading.core.evaluation import load_prices
 
         backtester = MultiAgentBacktester(config_path=args.config)
         price_df = load_prices(args.price_file) if Path(args.price_file).exists() else pd.DataFrame()
