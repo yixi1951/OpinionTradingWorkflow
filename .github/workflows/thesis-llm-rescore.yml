@@ -1,16 +1,15 @@
 name: Thesis LLM/Jev rescore
 
-# Frugal live rescore for thesis panels.
-# Default: DeepSeek batched only (skip Jev — 1 POST/text is costly).
-# Hard cap ~1200 rows across a short window for panel coverage.
-# Requires repo secret DEEPSEEK_API_KEY; optional JEV/TYPESAFE if you force jev.
+# Manual-only. Do NOT auto-run on push (save DeepSeek quota).
+# Prefer local/agent sample scoring for tests; use this only when explicitly needed.
+# Default caps are tiny. Requires repo secret DEEPSEEK_API_KEY.
 on:
   workflow_dispatch:
     inputs:
       since:
         description: Inclusive start date YYYY-MM-DD
         type: string
-        default: "2026-11-10"
+        default: "2026-11-18"
       until:
         description: Inclusive end date YYYY-MM-DD
         type: string
@@ -20,13 +19,13 @@ on:
         type: string
         default: "12"
       max_total_rows:
-        description: Hard cap of live-scored rows (frugal default)
+        description: Hard cap of live-scored rows (keep tiny)
         type: string
-        default: "1200"
+        default: "120"
       per_symbol:
         description: Max rows per symbol per day file
         type: string
-        default: "3"
+        default: "1"
       provider:
         description: Cascade override (default deepseek,keyword)
         type: string
@@ -35,12 +34,6 @@ on:
         description: Commit rescored CSVs + thesis tables back to the branch
         type: boolean
         default: true
-  push:
-    branches:
-      - cursor/thesis-proposal-1391
-    paths:
-      - ".github/workflows/thesis-llm-rescore.yml"
-      - "scripts/rescore_raw_cascade.py"
 
 concurrency:
   group: thesis-llm-rescore-${{ github.ref }}
@@ -49,7 +42,7 @@ concurrency:
 jobs:
   rescore:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
     permissions:
       contents: write
     env:
@@ -76,31 +69,26 @@ jobs:
       - name: Probe live scorers
         run: |
           if [ -z "${DEEPSEEK_API_KEY}" ] && [ -z "${TYPESAFE_API_KEY}" ] && [ -z "${JEV_API_KEY}" ]; then
-            echo "No DEEPSEEK_API_KEY / TYPESAFE_API_KEY / JEV_API_KEY — cannot live-score."
+            echo "No live API key — cannot score."
             exit 1
           fi
           echo "::add-mask::${DEEPSEEK_API_KEY}"
-          if [ -n "${TYPESAFE_API_KEY}" ]; then echo "::add-mask::${TYPESAFE_API_KEY}"; fi
-          if [ -n "${JEV_API_KEY}" ]; then echo "::add-mask::${JEV_API_KEY}"; fi
           python - <<'PY'
-          import os
           from opinion_trading.core.jev_client import jev_configured
           from opinion_trading.core.llm_failover import any_live_key
           print("jev_configured", jev_configured())
           print("any_live_key", any_live_key())
-          print("provider", os.environ.get("SCORING_PROVIDER"))
           PY
 
-      - name: Frugal cascade rescore
+      - name: Tiny DeepSeek rescore (manual only)
         run: |
-          SINCE="${{ github.event.inputs.since || '2026-11-10' }}"
-          UNTIL="${{ github.event.inputs.until || '2026-11-21' }}"
-          BATCH="${{ github.event.inputs.batch_size || '12' }}"
-          MAXT="${{ github.event.inputs.max_total_rows || '1200' }}"
-          PERS="${{ github.event.inputs.per_symbol || '3' }}"
-          PROV="${{ github.event.inputs.provider || 'deepseek,keyword' }}"
-          export SCORING_PROVIDER="$PROV"
-          echo "Frugal rescore: since=$SINCE until=$UNTIL max_total=$MAXT per_symbol=$PERS provider=$PROV"
+          SINCE="${{ github.event.inputs.since }}"
+          UNTIL="${{ github.event.inputs.until }}"
+          BATCH="${{ github.event.inputs.batch_size }}"
+          MAXT="${{ github.event.inputs.max_total_rows }}"
+          PERS="${{ github.event.inputs.per_symbol }}"
+          export SCORING_PROVIDER="${{ github.event.inputs.provider }}"
+          echo "Manual tiny rescore: since=$SINCE until=$UNTIL max_total=$MAXT provider=$SCORING_PROVIDER"
           python scripts/rescore_raw_cascade.py \
             --since "$SINCE" \
             --until "$UNTIL" \
@@ -125,14 +113,11 @@ jobs:
           save_thesis_model_reports(results, "data/reports")
           raw = pd.DataFrame(rows)
           if "score_source" in raw.columns:
-              print("score_source counts:\n", raw["score_source"].value_counts().to_string())
-          live = raw[raw["score_source"].isin(["deepseek", "jev", "qwen", "hybrid", "openclaw"])] if "score_source" in raw.columns else raw.iloc[0:0]
-          print("live_scored_rows", len(live))
-          print("panel", panel.shape, "merged", results["panel_merged"].shape)
+              print(raw["score_source"].value_counts().to_string())
           print(results["fama_macbeth"].to_string(index=False))
           PY
 
-      - name: Upload rescored artifacts
+      - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -143,20 +128,16 @@ jobs:
             data/reports/thesis_models.md
           if-no-files-found: warn
 
-      - name: Commit rescored data back to branch
-        if: ${{ github.event_name == 'push' || github.event.inputs.commit_back == 'true' }}
+      - name: Commit back
+        if: ${{ github.event.inputs.commit_back == 'true' }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/raw/raw_posts_*.csv \
-            data/reports/sentiment_panel.csv \
-            data/reports/thesis_fama_macbeth.csv \
-            data/reports/thesis_logit.csv \
-            data/reports/thesis_panel_merged.csv \
-            data/reports/thesis_models.md || true
+          git add data/raw/raw_posts_*.csv data/reports/sentiment_panel.csv \
+            data/reports/thesis_fama_macbeth.csv data/reports/thesis_logit.csv \
+            data/reports/thesis_panel_merged.csv data/reports/thesis_models.md || true
           if git diff --cached --quiet; then
-            echo "No changes to commit"
-            exit 0
+            echo "No changes"; exit 0
           fi
-          git commit -m "Frugal DeepSeek rescore sample for thesis panel"
+          git commit -m "Tiny manual DeepSeek rescore sample"
           git push
