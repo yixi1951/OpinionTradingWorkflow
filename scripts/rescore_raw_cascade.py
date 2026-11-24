@@ -8,8 +8,9 @@ Usage:
   SCORING_MODE=ai TYPESAFE_API_KEY=... DEEPSEEK_API_KEY=... \\
     PYTHONPATH=src python3 scripts/rescore_raw_cascade.py --since 2026-09-15
 
-  # DeepSeek-only bulk (skip Jev even if key present)
-  SCORING_PROVIDER=deepseek,keyword PYTHONPATH=src python3 scripts/rescore_raw_cascade.py
+  # Thesis default: Jev first (matches config/settings.yaml scoring.provider)
+  SCORING_PROVIDER=jev,deepseek,keyword PYTHONPATH=src python3 scripts/rescore_raw_cascade.py \\
+    --max-total-rows 80 --per-symbol 1
 """
 from __future__ import annotations
 
@@ -30,7 +31,7 @@ from opinion_trading.core.jev_client import jev_configured  # noqa: E402
 from opinion_trading.core.llm_failover import any_live_key  # noqa: E402
 
 
-LIVE_SOURCES = frozenset({"jev", "deepseek", "qwen", "openclaw", "hybrid", "gateway"})
+LIVE_SOURCES = frozenset({"jev", "deepseek", "qwen", "openclaw", "hybrid", "gateway", "cursor_llm"})
 
 
 def _text_for_row(row: pd.Series) -> str:
@@ -233,8 +234,8 @@ def rescore_file(
 
 def ensure_live_ready(*, require: bool) -> None:
     os.environ.setdefault("SCORING_MODE", "ai")
-    # Default to DeepSeek (batched) to save cost; override for Jev-first.
-    os.environ.setdefault("SCORING_PROVIDER", "deepseek,keyword")
+    # Thesis landing path: Jev primary, DeepSeek failover (settings.yaml).
+    os.environ.setdefault("SCORING_PROVIDER", "jev,deepseek,keyword")
     has_jev = jev_configured()
     has_llm = any_live_key()
     print(f"SCORING_MODE={os.environ.get('SCORING_MODE')}")
@@ -243,7 +244,12 @@ def ensure_live_ready(*, require: bool) -> None:
     if require and not (has_jev or has_llm):
         raise SystemExit(
             "No live scorer configured. Set TYPESAFE_API_KEY/JEV_API_KEY "
-            "and/or DEEPSEEK_API_KEY (optional QWEN_API_KEY)."
+            "(preferred for thesis) and/or DEEPSEEK_API_KEY."
+        )
+    if require and not has_jev:
+        print(
+            "WARNING: Jev not configured — cascade will skip to DeepSeek/keyword. "
+            "Thesis target is score_source=jev; add JEV_API_KEY / TYPESAFE_API_KEY."
         )
 
 

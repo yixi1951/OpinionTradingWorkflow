@@ -1,8 +1,8 @@
 name: Thesis LLM/Jev rescore
 
-# Manual-only. Do NOT auto-run on push (save DeepSeek quota).
-# Prefer local/agent sample scoring for tests; use this only when explicitly needed.
-# Default caps are tiny. Requires repo secret DEEPSEEK_API_KEY.
+# Manual-only (no push auto-run). Thesis landing scorer = Jev first.
+# Requires repo secret JEV_API_KEY (or TYPESAFE_API_KEY); DEEPSEEK_API_KEY is failover.
+# Keep caps tiny — Jev is 1 HTTP call per post.
 on:
   workflow_dispatch:
     inputs:
@@ -15,21 +15,21 @@ on:
         type: string
         default: "2026-11-21"
       batch_size:
-        description: Texts per DeepSeek request
+        description: Texts per cascade batch (Jev still 1 POST/text inside)
         type: string
-        default: "12"
+        default: "4"
       max_total_rows:
-        description: Hard cap of live-scored rows (keep tiny)
+        description: Hard cap of live-scored rows (Jev-frugal)
         type: string
-        default: "120"
+        default: "80"
       per_symbol:
         description: Max rows per symbol per day file
         type: string
         default: "1"
       provider:
-        description: Cascade override (default deepseek,keyword)
+        description: Cascade (thesis default jev,deepseek,keyword)
         type: string
-        default: "deepseek,keyword"
+        default: "jev,deepseek,keyword"
       commit_back:
         description: Commit rescored CSVs + thesis tables back to the branch
         type: boolean
@@ -68,11 +68,16 @@ jobs:
 
       - name: Probe live scorers
         run: |
-          if [ -z "${DEEPSEEK_API_KEY}" ] && [ -z "${TYPESAFE_API_KEY}" ] && [ -z "${JEV_API_KEY}" ]; then
-            echo "No live API key — cannot score."
+          if [ -n "${DEEPSEEK_API_KEY}" ]; then echo "::add-mask::${DEEPSEEK_API_KEY}"; fi
+          if [ -n "${TYPESAFE_API_KEY}" ]; then echo "::add-mask::${TYPESAFE_API_KEY}"; fi
+          if [ -n "${JEV_API_KEY}" ]; then echo "::add-mask::${JEV_API_KEY}"; fi
+          if [ -z "${JEV_API_KEY}" ] && [ -z "${TYPESAFE_API_KEY}" ] && [ -z "${DEEPSEEK_API_KEY}" ]; then
+            echo "No JEV/TYPESAFE/DEEPSEEK secret — cannot score."
             exit 1
           fi
-          echo "::add-mask::${DEEPSEEK_API_KEY}"
+          if [ -z "${JEV_API_KEY}" ] && [ -z "${TYPESAFE_API_KEY}" ]; then
+            echo "::warning::JEV_API_KEY/TYPESAFE_API_KEY missing — thesis target is Jev; will failover to DeepSeek if present."
+          fi
           python - <<'PY'
           from opinion_trading.core.jev_client import jev_configured
           from opinion_trading.core.llm_failover import any_live_key
@@ -80,7 +85,7 @@ jobs:
           print("any_live_key", any_live_key())
           PY
 
-      - name: Tiny DeepSeek rescore (manual only)
+      - name: Tiny Jev-first rescore (manual only)
         run: |
           SINCE="${{ github.event.inputs.since }}"
           UNTIL="${{ github.event.inputs.until }}"
@@ -88,14 +93,14 @@ jobs:
           MAXT="${{ github.event.inputs.max_total_rows }}"
           PERS="${{ github.event.inputs.per_symbol }}"
           export SCORING_PROVIDER="${{ github.event.inputs.provider }}"
-          echo "Manual tiny rescore: since=$SINCE until=$UNTIL max_total=$MAXT provider=$SCORING_PROVIDER"
+          echo "Manual Jev-first rescore: since=$SINCE until=$UNTIL max_total=$MAXT provider=$SCORING_PROVIDER"
           python scripts/rescore_raw_cascade.py \
             --since "$SINCE" \
             --until "$UNTIL" \
             --batch-size "$BATCH" \
             --max-total-rows "$MAXT" \
             --per-symbol "$PERS" \
-            --sleep 0.08 \
+            --sleep 0.15 \
             --retries 1
 
       - name: Refresh thesis panel + FM/Logit
@@ -139,5 +144,5 @@ jobs:
           if git diff --cached --quiet; then
             echo "No changes"; exit 0
           fi
-          git commit -m "Tiny manual DeepSeek rescore sample"
+          git commit -m "Tiny manual Jev-first rescore sample"
           git push
