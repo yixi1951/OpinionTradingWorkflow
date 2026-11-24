@@ -32,12 +32,28 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from opinion_trading.core.openclaw_adapter import OpenClawClient  # noqa: E402
 
+sys.path.insert(0, str(ROOT / "scripts"))
+from text_quality import is_precise_opinion, quality_issues  # noqa: E402
+
 THESIS_SCORES = frozenset({"jev", "deepseek"})
 
 
 def _text(row: pd.Series) -> str:
     parts = [str(row.get("title", "") or ""), str(row.get("content", "") or "")]
     return " ".join(p for p in parts if p.strip()).strip()
+
+
+def _quality_reject(row: pd.Series) -> list[str]:
+    title = str(row.get("title", "") or "")
+    body = _text(row)
+    plat = str(row.get("platform", "") or "")
+    url = str(row.get("url", "") or "")
+    issues = quality_issues(body or title, title=title, platform=plat, url=url)
+    if issues:
+        return issues
+    if not is_precise_opinion(body or title, platform=plat, url=url, title=title, min_cjk=8):
+        return ["imprecise"]
+    return []
 
 
 def _list_files(raw_dir: Path, since: Optional[str], until: Optional[str]) -> List[Path]:
@@ -84,6 +100,7 @@ def validate_file(
         ("openclaw_validated", 0),
         ("openclaw_score", ""),
         ("is_noise", False),
+        ("noise_reason", ""),
         ("capture_status", "success"),
         ("score_source", "keyword"),
         ("ai_score", 0.0),
@@ -92,14 +109,38 @@ def validate_file(
         if col not in df.columns:
             df[col] = default
 
-    pending = [idx for idx, row in df.iterrows() if _needs_validate(row, force=force)]
+    drop_idx: List[Any] = []
+
+    # Deterministic quality gate before spending OpenClaw calls.
+    for idx, row in df.iterrows():
+        issues = _quality_reject(row)
+        if not issues:
+            continue
+        df.at[idx, "is_noise"] = True
+        df.at[idx, "noise_reason"] = ";".join(issues)
+        df.at[idx, "openclaw_validated"] = 0
+        status = str(df.at[idx, "capture_status"] or "").lower()
+        if status not in {"failed", "error", "fallback", "openclaw_reject", "quality_reject"}:
+            df.at[idx, "capture_status"] = "quality_reject"
+        if drop_failed:
+            drop_idx.append(idx)
+
+    pending = [
+        idx
+        for idx, row in df.iterrows()
+        if _needs_validate(row, force=force)
+        and str(df.at[idx, "is_noise"]).lower() not in {"true", "1", "yes"}
+        and idx not in drop_idx
+    ]
     if max_rows > 0:
         pending = pending[:max_rows]
-    if not pending:
+    if not pending and not drop_idx:
+        # Still persist noise marks even if nothing left to validate.
+        if any(str(x).lower() in {"true", "1", "yes"} for x in df["is_noise"].astype(str)):
+            df.to_csv(path, index=False, encoding="utf-8-sig")
         return 0
 
     done = 0
-    drop_idx: List[Any] = []
     for start in range(0, len(pending), batch_size):
         chunk = pending[start : start + batch_size]
         texts = [_text(df.loc[i]) for i in chunk]

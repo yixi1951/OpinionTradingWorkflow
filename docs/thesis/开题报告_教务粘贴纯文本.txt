@@ -16,7 +16,7 @@
 一、问题表述与研究假设
         研究对象为个股i、交易日t的情绪因子S，与未来h∈{1,3,5}日收益与涨跌。仅用t日及以前信息。主假设：经OpenClaw验真并由Jev/DeepSeek打分的S，在控制滞后收益与关注后具有显著预测力；相对词典基线可报告差异。识别边界：可预测性，非因果。
 二、层A：数据采集与OpenClaw验真
-        主采集东方财富股吧UGC。对原始帖文调用OpenClaw免费模型做可读性/真实性门控，通过者标记openclaw_validated=1，失败则筛除或标噪。OpenClaw不作论文主打分器。
+        主采集东方财富股吧UGC，采集端优先精确、宁缺毋滥：规则门控剔除过短灌水、新闻标题、广告荐股与页面壳（is_precise_opinion / is_noise）。对通过规则的帖文再调用OpenClaw免费模型做可读性/真实性门控，通过者标记openclaw_validated=1，失败则筛除或标噪。OpenClaw不作论文主打分器。
 三、层B：Jev/DeepSeek正式打分与日度因子
         对验真通过帖文，以Jev（jevmodel.org）优先、DeepSeek为正式备援得到s_d∈[-1,1]。主报告：Q4 S^llm（仅jev/deepseek帖均值）、Q5 Bullishness；Q3词典为基线；Q1/Q2均值与影响力加权仅作聚合稳健。
 四、层C：检验模型

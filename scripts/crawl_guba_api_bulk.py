@@ -28,8 +28,14 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from opinion_trading.core.raw_store import RawPostCsvStore  # noqa: E402
-from text_quality import is_boilerplate, is_news_headline, is_user_comment  # noqa: E402
-
+from text_quality import (  # noqa: E402
+    is_boilerplate,
+    is_news_headline,
+    is_precise_opinion,
+    is_spam_or_promo,
+    is_user_comment,
+    quality_issues,
+)
 DEFAULT_CONFIG = ROOT / "config" / "settings.yaml"
 API_URL = "https://gbapi.eastmoney.com/webarticlelist/api/Article/Articlelist"
 HEADERS = {
@@ -135,17 +141,23 @@ def keyword_score(title: str) -> float:
 
 
 def title_ok(title: str, *, url: str = "", post_type: int = 0) -> bool:
+    """Strict opinion gate — prefer precision over volume."""
     t = clean_text(title)
-    if len(t) < 4 or len(t) > 200:
+    if len(t) < 8 or len(t) > 180:
         return False
-    if is_boilerplate(t):
+    if is_boilerplate(t) or is_spam_or_promo(t):
         return False
-    # Soft filter: keep short retail comments; drop obvious news headlines.
-    if post_type in (1, 2, 20) and is_news_headline(t, "guba"):
+    # Drop news / official-ish posts aggressively.
+    if post_type in (1, 2, 20) or is_news_headline(t, "guba"):
         return False
-    if post_type == 0:
-        return is_user_comment(t, platform="guba", url=url, title=t) or len(t) >= 6
-    return True
+    # Retail comments must look like real opinions (not fluff).
+    if not is_precise_opinion(t, platform="guba", url=url, title=t, min_cjk=8):
+        return False
+    if post_type == 0 and not (
+        is_user_comment(t, platform="guba", url=url, title=t) or len(t) >= 10
+    ):
+        return False
+    return not quality_issues(t, title=t, platform="guba", url=url)
 
 
 def parse_post_time(raw: Any) -> Optional[datetime]:

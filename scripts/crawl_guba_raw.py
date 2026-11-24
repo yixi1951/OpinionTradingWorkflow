@@ -29,8 +29,13 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from opinion_trading.core.openclaw_adapter import OpenClawClient
 from opinion_trading.core.raw_store import RawPostCsvStore
-from text_quality import is_boilerplate, is_news_headline, is_user_comment
-
+from text_quality import (
+    is_boilerplate,
+    is_news_headline,
+    is_precise_opinion,
+    is_spam_or_promo,
+    is_user_comment,
+)
 BY_SOURCE = ROOT / "data" / "raw" / "by_source"
 DEFAULT_CONFIG = ROOT / "config" / "settings.yaml"
 HEADERS = {
@@ -71,12 +76,15 @@ def clean_text(value: str) -> str:
 
 
 def title_ok(title: str, *, url: str = "") -> bool:
+    """Strict opinion gate — prefer precision over volume."""
     t = clean_text(title)
     if len(t) < 8 or len(t) > 150:
         return False
-    if is_boilerplate(t) or is_news_headline(t, "guba"):
+    if is_boilerplate(t) or is_spam_or_promo(t) or is_news_headline(t, "guba"):
         return False
-    return is_user_comment(t, platform="guba", url=url, title=t)
+    return is_precise_opinion(t, platform="guba", url=url, title=t, min_cjk=8) and is_user_comment(
+        t, platform="guba", url=url, title=t
+    )
 
 
 def keyword_score(title: str) -> float:

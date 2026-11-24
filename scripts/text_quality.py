@@ -215,6 +215,200 @@ def is_user_comment(
         return False
     if is_news_headline(body, platform=platform):
         return False
+    if is_spam_or_promo(body):
+        return False
+    if is_low_value_opinion(body):
+        return False
+    return True
+
+
+# Ultra-short fluff / greeting that carries no usable opinion signal.
+LOW_VALUE_EXACT = frozenset(
+    {
+        "顶",
+        "路过",
+        "沙发",
+        "板凳",
+        "马克",
+        "签到",
+        "打卡",
+        "加油",
+        "早",
+        "晚",
+        "好",
+        "嗯",
+        "哦",
+        "哈",
+        "呵呵",
+        "哈哈",
+        "嘿嘿",
+        "周末愉快",
+        "早上好",
+        "晚上好",
+        "挺好",
+        "不错",
+        "来了",
+        "围观",
+        "关注",
+        "收藏",
+        "同问",
+        "求指教",
+        "啥情况",
+        "怎么了",
+        "看不懂",
+        "无语",
+        "醉了",
+        "服了",
+        "牛",
+        "牛逼",
+        "牛B",
+        "垃圾",
+        "辣鸡",
+        "呵呵呵",
+    }
+)
+
+SPAM_MARKERS = (
+    "加微信",
+    "加V",
+    "加v",
+    "加薇",
+    "私信领",
+    "私聊",
+    "荐股",
+    "带单",
+    "跟单",
+    "QQ群",
+    "qq群",
+    "免费推荐",
+    "内部消息",
+    "稳赚",
+    "必涨",
+    "拉群",
+    "扫码进群",
+    "开户送",
+    "代操",
+    "老师带",
+    "免费指标",
+    "加我",
+)
+
+OPINION_CUES = (
+    "买",
+    "卖",
+    "仓",
+    "涨",
+    "跌",
+    "空",
+    "多",
+    "看",
+    "套",
+    "割",
+    "抄",
+    "底",
+    "顶",
+    "反弹",
+    "突破",
+    "支撑",
+    "压力",
+    "估值",
+    "分红",
+    "业绩",
+    "回购",
+    "利好",
+    "利空",
+    "风险",
+    "机会",
+    "持有",
+    "清仓",
+    "加仓",
+    "减仓",
+    "止损",
+    "止盈",
+    "机构",
+    "主力",
+    "资金",
+    "情绪",
+    "走势",
+    "行情",
+    "破位",
+    "反转",
+    "横盘",
+    "震荡",
+)
+
+
+def cjk_len(text: str) -> int:
+    return sum(1 for ch in str(text or "") if "\u4e00" <= ch <= "\u9fff")
+
+
+def is_spam_or_promo(text: str) -> bool:
+    s = str(text or "")
+    if not s:
+        return False
+    if any(m in s for m in SPAM_MARKERS):
+        return True
+    # contact handles / phone-like bait
+    if re.search(r"(?:微信|vx|VX|v信)\s*[:：]?\s*[a-zA-Z0-9_\-]{4,}", s):
+        return True
+    if re.search(r"1[3-9]\d{9}", s) and ("加" in s or "联系" in s or "私" in s):
+        return True
+    return False
+
+
+def is_low_value_opinion(text: str) -> bool:
+    """True for fluff / ultra-short / non-opinion noise that wastes LLM budget."""
+    s = re.sub(r"\s+", "", str(text or "")).strip()
+    if not s:
+        return True
+    # strip common punctuation for exact match
+    core = re.sub(r"[，。！？、；：,.!?;:…·~\-_/\\\|（）()【】\[\]「」\"'“”‘’]", "", s)
+    if core in LOW_VALUE_EXACT:
+        return True
+    if cjk_len(s) < 8 and len(s) < 12:
+        return True
+    # repeated single char / laugh spam: 哈哈哈哈 / 啊啊啊啊
+    if re.fullmatch(r"(.)\1{3,}", core):
+        return True
+    if re.fullmatch(r"(哈|呵|嘿|啊|哦|嗯|咦){3,}", core):
+        return True
+    # mostly digits / prices / symbols, almost no Chinese
+    if cjk_len(s) < 4 and re.search(r"\d", s):
+        return True
+    # very short and no opinion cue
+    if cjk_len(s) < 12 and not any(c in s for c in OPINION_CUES):
+        return True
+    return False
+
+
+def is_precise_opinion(
+    text: str,
+    *,
+    platform: str = "",
+    url: str = "",
+    title: str = "",
+    min_cjk: int = 8,
+) -> bool:
+    """Strict gate for crawl / rescoring: keep only usable retail opinions."""
+    body = pick_comment_text(text, title=title) or str(title or text or "").strip()
+    if not body:
+        return False
+    if is_boilerplate(body) or is_page_chrome(body, platform=platform):
+        return False
+    if is_mojibake(body) or is_log_metadata(body):
+        return False
+    if is_stock_or_search_url(url):
+        return False
+    if is_news_article(body, platform=platform, url=url):
+        return False
+    if is_news_headline(body, platform=platform):
+        return False
+    if is_spam_or_promo(body):
+        return False
+    if is_low_value_opinion(body):
+        return False
+    if cjk_len(body) < min_cjk and len(body) < max(12, min_cjk + 2):
+        return False
     return True
 
 
@@ -229,12 +423,20 @@ def quality_issues(text: str, title: str = '', platform: str = '', url: str = ''
         issues.append('text_boilerplate_use_title')
     if is_mojibake(str(text)) and is_mojibake(str(title)):
         issues.append('mojibake')
+    if is_page_chrome(body or str(text), platform=platform):
+        issues.append('page_chrome')
     if is_news_article(body or str(text), platform=platform, url=url):
         issues.append('news_article')
     if is_news_headline(body, platform=platform):
         issues.append('news_headline')
+    if is_spam_or_promo(body or str(title) or str(text)):
+        issues.append('spam_promo')
+    if is_low_value_opinion(body or str(title) or str(text)):
+        issues.append('low_value')
     if not body or len(body.strip()) < 4:
         issues.append('too_short')
+    elif cjk_len(body) < 8 and len(body) < 12:
+        issues.append('too_short_cjk')
     if len(body) > 1500:
         issues.append('too_long')
     return issues
