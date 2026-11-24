@@ -1,0 +1,13 @@
+{
+  "raw_daily_files": 103,
+  "raw_rows_approx": 49485,
+  "first": "2026-03-15",
+  "last": "2026-11-24",
+  "panel_rows": 1591,
+  "panel_symbols": 72,
+  "price_symbols": 72,
+  "merged_obs": 1123,
+  "crawl": "scripts/crawl_guba_api_bulk.py",
+  "prices": "scripts/fetch_thesis_prices.py",
+  "note": "keyword-only scores; ai_score==keyword_score until LLM scoring enabled"
+}
