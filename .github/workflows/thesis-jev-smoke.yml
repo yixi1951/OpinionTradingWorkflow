@@ -1,7 +1,7 @@
 name: Thesis Jev smoke
 
-# Tiny Jev-only smoke (≤40 rows). Fails if JEV/TYPESAFE secret missing.
-# Triggered by push of this file OR manual dispatch — no DeepSeek spend.
+# Tiny Jev-only smoke (≤40 rows). Manual only — needs repo secret JEV_API_KEY
+# (or TYPESAFE_API_KEY). Do not auto-run on push while the secret is unset.
 on:
   workflow_dispatch:
     inputs:
@@ -9,11 +9,6 @@ on:
         description: Hard cap (keep tiny)
         type: string
         default: "40"
-  push:
-    branches:
-      - cursor/thesis-proposal-1391
-    paths:
-      - ".github/workflows/thesis-jev-smoke.yml"
 
 concurrency:
   group: thesis-jev-smoke-${{ github.ref }}
