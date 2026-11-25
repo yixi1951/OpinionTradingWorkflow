@@ -15,7 +15,7 @@ from opinion_trading.core.bullishness import (
 from opinion_trading.core.direction_logit import run_direction_logit
 from opinion_trading.core.fama_macbeth import run_fama_macbeth
 from opinion_trading.core.sentiment_panel import build_sentiment_panel, measures_for_group
-from opinion_trading.core.thesis_models import merge_panel_with_returns, run_thesis_models
+from opinion_trading.core.thesis_models import run_thesis_models
 
 
 def test_antweiler_bullishness_symmetric():
