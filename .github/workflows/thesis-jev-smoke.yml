@@ -1,0 +1,137 @@
+name: Thesis Jev smoke
+
+# Tiny Jev-only smoke (≤40 rows). Manual only — needs repo secret JEV_API_KEY
+# (or TYPESAFE_API_KEY). Do not auto-run on push while the secret is unset.
+on:
+  workflow_dispatch:
+    inputs:
+      max_total_rows:
+        description: Hard cap (keep tiny)
+        type: string
+        default: "40"
+
+concurrency:
+  group: thesis-jev-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  jev-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    env:
+      PYTHONPATH: src
+      SCORING_MODE: ai
+      SCORING_PROVIDER: jev
+      JEV_API_KEY: ${{ secrets.JEV_API_KEY }}
+      TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Require Jev secret
+        run: |
+          if [ -n "${JEV_API_KEY}" ]; then echo "::add-mask::${JEV_API_KEY}"; fi
+          if [ -n "${TYPESAFE_API_KEY}" ]; then echo "::add-mask::${TYPESAFE_API_KEY}"; fi
+          python - <<'PY'
+          from opinion_trading.core.jev_client import jev_configured, load_jev_settings
+          s = load_jev_settings()
+          print("jev_configured", jev_configured(), "model", s.model)
+          if not jev_configured():
+              raise SystemExit(
+                  "JEV_API_KEY / TYPESAFE_API_KEY not set in repo Actions secrets. "
+                  "Add it under Settings → Secrets → Actions, then re-run."
+              )
+          PY
+
+      - name: Probe one Jev call
+        run: |
+          python - <<'PY'
+          from opinion_trading.core.jev_client import score_texts_jev
+          pairs = score_texts_jev(["强烈看多加仓突破", "暴跌看空割肉离场"])
+          print("probe", [(round(s, 3), round(c, 3)) for s, c in pairs])
+          assert len(pairs) == 2
+          PY
+
+      - name: Tiny Jev rescore sample
+        run: |
+          MAXT="${{ github.event.inputs.max_total_rows || '40' }}"
+          python scripts/rescore_raw_cascade.py \
+            --since 2026-11-18 \
+            --until 2026-11-21 \
+            --batch-size 4 \
+            --max-total-rows "$MAXT" \
+            --per-symbol 1 \
+            --sleep 0.2 \
+            --retries 1
+
+      - name: Refresh thesis tables + summarize
+        run: |
+          python - <<'PY'
+          import pandas as pd
+          from pathlib import Path
+          from opinion_trading.core.sentiment_panel import build_sentiment_panel, load_raw_rows_from_dir
+          from opinion_trading.core.thesis_models import run_thesis_models, save_thesis_model_reports
+          from opinion_trading.core.evaluation import load_prices
+
+          rows = load_raw_rows_from_dir("data/raw")
+          raw = pd.DataFrame(rows)
+          print("score_source:\n", raw.get("score_source", pd.Series(dtype=str)).fillna("keyword").value_counts().to_string())
+          jev = raw[raw.get("score_source", pd.Series(dtype=str)).astype(str) == "jev"] if "score_source" in raw.columns else raw.iloc[0:0]
+          print("jev_rows", len(jev))
+          if len(jev):
+              print(jev[["symbol", "title", "keyword_score", "ai_score"]].head(20).to_string(index=False))
+              print("corr keyword vs jev", float(pd.to_numeric(jev["keyword_score"], errors="coerce").corr(pd.to_numeric(jev["ai_score"], errors="coerce"))))
+
+          panel = build_sentiment_panel(rows)
+          panel.to_csv("data/reports/sentiment_panel.csv", index=False)
+          prices = load_prices("data/reports/price_history_cache.csv")
+          results = run_thesis_models(panel, prices)
+          save_thesis_model_reports(results, "data/reports")
+          diff = (panel["sent_dict"] - panel["sent_llm"]).abs()
+          print("panel dict!=llm", int((diff > 1e-9).sum()), "/", len(panel))
+          print(results["fama_macbeth"].to_string(index=False))
+          Path("data/reports/jev_smoke_summary.md").write_text(
+              f"# Jev smoke\n\njev_rows={len(jev)}\n\n"
+              + results["fama_macbeth"].to_string(index=False)
+              + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Upload summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jev-smoke-${{ github.run_id }}
+          path: |
+            data/reports/jev_smoke_summary.md
+            data/reports/thesis_fama_macbeth.csv
+            data/reports/thesis_logit.csv
+            data/reports/sentiment_panel.csv
+          if-no-files-found: warn
+
+      - name: Commit Jev sample back
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/raw/raw_posts_*.csv \
+            data/reports/sentiment_panel.csv \
+            data/reports/thesis_*.csv \
+            data/reports/thesis_models.md \
+            data/reports/jev_smoke_summary.md || true
+          if git diff --cached --quiet; then
+            echo "No changes"; exit 0
+          fi
+          git commit -m "Jev smoke sample scores for thesis panel"
+          git push

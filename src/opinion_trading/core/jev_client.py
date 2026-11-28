@@ -29,7 +29,8 @@ from opinion_trading.core.log_utils import get_logger
 
 logger = get_logger(__name__)
 
-DEFAULT_URL = "https://api.typesafe.ai/v1/systemone"
+# Official Jev console (jevmodel.org) — not the legacy typesafe.ai host.
+DEFAULT_URL = "https://jevmodel.org/v1/systemone"
 DEFAULT_MODEL = "jev-latest"
 SENTIMENT_QUESTION = "equity_sentiment"
 NUM_LEVELS = 5
@@ -57,19 +58,27 @@ class JevSettings:
 
 def load_jev_settings() -> JevSettings:
     key = (
-        os.environ.get("TYPESAFE_API_KEY")
+        os.environ.get("JEVMODEL_API_KEY")
         or os.environ.get("JEV_API_KEY")
+        or os.environ.get("TYPESAFE_API_KEY")
         or ""
     ).strip()
-    url = (os.environ.get("JEV_API_URL") or os.environ.get("TYPESAFE_API_URL") or DEFAULT_URL).strip()
+    url = (
+        os.environ.get("JEV_API_URL")
+        or os.environ.get("JEVMODEL_API_URL")
+        or os.environ.get("TYPESAFE_API_URL")
+        or DEFAULT_URL
+    ).strip()
     model = (
         os.environ.get("JEV_MODEL")
+        or os.environ.get("JEVMODEL_MODEL")
         or os.environ.get("TYPESAFE_MODEL")
         or DEFAULT_MODEL
     ).strip() or DEFAULT_MODEL
     try:
         timeout = float(
             os.environ.get("JEV_TIMEOUT")
+            or os.environ.get("JEVMODEL_TIMEOUT")
             or os.environ.get("TYPESAFE_TIMEOUT", "30")
             or 30
         )
@@ -133,7 +142,7 @@ def _retry_sleep() -> None:
 
 def _scrub(text: str) -> str:
     out = str(text or "")
-    for name in ("TYPESAFE_API_KEY", "JEV_API_KEY"):
+    for name in ("TYPESAFE_API_KEY", "JEV_API_KEY", "JEVMODEL_API_KEY"):
         key = (os.environ.get(name) or "").strip()
         if key and key in out:
             out = out.replace(key, "***")

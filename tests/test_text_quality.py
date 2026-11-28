@@ -5,7 +5,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from text_quality import is_boilerplate, strip_boilerplate
+from text_quality import (
+    is_boilerplate,
+    is_low_value_opinion,
+    is_precise_opinion,
+    is_spam_or_promo,
+    quality_issues,
+    strip_boilerplate,
+)
 
 
 def test_strip_boilerplate_removes_eastmoney_footer() -> None:
@@ -30,3 +37,29 @@ def test_strip_boilerplate_removes_guba_breadcrumb() -> None:
 def test_strip_boilerplate_empty_for_pure_chrome() -> None:
     raw = "东方财富 扫一扫下载APP 东方财富产品 天天基金 扫一扫下载APP"
     assert strip_boilerplate(raw) == ""
+
+
+def test_reject_short_fluff() -> None:
+    assert is_low_value_opinion("顶")
+    assert is_low_value_opinion("周末愉快")
+    assert is_low_value_opinion("茅台牛逼")
+    assert is_low_value_opinion("哈哈哈哈")
+    assert "low_value" in quality_issues("路过")
+
+
+def test_reject_spam_promo() -> None:
+    assert is_spam_or_promo("加微信abc123稳赚不赔")
+    assert is_spam_or_promo("老师带单进QQ群")
+    assert not is_precise_opinion("加V私信领免费指标荐股")
+
+
+def test_reject_news_headline() -> None:
+    headline = "贵州茅台公告：公司拟回购股份不超过10亿元"
+    assert not is_precise_opinion(headline, platform="guba")
+    assert "news_headline" in quality_issues(headline, platform="guba")
+
+
+def test_keep_real_retail_opinion() -> None:
+    text = "今天继续加仓茅台，估值虽然不便宜但中长期还是看好持有"
+    assert is_precise_opinion(text, platform="guba", title=text)
+    assert quality_issues(text, title=text, platform="guba") == []

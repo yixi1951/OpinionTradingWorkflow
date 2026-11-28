@@ -48,6 +48,8 @@ def parse_args() -> argparse.Namespace:
             "replay-batch",
             "backtest",
             "factor_backtest",
+            "export_sentiment_panel",
+            "thesis_models",
             "sync_universe",
             "optimize",
             "visualize",
@@ -566,6 +568,58 @@ def main() -> None:
         print(f"Symbols ({len(symbols)}): {', '.join(symbols[:12])}...")
         print("Wrote config/universe_focus.json + config/symbol_alias_map.json")
         print(f"Updated universe in {args.config}")
+        return
+
+    if args.mode == "export_sentiment_panel":
+        from opinion_trading.core.config_loader import load_runtime_config
+        from opinion_trading.core.sentiment_panel import export_sentiment_panel_csv
+
+        runtime = load_runtime_config(args.config)
+        out = Path(runtime.report_dir) / "sentiment_panel.csv"
+        path = export_sentiment_panel_csv(runtime.raw_dir, out)
+        print("=== Sentiment Panel Exported ===")
+        print(f"Output: {path}")
+        try:
+            import pandas as _pd
+
+            df = _pd.read_csv(path)
+            print(f"Rows: {len(df)} cols={list(df.columns)}")
+        except Exception:
+            pass
+        return
+
+    if args.mode == "thesis_models":
+        from opinion_trading.core.config_loader import load_runtime_config
+        from opinion_trading.core.sentiment_panel import (
+            build_sentiment_panel,
+            load_raw_rows_from_dir,
+        )
+        from opinion_trading.core.thesis_models import (
+            run_thesis_models,
+            save_thesis_model_reports,
+        )
+
+        runtime = load_runtime_config(args.config)
+        prices = load_prices(resolve_price_csv(args.price_file))
+        panel_path = Path(runtime.report_dir) / "sentiment_panel.csv"
+        if panel_path.exists():
+            import pandas as _pd
+
+            panel = _pd.read_csv(panel_path)
+        else:
+            panel = build_sentiment_panel(load_raw_rows_from_dir(runtime.raw_dir))
+            panel_path.parent.mkdir(parents=True, exist_ok=True)
+            panel.to_csv(panel_path, index=False)
+        results = run_thesis_models(panel, prices)
+        paths = save_thesis_model_reports(results, runtime.report_dir)
+        print("=== Thesis Models Completed ===")
+        print(f"Panel: {panel_path} rows={len(panel)}")
+        for k, p in paths.items():
+            print(f"{k}: {p}")
+        if not results["fama_macbeth"].empty:
+            print(results["fama_macbeth"].to_string(index=False))
+        if not results["logit"].empty:
+            print(results["logit"].to_string(index=False))
         return
 
     if args.mode == "factor_backtest":

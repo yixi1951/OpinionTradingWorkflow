@@ -1,0 +1,148 @@
+name: Thesis LLM/Jev rescore
+
+# Manual-only (no push auto-run). Thesis landing scorer = Jev first.
+# Requires repo secret JEV_API_KEY (or TYPESAFE_API_KEY); DEEPSEEK_API_KEY is failover.
+# Keep caps tiny — Jev is 1 HTTP call per post.
+on:
+  workflow_dispatch:
+    inputs:
+      since:
+        description: Inclusive start date YYYY-MM-DD
+        type: string
+        default: "2026-11-18"
+      until:
+        description: Inclusive end date YYYY-MM-DD
+        type: string
+        default: "2026-11-21"
+      batch_size:
+        description: Texts per cascade batch (Jev still 1 POST/text inside)
+        type: string
+        default: "4"
+      max_total_rows:
+        description: Hard cap of live-scored rows (Jev-frugal)
+        type: string
+        default: "80"
+      per_symbol:
+        description: Max rows per symbol per day file
+        type: string
+        default: "1"
+      provider:
+        description: Cascade (thesis default jev,deepseek — OpenClaw is validate-only)
+        type: string
+        default: "jev,deepseek"
+      commit_back:
+        description: Commit rescored CSVs + thesis tables back to the branch
+        type: boolean
+        default: true
+
+concurrency:
+  group: thesis-llm-rescore-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rescore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      PYTHONPATH: src
+      SCORING_MODE: ai
+      DEEPSEEK_ALLOW_LIVE: "1"
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+      JEV_API_KEY: ${{ secrets.JEV_API_KEY }}
+      QWEN_API_KEY: ${{ secrets.QWEN_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Probe live scorers
+        run: |
+          if [ -n "${DEEPSEEK_API_KEY}" ]; then echo "::add-mask::${DEEPSEEK_API_KEY}"; fi
+          if [ -n "${TYPESAFE_API_KEY}" ]; then echo "::add-mask::${TYPESAFE_API_KEY}"; fi
+          if [ -n "${JEV_API_KEY}" ]; then echo "::add-mask::${JEV_API_KEY}"; fi
+          if [ -z "${JEV_API_KEY}" ] && [ -z "${TYPESAFE_API_KEY}" ] && [ -z "${DEEPSEEK_API_KEY}" ]; then
+            echo "No JEV/TYPESAFE/DEEPSEEK secret — cannot score."
+            exit 1
+          fi
+          if [ -z "${JEV_API_KEY}" ] && [ -z "${TYPESAFE_API_KEY}" ]; then
+            echo "::warning::JEV_API_KEY/TYPESAFE_API_KEY missing — thesis target is Jev; will failover to DeepSeek if present."
+          fi
+          python - <<'PY'
+          from opinion_trading.core.jev_client import jev_configured
+          from opinion_trading.core.llm_failover import any_live_key
+          print("jev_configured", jev_configured())
+          print("any_live_key", any_live_key())
+          PY
+
+      - name: Tiny Jev-first rescore (manual only)
+        run: |
+          SINCE="${{ github.event.inputs.since }}"
+          UNTIL="${{ github.event.inputs.until }}"
+          BATCH="${{ github.event.inputs.batch_size }}"
+          MAXT="${{ github.event.inputs.max_total_rows }}"
+          PERS="${{ github.event.inputs.per_symbol }}"
+          export SCORING_PROVIDER="${{ github.event.inputs.provider }}"
+          echo "Manual Jev-first rescore: since=$SINCE until=$UNTIL max_total=$MAXT provider=$SCORING_PROVIDER"
+          python scripts/rescore_raw_cascade.py \
+            --since "$SINCE" \
+            --until "$UNTIL" \
+            --batch-size "$BATCH" \
+            --max-total-rows "$MAXT" \
+            --per-symbol "$PERS" \
+            --sleep 0.15 \
+            --retries 1
+
+      - name: Refresh thesis panel + FM/Logit
+        run: |
+          python - <<'PY'
+          from opinion_trading.core.sentiment_panel import build_sentiment_panel, load_raw_rows_from_dir
+          from opinion_trading.core.thesis_models import run_thesis_models, save_thesis_model_reports
+          from opinion_trading.core.evaluation import load_prices
+          import pandas as pd
+          rows = load_raw_rows_from_dir("data/raw")
+          panel = build_sentiment_panel(rows)
+          panel.to_csv("data/reports/sentiment_panel.csv", index=False)
+          prices = load_prices("data/reports/price_history_cache.csv")
+          results = run_thesis_models(panel, prices)
+          save_thesis_model_reports(results, "data/reports")
+          raw = pd.DataFrame(rows)
+          if "score_source" in raw.columns:
+              print(raw["score_source"].value_counts().to_string())
+          print(results["fama_macbeth"].to_string(index=False))
+          PY
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: thesis-llm-rescore-${{ github.run_id }}
+          path: |
+            data/reports/sentiment_panel.csv
+            data/reports/thesis_*.csv
+            data/reports/thesis_models.md
+          if-no-files-found: warn
+
+      - name: Commit back
+        if: ${{ github.event.inputs.commit_back == 'true' }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/raw/raw_posts_*.csv data/reports/sentiment_panel.csv \
+            data/reports/thesis_fama_macbeth.csv data/reports/thesis_logit.csv \
+            data/reports/thesis_panel_merged.csv data/reports/thesis_models.md || true
+          if git diff --cached --quiet; then
+            echo "No changes"; exit 0
+          fi
+          git commit -m "Tiny manual Jev-first rescore sample"
+          git push

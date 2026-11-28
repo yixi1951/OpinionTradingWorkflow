@@ -29,8 +29,13 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from opinion_trading.core.openclaw_adapter import OpenClawClient
 from opinion_trading.core.raw_store import RawPostCsvStore
-from text_quality import is_boilerplate, is_news_headline, is_user_comment
-
+from text_quality import (
+    is_boilerplate,
+    is_news_headline,
+    is_precise_opinion,
+    is_spam_or_promo,
+    is_user_comment,
+)
 BY_SOURCE = ROOT / "data" / "raw" / "by_source"
 DEFAULT_CONFIG = ROOT / "config" / "settings.yaml"
 HEADERS = {
@@ -71,12 +76,15 @@ def clean_text(value: str) -> str:
 
 
 def title_ok(title: str, *, url: str = "") -> bool:
+    """Strict opinion gate — prefer precision over volume."""
     t = clean_text(title)
     if len(t) < 8 or len(t) > 150:
         return False
-    if is_boilerplate(t) or is_news_headline(t, "guba"):
+    if is_boilerplate(t) or is_spam_or_promo(t) or is_news_headline(t, "guba"):
         return False
-    return is_user_comment(t, platform="guba", url=url, title=t)
+    return is_precise_opinion(t, platform="guba", url=url, title=t, min_cjk=8) and is_user_comment(
+        t, platform="guba", url=url, title=t
+    )
 
 
 def keyword_score(title: str) -> float:
@@ -94,14 +102,21 @@ def openclaw_score_rows(
     batch_size: int = 4,
     retries: int = 2,
 ) -> tuple[list[dict], int]:
-    """Score crawl rows via OpenClaw; drop rows that fail validation after retries."""
+    """Validate crawl rows via OpenClaw free model; drop failures after retries.
+
+    OpenClaw is an authenticity / readability gate only. Formal thesis scores
+    come from Jev / DeepSeek (``scripts/rescore_raw_cascade.py``). Provisional
+    free-model scalars are stored in ``openclaw_score``; ``score_source`` stays
+    ``pending_llm`` until DS/Jev lands.
+    """
     client = OpenClawClient()
     if not client.is_configured():
-        print("OpenClaw not configured; keeping keyword-only rows.")
+        print("OpenClaw not configured; keeping keyword placeholders (pending_llm).")
         for row in rows:
             row.setdefault("keyword_score", keyword_score(str(row.get("title", ""))))
             row["ai_score"] = row["keyword_score"]
-            row["score_source"] = "keyword"
+            row["score_source"] = "pending_llm"
+            row["openclaw_validated"] = 0
         return rows, 0
 
     kept: list[dict] = []
@@ -122,13 +137,15 @@ def openclaw_score_rows(
             continue
         for row, score in zip(chunk, scores):
             row["keyword_score"] = keyword_score(str(row.get("title", "")))
-            row["ai_score"] = float(score)
-            row["score_source"] = "openclaw"
+            row["openclaw_score"] = float(score)
+            row["openclaw_validated"] = 1
+            # Placeholder until Jev/DeepSeek rescoring — not a thesis score.
+            row["ai_score"] = row["keyword_score"]
+            row["score_source"] = "pending_llm"
             kept.append(row)
             scored += 1
-        print(f"  openclaw batch {batch_no}/{total_batches}: ok ({len(chunk)} kept)")
+        print(f"  openclaw batch {batch_no}/{total_batches}: validated {len(chunk)} kept")
     return kept, scored
-
 
 def merge_rows_into_csv(target: Path, rows: list[dict]) -> int:
     """Append rows to an existing combined CSV, dedupe by url."""
@@ -343,7 +360,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--with-openclaw",
         action="store_true",
-        help="Validate and score rows via OpenClaw during crawl (drops failed batches)",
+        help="Validate rows via OpenClaw free model during crawl (drops failed batches; "
+        "formal scores still need Jev/DeepSeek rescore)",
     )
     parser.add_argument(
         "--append-to",

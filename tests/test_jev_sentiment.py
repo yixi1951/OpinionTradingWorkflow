@@ -67,7 +67,10 @@ def test_provider_chain_from_env(monkeypatch):
 
 def test_analyzer_jev_success(monkeypatch):
     monkeypatch.setenv("SCORING_MODE", "ai")
-    monkeypatch.setenv("TYPESAFE_API_KEY", "ts-test-key")
+    monkeypatch.setenv("SCORING_PROVIDER", "jev,deepseek")
+    monkeypatch.setenv("JEV_API_KEY", "ts-test-key")
+    monkeypatch.delenv("JEVMODEL_API_KEY", raising=False)
+    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     monkeypatch.setenv("USE_LLM_GATEWAY", "0")
     monkeypatch.setenv("ENABLE_TRANSFORMERS_PIPELINE", "0")
@@ -85,7 +88,7 @@ def test_analyzer_jev_success(monkeypatch):
     results = analyzer.analyze_texts(["龙头主升浪，强烈看多加仓"])
     assert results[0].source == "jev"
     assert results[0].score == pytest.approx(1.0)
-    assert "typesafe" in seen[0]
+    assert "jevmodel.org" in seen[0] or "systemone" in seen[0]
 
 
 def test_analyzer_jev_fail_falls_back_to_deepseek(monkeypatch):

@@ -309,6 +309,61 @@ def _fallback_scores(texts: List[str]) -> List[float]:
     return scores
 
 
+async def _score_via_http_completions(texts: List[str]) -> Optional[List[float]]:
+    """Score via Gateway OpenAI-compatible /v1/chat/completions (full token scopes)."""
+    import urllib.error
+    import urllib.request
+
+    http_base = (
+        os.getenv("OPENCLAW_GATEWAY_HTTP_URL")
+        or os.getenv("WS_GATEWAY_HTTP_URL")
+        or "http://127.0.0.1:18789"
+    ).rstrip("/")
+    token = os.getenv("WS_GATEWAY_TOKEN") or os.getenv("OPENCLAW_GATEWAY_TOKEN")
+    if not token:
+        return None
+    timeout = _env_int("WS_GATEWAY_RESPONSE_TIMEOUT", 180)
+    prompt = [
+        "你是 A 股中文舆情验真/情绪评分引擎。",
+        "必须只输出严格 JSON，禁止 markdown、解释、前后缀。",
+        '唯一允许格式：{"scores":[n1,n2,...]}。',
+        "scores 长度必须等于输入文本数量；每个分数范围 [-1,1]。",
+        "不可解析/灌水/广告倾向靠近 0；有明确看多/看空观点给相应正负分。",
+        "",
+        "输入文本：",
+    ] + [f"{i + 1}. {t}" for i, t in enumerate(texts)]
+    body = json.dumps(
+        {
+            "model": os.getenv("OPENCLAW_HTTP_MODEL", "openclaw"),
+            "temperature": 0,
+            "messages": [{"role": "user", "content": "\n".join(prompt)}],
+        }
+    ).encode("utf-8")
+
+    def _call() -> Optional[List[float]]:
+        req = urllib.request.Request(
+            http_base + "/v1/chat/completions",
+            data=body,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+        except Exception:
+            return None
+        content = (
+            (((data.get("choices") or [{}])[0]).get("message") or {}).get("content")
+            or ""
+        )
+        return _extract_scores_from_text(content)
+
+    return await asyncio.to_thread(_call)
+
+
 @app.post("/api/v1/sentiment")
 async def score_texts(req: SentimentRequest):
     """Translate REST requests to a WebSocket gateway.
@@ -316,6 +371,7 @@ async def score_texts(req: SentimentRequest):
     Configurable environment variables:
     - WS_GATEWAY_URL: WebSocket endpoint, e.g. ws://127.0.0.1:18789
     - WS_GATEWAY_TOKEN: gateway token, required
+    - OPENCLAW_PROXY_VIA_HTTP: 1 = prefer Gateway /v1/chat/completions (recommended)
     - WS_GATEWAY_AUTH_TEMPLATE: JSON template for auth message
     - WS_GATEWAY_REQUEST_TEMPLATE: JSON template for score request
     - WS_GATEWAY_AUTH_TIMEOUT: seconds to wait for auth reply
@@ -330,6 +386,21 @@ async def score_texts(req: SentimentRequest):
     global _request_count, _error_count, _last_score_latency_ms
     _request_count += 1
     t0 = asyncio.get_running_loop().time()
+
+    # Prefer OpenAI-compatible HTTP on the Gateway: shared token restores full
+    # operator scopes (WS token auth currently returns scopes=[] for sessions.*).
+    if str(os.getenv("OPENCLAW_PROXY_VIA_HTTP", "1")).lower() in (
+        "1",
+        "true",
+        "yes",
+    ):
+        scores = await _score_via_http_completions(req.texts)
+        if scores is not None and len(scores) == len(req.texts):
+            _last_score_latency_ms = round(
+                (asyncio.get_running_loop().time() - t0) * 1000, 2
+            )
+            return {"scores": scores, "source": "gateway_http"}
+        # fall through to WS / keyword if HTTP path fails
 
     if websockets is None:
         _error_count += 1
@@ -449,6 +520,8 @@ async def score_texts(req: SentimentRequest):
                     ):
                         # send a `req` connect using the same scope set as the Control UI
                         connect_id = str(uuid.uuid4())
+                        # Prefer backend/gateway-client so loopback token auth works
+                        # without Control UI device-identity pairing (OpenClaw >=2026.11).
                         connect_req = {
                             "type": "req",
                             "id": connect_id,
@@ -457,10 +530,18 @@ async def score_texts(req: SentimentRequest):
                                 "minProtocol": 4,
                                 "maxProtocol": 4,
                                 "client": {
-                                    "id": "openclaw-control-ui",
-                                    "version": "proxy",
-                                    "platform": "web",
-                                    "mode": "ui",
+                                    "id": os.getenv(
+                                        "WS_GATEWAY_CLIENT_ID", "gateway-client"
+                                    ),
+                                    "version": os.getenv(
+                                        "WS_GATEWAY_CLIENT_VERSION", "proxy"
+                                    ),
+                                    "platform": os.getenv(
+                                        "WS_GATEWAY_CLIENT_PLATFORM", "linux"
+                                    ),
+                                    "mode": os.getenv(
+                                        "WS_GATEWAY_CLIENT_MODE", "backend"
+                                    ),
                                 },
                                 "role": "operator",
                                 "scopes": connect_scopes,

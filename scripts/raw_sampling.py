@@ -5,10 +5,21 @@ from pathlib import Path
 import pandas as pd
 
 try:
-    from text_quality import is_boilerplate, is_news_headline, pick_comment_text
+    from text_quality import (
+        is_boilerplate,
+        is_news_headline,
+        is_precise_opinion,
+        is_spam_or_promo,
+        pick_comment_text,
+    )
 except ImportError:
-    from scripts.text_quality import is_boilerplate, is_news_headline, pick_comment_text
-
+    from scripts.text_quality import (
+        is_boilerplate,
+        is_news_headline,
+        is_precise_opinion,
+        is_spam_or_promo,
+        pick_comment_text,
+    )
 RAW_BY_SOURCE = Path('data/raw/by_source')
 RAW_ROOT = Path('data/raw')
 
@@ -57,12 +68,11 @@ def _title_ok(title: str, platform: str) -> bool:
     t = str(title or '').strip()
     if len(t) < 8 or len(t) > 150:
         return False
-    if is_boilerplate(t) or is_news_headline(t, platform):
+    if is_boilerplate(t) or is_news_headline(t, platform) or is_spam_or_promo(t):
         return False
     if any(m in t for m in NEWS_TITLE_MARKERS):
         return False
-    return True
-
+    return is_precise_opinion(t, platform=platform, title=t, min_cjk=8)
 
 def filter_comment_rows(df: pd.DataFrame, platform: str | None = None) -> pd.DataFrame:
     if df.empty:
@@ -91,6 +101,10 @@ def filter_comment_rows(df: pd.DataFrame, platform: str | None = None) -> pd.Dat
                 summary=str(row.get('summary', '') or ''),
             )
             if len(text) < 8 or is_boilerplate(text) or is_news_headline(text, plat):
+                continue
+            if is_spam_or_promo(text) or not is_precise_opinion(
+                text, platform=plat, url=url, title=title, min_cjk=8
+            ):
                 continue
         if not text:
             continue
